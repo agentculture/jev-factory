@@ -120,7 +120,7 @@ unrelated file rather than cascading from a shared base.
 ## Two selections, not one
 
 It is tempting to read "switch harness" as one decision. It is actually two,
-and this template exists partly to keep them separate:
+and this repo's layout exists partly to keep them separate:
 
 1. **The interactive harness** — which binary you run (`claude`, `pi`,
    `colleague`, `qwen`). `cd` into the clone and run any of them; all four

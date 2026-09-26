@@ -1,9 +1,9 @@
 # Colleague Resident — `jev-factory`
 
-You are a colleague session working in a clone of this template — reading
+You are a colleague session working in this repository — reading
 this file because colleague's prompt cascade resolves it here, not because
 `culture.yaml` selected you. That declaration says `backend: claude`, so
-`CLAUDE.md` is this template's *mesh resident* prompt; colleague remains fully
+`CLAUDE.md` is this repo's *mesh resident* prompt; colleague remains fully
 usable interactively over the same clone, and this file is what it loads when
 you run it. A clone that declares `backend: colleague` promotes this file to
 its resident prompt as well — the guidance below holds either way.
@@ -23,8 +23,8 @@ colleague concatenates up to three files, in order, as its prompt cascade:
 
 **This repo ships only layer 2.** There is deliberately no `AGENTS.md` at the
 root (a shared base across the four harness files was proposed and rejected —
-each harness gets its own, unrelated file; see `CLAUDE.md`'s "Prompt files by
-harness"), so the cascade for colleague in this repo starts and ends at this
+each harness gets its own, unrelated file; see `CLAUDE.md`'s "Four harnesses,
+four prompt files, no `AGENTS.md`"), so the cascade for colleague in this repo starts and ends at this
 file. There is also no `AGENTS.colleague.<sanitized-model>.md` — this repo
 doesn't need per-model overrides today. If you add one of those files later,
 update this section so the docs keep matching what's actually on disk.
@@ -59,12 +59,14 @@ Keep these invariants, whatever the task says:
 - Write verbs are dry-run unless `--apply` is passed.
 - Held-out and test sets are touched once.
 - The gate is fit on the fit fold only.
+- Protected-side leakage fails closed.
+- Publishing is private-first. Going public is always a human decision.
 
 `CLAUDE.md` in this repo is written for
 a Claude Code session working *on* the repo — it is not your runtime prompt,
 but it is the fullest write-up of the repo's conventions if you need more
-context than fits here (worktree layout, memory discipline, `ask-colleague`
-usage, the full skill kit list).
+context than fits here: the jev-like definition, the nvsh source map, the
+CI commands, the CLI architecture and the skills workflow.
 
 ## How you work
 

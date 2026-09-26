@@ -92,7 +92,7 @@ agents:
   backend: claude
 ```
 
-This template's *mesh* resident runs on `backend: claude`, so `CLAUDE.md` is
+This repo's *mesh* resident runs on `backend: claude`, so `CLAUDE.md` is
 the live resident prompt. A Pi session working in a clone of this repo is a
 **local tool session**, not the mesh resident — it reads this file and
 `.pi/SYSTEM.md` regardless of what `culture.yaml` declares, and running `pi`
@@ -100,7 +100,7 @@ here neither requires nor changes that declaration.
 
 (A clone that wants `associate` as its *mesh* resident declares
 `backend: colleague` with `model: associate` — see `docs/skill-sources.md`.
-That is a per-clone choice; this template does not ship it.)
+That is a per-clone choice; this repo does not ship it.)
 
 ## Layout (what you can read/find/summarize here)
 

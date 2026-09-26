@@ -143,6 +143,6 @@ culture.yaml              mesh identity (suffix + backend)
 This file describes the repository **as it exists on disk today**. When you
 edit, keep claims grounded in checked-in reality; if a section drifts ahead of
 reality, mark it `(planned)` or move it under a `## Roadmap` heading. For the
-full set of workflow conventions (worktree layout, memory discipline,
-`ask-colleague` usage), see [`CLAUDE.md`](CLAUDE.md) — those conventions apply
+full set of conventions (the jev-like definition, the nvsh source map, CI
+commands, CLI architecture, skills workflow), see [`CLAUDE.md`](CLAUDE.md) — they apply
 to work in this repo regardless of which harness is doing it.

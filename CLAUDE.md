@@ -27,7 +27,7 @@ spec. The intended flow is `/scope` → `/think` → `/spec-to-plan` before code
 
 ## Current state: scaffold only
 
-As of 0.9.0 **none of the factory exists yet.** On disk there is only the
+**None of the factory exists yet.** On disk there is only the
 `culture-agent-template` scaffold: the agent-first CLI (`whoami`, `learn`,
 `explain`, `overview`, `doctor`, `cli overview`), the four harness prompt
 files, the vendored skill kit and CI. Every factory verb and module named in
@@ -89,10 +89,16 @@ such model families later, so:
   Serialization may differ per family but must not give one model
   information the other lacks, and any family-specific preprocessing is
   recorded in the run's artifacts.
-- The baseline to beat or complement is nvsh's `scorer-r3b` Q4_K_M (#63):
-  79/84 right proposals, 0 wrong mutating, abstain recall 94.0%, 1/120
-  false-positive tool calls, ECE 0.019 after calibration. An accuracy gain
-  with worse mutation safety or calibration counts as a regression.
+- The baseline to beat or complement is nvsh's `scorer-r3b` Q4_K_M (nvsh#63).
+  Compare like with like, because nvsh reports two sets of numbers for it:
+  - **Selection fold** (nvsh D47): 79/84 right proposals, 0 wrong mutating,
+    abstain recall 94.0%, 1/120 false-positive tool calls, ECE 0.019 after
+    temperature.
+  - **Final test side, measured once** (D48): 79/83 right, ECE 0.016.
+    On the sealed held-out set: 49/60 right, ECE 0.044, and 76.7%
+    missing-candidate escalation, which missed the 80% bar.
+- An accuracy gain with worse mutation safety or calibration counts as a
+  regression.
 
 ## Invariants: enforced in code, never knobs
 
