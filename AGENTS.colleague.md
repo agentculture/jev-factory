@@ -31,9 +31,36 @@ update this section so the docs keep matching what's actually on disk.
 
 ## What this project is
 
-`jev-factory` is a clonable template for AgentCulture mesh agents —
-an agent-first CLI, a mesh identity, the canonical skill kit, and a
-buildable/deployable package baseline. `CLAUDE.md` in this repo is written for
+`jev-factory` turns [`nvsh`](https://github.com/agentculture/nvsh)'s
+Tool-Jev fine-tune process into a reusable factory for **jev-like** models.
+A jev-like model is a calibrated candidate scorer that picks one of up to 52
+lettered actions, or `explain`/`escalate`. A read-only/mutating gate decides
+what happens next, and arguments are grounded outside the model. The factory
+adds explicit knobs and a recorded, rule-driven `jev decide` step after each
+run. It then builds its own jev-like decider to drive those decisions. The
+brief is issue #1 (`gh issue view 1`).
+
+**Current state: scaffold only.** On disk there is the agent-first CLI
+(command `jev`, package `jev_factory`), the harness prompt files, the skill
+kit and CI. None of the factory is built. Treat `jev run`, `jev decide` and
+domain modules as planned.
+
+For a delegated task that touches the pipeline, the source to read is
+`../nvsh`:
+
+- `docs/scorer-finetune-playbook.md`;
+- `docs/tool-jev-calibration-rule.md`;
+- `scripts/lfm-finetune/`.
+
+Keep these invariants, whatever the task says:
+
+- The runtime package keeps `dependencies = []`, so ML dependencies go
+  behind an extra or an external venv.
+- Write verbs are dry-run unless `--apply` is passed.
+- Held-out and test sets are touched once.
+- The gate is fit on the fit fold only.
+
+`CLAUDE.md` in this repo is written for
 a Claude Code session working *on* the repo — it is not your runtime prompt,
 but it is the fullest write-up of the repo's conventions if you need more
 context than fits here (worktree layout, memory discipline, `ask-colleague`
