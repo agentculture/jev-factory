@@ -1,7 +1,7 @@
 [project]
-name = "culture-agent-template"
+name = "jev-factory"
 version = "0.9.0"
-description = "culture-agent-template — a clonable template for AgentCulture mesh agents."
+description = "Jev factory: turns nvsh's Tool-Jev fine-tune process into a reusable pipeline for building jev-like models, with knobs and per-run decision tools, then fine-tunes its own model to drive those decisions (self-hosting)."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12"
@@ -16,18 +16,18 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/agentculture/culture-agent-template"
-Issues = "https://github.com/agentculture/culture-agent-template/issues"
+Homepage = "https://github.com/agentculture/jev-factory"
+Issues = "https://github.com/agentculture/jev-factory/issues"
 
 [project.scripts]
-culture-agent-template = "culture_agent_template.cli:main"
+jev = "jev_factory.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["culture_agent_template"]
+packages = ["jev_factory"]
 
 [dependency-groups]
 dev = [
@@ -43,10 +43,10 @@ dev = [
 ]
 
 [tool.coverage.run]
-source = ["culture_agent_template"]
-omit = ["culture_agent_template/__pycache__/*"]
+source = ["jev_factory"]
+omit = ["jev_factory/__pycache__/*"]
 # Emit repo-relative paths in coverage.xml so SonarCloud maps them to
-# sonar.sources=culture_agent_template (absolute/.venv paths fail to map → empty coverage).
+# sonar.sources=jev_factory (absolute/.venv paths fail to map → empty coverage).
 relative_files = true
 
 [tool.coverage.report]
@@ -61,7 +61,7 @@ exclude_lines = [
 [tool.isort]
 profile = "black"
 line_length = 100
-known_first_party = ["culture_agent_template"]
+known_first_party = ["jev_factory"]
 
 [tool.black]
 line-length = 100
