@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-09-26
+
+### Changed
+
+- **`CLAUDE.md` re-initialized** (`/init`) from the seed into the real
+  runtime prompt. It describes the three layers from issue #1 (factory,
+  `jev decide` decision surface, self-hosted decider), states that the repo
+  is scaffold-only, and gives nvsh's jev-like definition. The backbone is a
+  pluggable adapter so that GLiNER2.5-Decide (nvsh#67) and other model
+  families fit later. It also lists the honesty invariants enforced in code,
+  the `../nvsh` source map (cite-generic versus domain-module, nvsh#62), the
+  exact CI commands and the CLI architecture.
+- `AGENTS.override.md`, `AGENTS.colleague.md` and `QWEN.md` now describe
+  jev-factory instead of "a clonable template", each in its own harness
+  framing, while keeping the wording the live harness probes depend on.
+- `README.md` explains what jev-like means and the three-layer plan, with a
+  scaffold-status banner. The template's "Make it your own" section is
+  replaced.
+
+### Fixed
+
+- The README and `QWEN.md` quickstarts used `jev-factory <verb>`, but the
+  installed command is `jev`.
+
 ## [0.9.0] - 2026-09-06
 
 ### Added

@@ -9,18 +9,57 @@ Qwen Code session.
 
 ## What this project is
 
-`jev-factory` is a **clonable template for AgentCulture mesh agents**.
-It is a working, minimal example of the sibling pattern every Culture agent
-follows: an agent-first CLI, a mesh identity, the canonical skill kit, and a
-buildable/deployable package baseline. Clone it, rename the package, edit
-`culture.yaml`, and you have a new agent that `steward doctor` recognizes.
+`jev-factory` is an AgentCulture mesh agent. It turns the process
+[`nvsh`](https://github.com/agentculture/nvsh) used to build its **Tool-Jev**
+model (a calibrated scorer fine-tuned from `Qwen/Qwen3.5-0.8B`) into a
+reusable factory for **jev-like** models. It has three layers:
+
+1. **Factory.** nvsh's staged pipeline, made domain-generic through a
+   declarative *domain module*: actions with `read_only` flags, grounding,
+   prompts, seed corpus and escalation reasons.
+2. **Decision surface.** `jev decide <run>` applies a pre-registered rule to
+   a run's metrics and writes an append-only decision record.
+3. **Self-hosting.** The factory builds a jev-like decider whose candidates
+   are those verdicts, and uses it to drive new builds, with the rule as
+   baseline and fallback.
+
+The brief is issue #1 (`gh issue view 1`). **None of the factory is built
+yet.** Only the agent scaffold exists, so describe factory verbs and modules
+as planned.
+
+A **jev-like** model is a candidate scorer, not a generative tool caller:
+
+- It reads one request plus up to 52 lettered candidates
+  (`A) <name>: <description>`), always including `explain` and `escalate`.
+- It produces a distribution over the offered candidates, calibrated with a
+  temperature and an optional per-label vector.
+- A gate with separate read-only and mutating thresholds turns that
+  distribution into propose / explain / escalate / abstain.
+- Arguments are grounded deterministically, outside the model.
+- The choice must survive candidate reordering, re-lettering, subsetting and
+  paraphrasing.
+
+Other model families are planned, such as GLiNER2.5-Decide (nvsh issue #67),
+so the backbone and its readout are pluggable adapters behind that contract.
+
+The source material is in `../nvsh`: `docs/scorer-finetune-playbook.md` (its
+Step 0 port checklist lists what is domain-specific),
+`docs/tool-jev-calibration-rule.md` and `scripts/lfm-finetune/`. nvsh
+issue #62 is the domain-module seam.
+
+Some rules are enforced in code, never exposed as knobs:
+
+- Sealed held-out and test sets are touched once.
+- The gate is fit on the fit fold only.
+- Leakage fails closed.
+- Every write verb is dry-run unless you pass `--apply`.
+- Publishing is private-first.
 
 It is a sibling to [`guildmaster`](https://github.com/agentculture/guildmaster)
 (the **skills supplier**), [`steward`](https://github.com/agentculture/steward)
-(**alignment** — `steward doctor`, the sibling-pattern baseline), and
-[`teken`](https://github.com/agentculture/teken) (the **afi-cli** "Agent First
-Interface" scaffolder this CLI is cited from) within the Organic Development
-framework.
+(**alignment**, through `steward doctor`), and
+[`teken`](https://github.com/agentculture/teken) (the **afi-cli** scaffolder
+this CLI is cited from) within the Organic Development framework.
 
 ## Prompt files by harness
 
@@ -52,40 +91,20 @@ requires nor changes that declaration. The declaration and the resident prompt
 together satisfy the two invariants `steward doctor` verifies:
 **prompt-file-present** and **backend-consistency** (`claude` ↔ `CLAUDE.md`).
 
-## Cloning this template (re-initialization)
-
-When you start a new agent from this template:
-
-1. Rename the package directory `jev_factory/` → `<your_module>/`
-   and replace `jev_factory` (module) / `jev-factory`
-   (CLI and dist name) throughout `pyproject.toml`, the package, `tests/`,
-   `sonar-project.properties`, and `README.md`. The name is hard-coded in
-   ~100 places, so list every occurrence first rather than renaming by hand
-   (`git grep` is portable and skips `.git` / untracked `__pycache__`):
-
-   ```bash
-   git grep -nF -e 'jev-factory' -e 'jev_factory'
-   ```
-
-2. Set your `suffix` (and `backend`) in `culture.yaml`. `whoami` and `doctor`
-   then reflect the new identity with no further code change.
-3. Rewrite `CLAUDE.md` (and this file, and the other two harness files) to
-   describe your agent.
-4. Re-vendor the skill kit you need from guildmaster (see
-   `docs/skill-sources.md`) — keep only the skills your agent uses.
-
 ## The CLI
 
 The CLI is cited (cite-don't-import) from teken's `python-cli` reference
-(`teken cli cite`), so the runtime package has **no third-party dependencies**;
-`teken` (a.k.a. `afi-cli`) is a dev dependency only. Agent-first verbs:
+(`teken cli cite`), so the runtime package has **no third-party dependencies** (keep it that way;
+ML/training deps go behind an extra or an external venv);
+`teken` (a.k.a. `afi-cli`) is a dev dependency only. The command is `jev` (package `jev_factory`, PyPI dist `jev-factory`).
+Agent-first verbs:
 
-- `jev-factory whoami` — identity from `culture.yaml`.
-- `jev-factory learn` — structured self-teaching prompt.
-- `jev-factory explain <path>` — markdown docs for any noun/verb.
-- `jev-factory overview` — descriptive snapshot of the agent.
-- `jev-factory doctor` — check the agent-identity invariants.
-- `jev-factory cli overview` — describe the CLI surface itself.
+- `jev whoami` — identity from `culture.yaml`.
+- `jev learn` — structured self-teaching prompt.
+- `jev explain <path>` — markdown docs for any noun/verb.
+- `jev overview` — descriptive snapshot of the agent.
+- `jev doctor` — check the agent-identity invariants.
+- `jev cli overview` — describe the CLI surface itself.
 
 Conventions: every command supports `--json`; results go to stdout, errors and
 diagnostics to stderr (never mixed); exit codes are `0` success, `1` user
@@ -124,6 +143,6 @@ culture.yaml              mesh identity (suffix + backend)
 This file describes the repository **as it exists on disk today**. When you
 edit, keep claims grounded in checked-in reality; if a section drifts ahead of
 reality, mark it `(planned)` or move it under a `## Roadmap` heading. For the
-full set of workflow conventions (worktree layout, memory discipline,
-`ask-colleague` usage), see [`CLAUDE.md`](CLAUDE.md) — those conventions apply
+full set of conventions (the jev-like definition, the nvsh source map, CI
+commands, CLI architecture, skills workflow), see [`CLAUDE.md`](CLAUDE.md) — they apply
 to work in this repo regardless of which harness is doing it.

@@ -1,6 +1,6 @@
 [project]
 name = "jev-factory"
-version = "0.9.0"
+version = "0.9.1"
 description = "Jev factory: turns nvsh's Tool-Jev fine-tune process into a reusable pipeline for building jev-like models, with knobs and per-run decision tools, then fine-tunes its own model to drive those decisions (self-hosting)."
 readme = "README.md"
 license = "Apache-2.0"

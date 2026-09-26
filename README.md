@@ -1,24 +1,90 @@
 # jev-factory
 
-Jev factory: turns nvsh's Tool-Jev fine-tune process into a reusable pipeline for building jev-like models, with knobs and per-run decision tools, then fine-tunes its own model to drive those decisions (self-hosting).
+**jev-factory** turns the process [nvsh](https://github.com/agentculture/nvsh)
+used to build its *Tool-Jev* model into a reusable factory for **jev-like
+models**. It adds explicit knobs and a recorded decision step after every run.
+It then fine-tunes its own jev-like model to make those decisions
+(self-hosting).
 
-## What you get
+> **Status: scaffold.** Nothing of the factory is built yet. What exists today
+> is the agent scaffold described under [What's here now](#whats-here-now).
+> The build brief is
+> [issue #1](https://github.com/agentculture/jev-factory/issues/1).
 
-- **An agent-first CLI** cited from [teken](https://github.com/agentculture/teken)
-  (`afi-cli`) — the runtime package has no third-party dependencies.
-- **A mesh identity** — `culture.yaml` (`suffix` + `backend`) and the matching
-  resident prompt file (`CLAUDE.md`, since this template runs
-  `backend: claude`). The mesh resident is one of **two separate
-  selections** over this clone — see
-  [Two selections, not one](#two-selections-not-one) below.
-- **Four harness prompt files**, one per agent harness, each read by exactly
-  one of them (see [Prompt files by harness](#prompt-files-by-harness) below).
-  All four harnesses are usable interactively regardless of which one
-  `culture.yaml` names as the mesh resident.
-- **The canonical guildmaster skill kit** (11 skills) under `.claude/skills/`,
-  vendored cite-don't-import. See [`docs/skill-sources.md`](docs/skill-sources.md).
-- **A build + deploy baseline** — pytest, lint, the agent-first rubric gate, and
-  PyPI Trusted Publishing wired into GitHub Actions.
+## What "jev-like" means
+
+A jev-like model is a small, **calibrated candidate scorer** (OpenJev-style,
+nvsh's "Track B"), not a generative tool caller. It works like this:
+
+- It reads one request plus up to 52 lettered candidate actions
+  (`A) <name>: <description>`). Two controls are always offered: `explain`
+  and `escalate`.
+- It produces a probability distribution over those candidates, then
+  calibrates it (a temperature, plus an optional per-label vector).
+- A gate with separate thresholds for **read-only** and **mutating** actions
+  turns the calibrated distribution into propose / explain / escalate /
+  abstain.
+- Action arguments are grounded **deterministically**, outside the model.
+- The choice must survive reordering, re-lettering, subsetting and
+  paraphrasing of the candidates (the permutation-probe robustness bar).
+
+nvsh's reference build is `scorer-r3b` on `Qwen/Qwen3.5-0.8B`, served as
+GGUF `Q4_K_M`. It scored 0 wrong mutating proposals and ECE 0.016 after
+calibration on the test side, at about 355 ms per decision on an AGX Orin.
+The recipe is in nvsh's
+[`docs/scorer-finetune-playbook.md`](https://github.com/agentculture/nvsh/blob/main/docs/scorer-finetune-playbook.md).
+Other model families are planned too, such as the GLiNER2.5-Decide encoder
+([nvsh#67](https://github.com/agentculture/nvsh/issues/67)). The factory
+treats the backbone as a pluggable adapter behind the same
+candidates → calibrated distribution → gate contract.
+
+## The plan (three layers)
+
+1. **Factory.** nvsh's staged pipeline, made domain-generic through a
+   declarative *domain module*: actions with `read_only` flags, grounding,
+   prompts, seed corpus and escalation reasons. The stages run from
+   pre-registering the bars and seeding the corpus through train, select,
+   quantize, recalibrate, one final run, bundle and a private upload. Each
+   stage is resumable and writes an artifact manifest. The first acceptance
+   test is **parity**: reproduce nvsh's scorer-r3b selection verdict from
+   its frozen data. This builds on nvsh's domain-module seam,
+   [nvsh#62](https://github.com/agentculture/nvsh/issues/62).
+2. **Decision surface.** `jev decide <run>` applies a **pre-registered rule**
+   to a run's metrics. It emits a verdict (ship, more or fewer epochs,
+   targeted augment, fix the grader, recalibrate, heal the quant, refit the
+   gate, or escalate to a human) as an append-only decision record. A human
+   override is recorded as a deviation.
+3. **Self-hosting.** The factory builds a jev-like *decider* whose
+   candidates are those verdicts, using real nvsh decisions as the sealed
+   set. The decider drives the loop (`jev decide --model <bundle>`) only
+   after it beats the rule with 0 wrong mutating verdicts. Below its gate it
+   falls back to the rule or the human.
+
+These honesty rules are enforced in code, not exposed as knobs:
+
+- Sealed held-out and test sets are touched once.
+- The gate is fit on the fit fold only.
+- Leakage fails closed.
+- Every write verb is dry-run unless you pass `--apply`.
+- Publishing is private-first. Going public is always a human decision.
+
+Planned CLI: `jev init <domain>`, `jev run <stage>`, `jev status` and
+`jev decide`. Training dependencies will stay out of the base install,
+behind an extra or an external venv.
+
+## What's here now
+
+- **An agent-first CLI**, `jev`, cited from
+  [teken](https://github.com/agentculture/teken) (`afi-cli`). The runtime
+  package has no third-party dependencies.
+- **A mesh identity**: `culture.yaml` (`suffix: jev-factory`,
+  `backend: claude`) and the matching resident prompt `CLAUDE.md`.
+- **Four harness prompt files**, each read by exactly one harness (see
+  below).
+- **The guildmaster skill kit** under `.claude/skills/`, vendored
+  cite-don't-import. See [`docs/skill-sources.md`](docs/skill-sources.md).
+- **A build and deploy baseline**: pytest, lint, the agent-first rubric gate,
+  a per-harness smoke check, and PyPI Trusted Publishing in GitHub Actions.
 
 ## Prompt files by harness
 
@@ -54,7 +120,7 @@ unrelated file rather than cascading from a shared base.
 ## Two selections, not one
 
 It is tempting to read "switch harness" as one decision. It is actually two,
-and this template exists partly to keep them separate:
+and this repo's layout exists partly to keep them separate:
 
 1. **The interactive harness** — which binary you run (`claude`, `pi`,
    `colleague`, `qwen`). `cd` into the clone and run any of them; all four
@@ -77,10 +143,13 @@ retrofitted by this arc.
 ```bash
 uv sync
 uv run pytest -n auto                 # run the test suite
-uv run jev-factory whoami  # identity from culture.yaml
-uv run jev-factory learn   # self-teaching prompt (add --json)
+uv run jev whoami                     # identity from culture.yaml
+uv run jev learn                      # self-teaching prompt (add --json)
 uv run teken cli doctor . --strict    # the agent-first rubric gate CI runs
 ```
+
+The command is `jev`, the import package is `jev_factory`, and the PyPI
+distribution is `jev-factory`.
 
 ## CLI
 
@@ -93,27 +162,16 @@ uv run teken cli doctor . --strict    # the agent-first rubric gate CI runs
 | `doctor` | Check the agent-identity invariants (prompt-file-present, backend-consistency). |
 | `cli overview` | Describe the CLI surface itself. |
 
-Every command supports `--json`. Results go to stdout, errors/diagnostics to
-stderr (never mixed). Exit codes: `0` success, `1` user error, `2` environment
-error, `3+` reserved.
+Every command supports `--json`. Results go to stdout, and errors and
+diagnostics go to stderr (never mixed). Exit codes: `0` success, `1` user
+error, `2` environment error, `3+` reserved.
 
-## Make it your own
+## Contributing
 
-1. Rename the package `jev_factory/` and the `jev-factory`
-   CLI/dist name throughout `pyproject.toml`, the package, `tests/`,
-   `sonar-project.properties`, and this `README.md`. The name is hard-coded in
-   ~100 places, so list every occurrence first — see the `git grep` discovery
-   command in [`CLAUDE.md`](CLAUDE.md), the authoritative rename procedure.
-2. Edit `culture.yaml` with your `suffix` and `backend`.
-3. Rewrite `CLAUDE.md` for your agent and run `/init`. Rewrite the other three
-   harness files (`AGENTS.override.md` + `.pi/SYSTEM.md`, `AGENTS.colleague.md`,
-   `QWEN.md`) too if your agent uses those harnesses — don't let them drift out
-   of sync with `CLAUDE.md`.
-4. Re-vendor only the skills you need from guildmaster (see
-   [`docs/skill-sources.md`](docs/skill-sources.md)).
-
-See [`CLAUDE.md`](CLAUDE.md) for the full conventions (version-bump-every-PR,
-the `cicd` PR lane, deploy setup).
+See [`CLAUDE.md`](CLAUDE.md) for the full conventions: the jev-like
+invariants, the nvsh source material, version-bump-every-PR, and the `cicd`
+PR lane. Every PR bumps the version (`/version-bump`), and CI blocks merge
+otherwise.
 
 ## License
 

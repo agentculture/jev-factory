@@ -20,10 +20,45 @@ what the repo is and how it is laid out, not who is reading it.
 
 ## What this project is
 
-`jev-factory` is a clonable template for AgentCulture mesh agents —
-a working, minimal example of the sibling pattern every Culture agent follows:
-an agent-first CLI, a mesh identity, the canonical skill kit, and a
-buildable/deployable package baseline. It is a sibling to
+`jev-factory` is an AgentCulture mesh agent that turns the process
+[`nvsh`](https://github.com/agentculture/nvsh) used to build its **Tool-Jev**
+model into a reusable factory for **jev-like** models. It has three layers:
+
+1. **Factory.** nvsh's staged fine-tune pipeline, made domain-generic through
+   a declarative domain module.
+2. **Decision surface.** `jev decide` applies a pre-registered rule to each
+   run's metrics and records the verdict.
+3. **Self-hosting.** A jev-like decider model is built to make those
+   decisions.
+
+The brief is GitHub issue #1 in `agentculture/jev-factory`.
+
+**Current state: scaffold only.** None of the factory is built yet. On disk
+today are the agent-first CLI (`jev whoami|learn|explain|overview|doctor`),
+the four harness prompt files, the vendored skill kit and CI. If you are
+asked about `jev run`, `jev decide`, domain modules or training stages,
+report them as *planned*, not present.
+
+A **jev-like** model is a calibrated candidate scorer (nvsh's "Track B"). It
+reads one request plus up to 52 lettered candidate actions. Two controls are
+always offered: `explain` and `escalate`. It outputs a distribution over
+those candidates, which is calibrated with a temperature and an optional
+per-label vector. A gate with separate read-only and mutating thresholds
+turns that into propose / explain / escalate / abstain. Arguments are
+grounded outside the model. nvsh's reference build is `scorer-r3b` on
+Qwen3.5-0.8B, and other model families are planned, such as GLiNER2.5-Decide
+(nvsh issue #67).
+
+When a question is about the fine-tune process itself, the source material
+lives in the sibling checkout `../nvsh`:
+
+- `docs/scorer-finetune-playbook.md`, especially its Step 0 port checklist;
+- `docs/tool-jev-calibration-rule.md`;
+- `scripts/lfm-finetune/`.
+
+nvsh issue #62 is the domain-module seam between the two repos.
+
+jev-factory is a sibling to
 [`guildmaster`](https://github.com/agentculture/guildmaster) (the skills
 supplier), [`steward`](https://github.com/agentculture/steward) (alignment),
 and [`teken`](https://github.com/agentculture/teken) (the CLI scaffolder this
@@ -57,7 +92,7 @@ agents:
   backend: claude
 ```
 
-This template's *mesh* resident runs on `backend: claude`, so `CLAUDE.md` is
+This repo's *mesh* resident runs on `backend: claude`, so `CLAUDE.md` is
 the live resident prompt. A Pi session working in a clone of this repo is a
 **local tool session**, not the mesh resident — it reads this file and
 `.pi/SYSTEM.md` regardless of what `culture.yaml` declares, and running `pi`
@@ -65,7 +100,7 @@ here neither requires nor changes that declaration.
 
 (A clone that wants `associate` as its *mesh* resident declares
 `backend: colleague` with `model: associate` — see `docs/skill-sources.md`.
-That is a per-clone choice; this template does not ship it.)
+That is a per-clone choice; this repo does not ship it.)
 
 ## Layout (what you can read/find/summarize here)
 
@@ -85,9 +120,16 @@ culture.yaml              mesh identity (suffix + backend)
 - The vendored skills under `.claude/skills/` are cited **verbatim** from
   guildmaster — never propose editing their scripts; the fix belongs upstream
   (`docs/skill-sources.md` has the re-sync procedure).
-- The package/CLI name (`jev_factory` / `jev-factory`)
-  is hard-coded in roughly a hundred places; a rename is a `git grep` sweep,
-  not a hand edit (see `CLAUDE.md`'s "Cloning this template" section).
+- Names: the command is `jev`, the import package is `jev_factory`, and the
+  PyPI distribution is `jev-factory`.
+- Some rules are enforced in code rather than exposed as knobs:
+  - sealed held-out and test sets are touched once;
+  - the gate is fit on the fit fold only;
+  - leakage fails closed;
+  - every write verb is dry-run unless you pass `--apply`;
+  - publishing is private-first, and going public is a human decision.
+
+  Don't summarize any of these as tunable.
 - Every PR bumps the version (`version-bump` skill); CI's `version-check` job
   blocks merge otherwise.
 - This file describes the repo **as it exists on disk today**. If you are
