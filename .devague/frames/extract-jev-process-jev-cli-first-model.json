@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-30T17:42:37Z",
-  "updated": "2026-09-30T18:06:44Z",
+  "updated": "2026-09-30T18:16:18Z",
   "claims": [
     {
       "id": "c1",
@@ -1620,6 +1620,50 @@
       "refs": [
         "s23",
         "c50/q8"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l2",
+      "code": "assumption-for-measurement",
+      "what": "In /think, 'interrogate <cN> --honesty ... --instruction' set the instruction on the claim, not the honesty condition, which flipped operator-confirmed claims c1, c38-c42, c45 and c46 back to proposed; the operator had to re-confirm them",
+      "skipped_check": "read 'devague explain interrogate' before combining --honesty with --instruction",
+      "refs": [
+        "think: c1,c38-c42,c45,c46"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l3",
+      "code": "control-absent",
+      "what": "The first spec export failed markdownlint MD033 on a bare /home/<user> in scope entry s11, recorded during /scope without backticks; fixed with scope --amend and re-exported",
+      "skipped_check": "backtick angle-bracket tokens in scope findings when recording them",
+      "refs": [
+        "s11"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l4",
+      "code": "provenance-missing",
+      "what": "In /spec-to-plan, 17 of the obligation ids cited in the task instructions were written from memory and pointed at the wrong obligations; caught and corrected against 'devague oblige --list' before any task was created",
+      "skipped_check": "list the minted obligation ids before citing them",
+      "refs": [
+        "plan task instructions"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l5",
+      "code": "assumption-for-measurement",
+      "what": "In /spec-to-plan, t27 was given --covers c58, an assumption and not a coverage target; the CLI refused it, the script halted mid-run after t26, and the rest was re-run from t27",
+      "skipped_check": "check coverage targets with 'devague plan show' before citing them",
+      "refs": [
+        "t27, c58"
       ],
       "origin": "llm",
       "status": "approved"

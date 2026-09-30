@@ -1,0 +1,73 @@
+{
+  "plan_slug": "extract-jev-process-jev-cli-first-model",
+  "schema_version": 2,
+  "created": "2026-09-30T18:14:02Z",
+  "updated": "2026-09-30T18:16:18Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t27 does not cover c58 (the pipeline.sh-replacement assumption); it covers c55 and h44 (the toy domain end to end), which its third acceptance criterion delivers",
+      "task_ref": "t27",
+      "reason": "c58 is an assumption, not a coverage target (the CLI refused it), and c55/h44 had no covering task; changed after the tasks were drafted, before the operator confirmed the plan",
+      "affects": [
+        "c58",
+        "c55",
+        "h44"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t3 (nvsh#62 comment) depends on t8 (domain-module contract)",
+      "task_ref": "t3",
+      "reason": "its instruction links the domain-module schema, which exists only after t8 merges; changed before plan confirmation",
+      "affects": [
+        "t8"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t1 also creates the empty package skeleton, and t4-t11 depend on t1",
+      "task_ref": "t1",
+      "reason": "without it, five wave-0 tasks would each create jev_factory/factory/__init__.py and collide at merge; changed before plan confirmation",
+      "affects": [
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t8",
+        "t9",
+        "t10",
+        "t11"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "t32 (lessons plus learn/explain rewrite) depends on t29 (jev ask)",
+      "task_ref": "t32",
+      "reason": "both edit explain/catalog.py and learn.py; the dependency keeps same-wave tasks file-disjoint; changed before plan confirmation",
+      "affects": [
+        "t28",
+        "t29"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
