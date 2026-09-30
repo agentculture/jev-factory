@@ -10,7 +10,7 @@ Each module below was cited (copied and adapted) from
 `Apache-2.0` licence. The `nvsh path` column is relative to the nvsh repo; the
 adaptations list what changed on the way in.
 
-59 modules.
+60 modules.
 
 ## Index
 
@@ -61,6 +61,7 @@ adaptations list what changed on the way in.
 | `jev_factory/evals/trace.py` | `evals/tool_jev/trace.py` | `9debdc6` | Apache-2.0 |
 | `jev_factory/factory/config.py` | `scripts/lfm-finetune/pipeline.sh` | `9debdc6` | Apache-2.0 |
 | `jev_factory/factory/gpu.py` | `scripts/lfm-finetune/capped.sh` | `9debdc6` | Apache-2.0 |
+| `jev_factory/factory/pipeline.py` | `scripts/lfm-finetune/pipeline.sh` | `9debdc6` | Apache-2.0 |
 | `jev_factory/factory/secrets.py` | `scripts/lfm-finetune/pipeline-qwen.env.example` | `9debdc6` | Apache-2.0 |
 | `jev_factory/measure/corpus.py` | `nvsh/tiers/bench.py` | `9debdc6` | Apache-2.0 |
 | `jev_factory/measure/once.py` | `scripts/lfm-finetune/measure.py` | `9debdc6` | Apache-2.0 |
@@ -600,6 +601,18 @@ From `scripts/lfm-finetune/capped.sh` at `9debdc6` (Apache-2.0).
 - capped.sh is vendored unchanged as jev_factory/factory/capped.sh and run through bash
 - run_capped, the residency guard and the stage wrapper are new Python seams
 - tests ported from tests/test_lfm_finetune_pipeline.py (run_capped and watchdog tests)
+```
+
+### `jev_factory/factory/pipeline.py`
+
+From `scripts/lfm-finetune/pipeline.sh` at `9debdc6` (Apache-2.0).
+
+```text
+- the shell script is not imported: its stage contract (lines 1-160, the STAGES list at 162-164) becomes ordered stage-engine stages with manifests
+- its guards (die-if-missing sequencing, FINAL=1 before upload, stock-copy and greedy decoding before a measure, never-quantized builds, the frozen training set) become stage checks re-expressed from tests/test_lfm_finetune_pipeline.py
+- train-scorer's mtime choice of the training file (line 648) is replaced by the frozen sha256 (data.assemble.select_frozen)
+- Track A stages (skills, augment-skills, measure-skills, train) are dropped; the hard-coded hub prefix (lines 500, 508) comes from the run config/Domain
+- added stages the script never had: preregister, teachers-pilot, draft-heldout, draft-eval, snapshot, select, recalibrate, edge-check, release-gate
 ```
 
 ### `jev_factory/factory/secrets.py`
