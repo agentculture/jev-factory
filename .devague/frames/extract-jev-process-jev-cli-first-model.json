@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-30T17:42:37Z",
-  "updated": "2026-09-30T18:31:52Z",
+  "updated": "2026-09-30T18:32:08Z",
   "claims": [
     {
       "id": "c1",
@@ -1720,6 +1720,17 @@
       "skipped_check": "read the upstream constant instead of recalling it",
       "refs": [
         "t13"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l11",
+      "code": "control-absent",
+      "what": "t15 task agent wrote tests first but did not run them to watch them fail before implementing (they passed on the first run)",
+      "skipped_check": "TDD red step",
+      "refs": [
+        "t15"
       ],
       "origin": "llm",
       "status": "proposed"
