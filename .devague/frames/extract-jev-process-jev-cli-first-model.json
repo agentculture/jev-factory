@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-30T17:42:37Z",
-  "updated": "2026-09-30T18:33:21Z",
+  "updated": "2026-09-30T18:37:20Z",
   "claims": [
     {
       "id": "c1",
@@ -1742,6 +1742,17 @@
       "skipped_check": "TDD red step; exercise the real in-process and served paths",
       "refs": [
         "t17"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l13",
+      "code": "control-absent",
+      "what": "t21 task agent wrote the implementation before its tests, so there was no red run; the real tokenizer render path is tested only with a stubbed transformers module",
+      "skipped_check": "TDD red step",
+      "refs": [
+        "t21"
       ],
       "origin": "llm",
       "status": "proposed"
