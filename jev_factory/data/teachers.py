@@ -23,6 +23,7 @@ import http.client
 import json
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -361,7 +362,8 @@ class TeacherClient:
             return None  # absent or torn by a kill: treated as a miss
 
     def _cache_put(self, key: str, role: RoleConfig, response: str) -> None:
-        tmp = self._path(key).with_suffix(".tmp")
+        # A unique temp name per writer: two threads caching one key must not share a file.
+        tmp = self._path(key).with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps({"role": role.record(), "response": response}), encoding="utf-8")
         os.replace(tmp, self._path(key))
 
