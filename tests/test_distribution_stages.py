@@ -18,8 +18,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE = ROOT / "jev_factory" / "core"
-#: The distribution-only modules this task ships.
-MODULES = ("predictions", "metrics", "gate")
+#: The distribution-only modules: they work on predictions and the Domain, never a model.
+MODULES = ("predictions", "metrics", "gate", "calibration", "sweep_gate")
+#: Core modules these may also import (calibration builds its folds with core.split).
+SUPPORT = ("split",)
 BLOCKED = (
     "torch",
     "transformers",
@@ -123,7 +125,7 @@ def test_only_stdlib_and_the_domain_seam_are_imported(name):
     imported = _imports(CORE / f"{name}.py")
     project = {n for n in imported if n.split(".")[0] == "jev_factory"}
     allowed = {"jev_factory.domain.model", "jev_factory.domain.validate"} | {
-        f"jev_factory.core.{m}" for m in MODULES
+        f"jev_factory.core.{m}" for m in MODULES + SUPPORT
     }
     assert project <= allowed, project - allowed
     third_party = {

@@ -443,7 +443,7 @@ def merge_adapter(
     *,
     sample: int = DEFAULT_WEIGHT_SAMPLE,
     seed: int = 0,
-) -> dict[str, Any]:  # pragma: no cover - needs torch, peft and a model
+) -> dict[str, Any]:  # needs torch, peft and a model
     """Merge a saved LoRA adapter into a fresh text-only copy of *base*, verified, into *out*.
 
     Plain transformers + peft (``merge_and_unload``), never a trainer's merged
@@ -823,7 +823,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:  # pragma: no cover - needs a GPU stack
+def main(argv: list[str] | None = None) -> int:  # needs a GPU stack
     args = _parser().parse_args(argv)
     try:
         merge_adapter(
@@ -836,5 +836,5 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - needs a GP
     return 0
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     sys.exit(main())

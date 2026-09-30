@@ -769,9 +769,7 @@ def main(argv: list[str] | None = None) -> int:
     return _train(args, domain, train_examples, val_examples)
 
 
-def _train(
-    args, domain: Domain, train_examples, val_examples
-) -> int:  # pragma: no cover - needs a GPU stack
+def _train(args, domain: Domain, train_examples, val_examples) -> int:  # needs a GPU stack
     import torch
     from peft import LoraConfig, get_peft_model
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -860,5 +858,5 @@ def _train(
     return 0
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     sys.exit(main())

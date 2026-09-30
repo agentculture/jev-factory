@@ -494,7 +494,7 @@ def render_markdown(report: Mapping[str, object]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _build_real_scorer(args: argparse.Namespace):  # pragma: no cover - a model or server
+def _build_real_scorer(args: argparse.Namespace):  # a model or server
     from jev_factory.measure import run as measure
 
     spec = measure.ScorerSpec(

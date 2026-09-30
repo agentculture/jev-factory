@@ -96,7 +96,7 @@ skips = ["B101", "B404", "B603"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra -p no:deepeval"
 markers = [
     "behavioral(obligation_id): ties a test to one spec obligation id (for example o5)",
 ]

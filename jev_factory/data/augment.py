@@ -230,22 +230,6 @@ def load_seeds(path: Path, domain: Domain, side: str | None = None) -> list[Seed
 # ---------------------------------------------------------------------------
 
 
-def operation_table_text(domain: Domain) -> str:
-    """The operation table as prompt text: name, description, effect, arguments."""
-    lines = []
-    for op in domain.operations:
-        args = ", ".join(_arg_text(a) for a in op.args) or "no arguments"
-        effect = "read-only" if op.read_only else "changes state"
-        lines.append(f"- {op.name}: {op.description} [{effect}; arguments: {args}]")
-    return "\n".join(lines)
-
-
-def _arg_text(arg: Any) -> str:
-    if arg.kind == "choice":
-        return f"{arg.name} (one of: {'/'.join(arg.choices)})"
-    return f"{arg.name} (free text)"
-
-
 def capabilities(domain: Domain) -> str:
     """What the small assistant can do, from the operation table, in words.
 

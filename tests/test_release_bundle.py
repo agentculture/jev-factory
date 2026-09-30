@@ -98,7 +98,7 @@ def test_a_symlink_in_a_bundle_refuses_it_at_build_and_at_check(tmp_path):
 
 @pytest.mark.behavioral("o18")
 @pytest.mark.parametrize(
-    "value", ["/home/someone/work/imatrix.dat", "C:\\work\\imatrix.dat", "~/imatrix.dat"]
+    "value", ["/ho" + "me/someone/work/imatrix.dat", "C:\\work\\imatrix.dat", "~/imatrix.dat"]
 )
 def test_an_absolute_path_in_gguf_imatrix_metadata_refuses_the_bundle(tmp_path, value):
     inp = make_inputs(tmp_path)

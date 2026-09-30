@@ -486,7 +486,7 @@ class ScorerHandle:
     serving: Mapping[str, object] = field(default_factory=dict)
 
 
-def tokenizer_renderer(spec: ScorerSpec) -> Render:  # pragma: no cover - loads a tokenizer
+def tokenizer_renderer(spec: ScorerSpec) -> Render:  # loads a tokenizer
     """Render with the model's own chat template (thinking off), transformers loaded lazily."""
     from transformers import AutoTokenizer
 
@@ -498,7 +498,7 @@ def tokenizer_renderer(spec: ScorerSpec) -> Render:  # pragma: no cover - loads 
     return render
 
 
-def in_process_top_k(spec: ScorerSpec) -> sc.TopK:  # pragma: no cover - loads a model
+def in_process_top_k(spec: ScorerSpec) -> sc.TopK:  # loads a model
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -1124,7 +1124,7 @@ def render_markdown(prov: Provenance, records: Sequence[RunRecord]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _today() -> str:  # pragma: no cover - wall clock
+def _today() -> str:  # wall clock
     return datetime.date.today().isoformat()
 
 
