@@ -290,7 +290,6 @@ DEFAULT_KNOBS: dict[str, dict[str, Any]] = {
     "measure-final": {
         "heldout": True,
         "probe": True,
-        "missing_candidate": False,
         "bootstrap_resamples": 1000,
     },
     "edge-check": {},
@@ -1678,10 +1677,11 @@ def stage_measure_final(workdir: Path, knobs: dict[str, Any]) -> None:
     Calibration is applied by the measurement, the fitted gate here. Every bar
     is compared with its n and bootstrap CI against the hashed pre-registration;
     a miss is reported as a miss (a bar with no value is reported as unmeasured).
-    A second run needs a deviation id (the measurement's once-ledger refuses
-    otherwise). The measurement's once-ledger is keyed by side, so the
-    missing-candidate slice of a sealed side (``missing_candidate: true``)
-    counts as a second measurement and needs the run's deviation id too.
+    Each of the test and held-out sides is measured in full and as its
+    missing-candidate slice, each pair once with no deviation id (the once-ledger
+    is keyed by side and slice, deviation d9); the final ``mc_escalation`` bar is
+    computed from the slice. A second measurement of a pair needs a deviation id
+    (the once-ledger refuses otherwise).
     """
     ctx = _ctx()
     registered, prereg_sha = _prereg(workdir, ctx)
@@ -1698,12 +1698,6 @@ def stage_measure_final(workdir: Path, knobs: dict[str, Any]) -> None:
     model = f"{build['candidate']}.q4_k_m"
     revision = f"sha256:{build['gguf_sha256'][:16]}"
     resamples = int(knobs["bootstrap_resamples"])
-    if knobs.get("missing_candidate") and not ctx.deviation_id:
-        # measure.once keys the ledger by side, so the slice is a second measurement.
-        raise _err(
-            "the missing-candidate slice of a sealed side is a second measurement of that side",
-            "record a deviation and pass its id, or leave missing_candidate off",
-        )
     sides = [("test", workdir / TEST_SPLIT, {"final": True})]
     if knobs.get("heldout", True) and (workdir / HELDOUT_FILE).is_file():
         sides.append(("held-out", workdir / HELDOUT_FILE, {"acceptance": True}))
@@ -1720,24 +1714,20 @@ def stage_measure_final(workdir: Path, knobs: dict[str, Any]) -> None:
             calibration=workdir / DEPLOYED_CALIBRATION,
             **flag,
         )
-        mc = None
-        if knobs.get("missing_candidate"):
-            mc = measure(
-                workdir,
-                split_file=path,
-                out_dir=workdir / "final" / f"{side}-mc",
-                label=f"final-{side}-mc",
-                model=model,
-                revision=revision,
-                scorer=scorer,
-                calibration=workdir / DEPLOYED_CALIBRATION,
-                missing_candidate=True,
-                **flag,
-            )
-        gated, computed = _final_side(workdir, read_predictions(full), thresholds, resamples)
-        gated_mc = (
-            _final_side(workdir, read_predictions(mc), thresholds, 0)[0] if mc is not None else []
+        mc = measure(
+            workdir,
+            split_file=path,
+            out_dir=workdir / "final" / f"{side}-mc",
+            label=f"final-{side}-mc",
+            model=model,
+            revision=revision,
+            scorer=scorer,
+            calibration=workdir / DEPLOYED_CALIBRATION,
+            missing_candidate=True,
+            **flag,
         )
+        gated, computed = _final_side(workdir, read_predictions(full), thresholds, resamples)
+        gated_mc = _final_side(workdir, read_predictions(mc), thresholds, 0)[0]
         write_predictions(workdir / "final" / f"{side}.gated.predictions.jsonl", gated)
         right = computed["right_proposals"]
         values = {
