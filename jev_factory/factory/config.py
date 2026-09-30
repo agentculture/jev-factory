@@ -26,10 +26,10 @@ from typing import Any
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 
 NVSH_PROVENANCE = {
-    "upstream": "scripts/lfm-finetune/pipeline.sh (lines 174-191) and pipeline-qwen.env.example",
+    "upstream": "scripts/lfm-finetune/pipeline.sh",
     "commit": "9debdc6",
     "adaptations": [
-        "bash env-file sourcing replaced by a typed TOML loader",
+        "lines 174-191 env sourcing and the env.example knob list replaced by a typed TOML loader",
         "the MEASURE_CTX environment-outranks-file exception generalised to one precedence rule",
         "tool paths, licence, hub prefix and issue refs made declared keys",
         "secrets are referenced by env-var name only (see secrets.py)",

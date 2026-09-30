@@ -16,10 +16,10 @@ from jev_factory.cli._errors import EXIT_ENV_ERROR, CliError
 from jev_factory.factory.config import RunConfig
 
 NVSH_PROVENANCE = {
-    "upstream": "scripts/lfm-finetune/pipeline-qwen.env.example (HF_TOKEN_ENV, AUG_KEY_ENV)",
+    "upstream": "scripts/lfm-finetune/pipeline-qwen.env.example",
     "commit": "9debdc6",
     "adaptations": [
-        "secret env-var names are config keys; values are read only through this module",
+        "HF_TOKEN_ENV/AUG_KEY_ENV: names are config keys; values are read only here",
         "values are wrapped so repr/str/format are redacted",
     ],
     "licence": "Apache-2.0",

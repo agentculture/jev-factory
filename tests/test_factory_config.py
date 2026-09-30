@@ -195,16 +195,16 @@ def secret_config(tmp_path):
 def test_canary_never_appears_in_any_output(secret_config, capsys, caplog, tmp_path):
     env = {"MY_HUB_TOKEN": CANARY, "MY_AUG_KEY": CANARY + "-2"}
     caplog.set_level(logging.DEBUG)
-    secret = read_secret(secret_config, "hf_token_env", environ=env)
-    assert secret.reveal() == CANARY
-    logging.getLogger("jev").info("using %s %r %s", secret, secret, f"{secret}")
-    print(secret, repr(secret), [secret], {"k": secret})
+    held = read_secret(secret_config, "hf_token_env", environ=env)
+    assert held.reveal() == CANARY
+    logging.getLogger("jev").info("using %s %r %s", held, held, f"{held}")
+    print(held, repr(held), [held], {"k": held})
     manifest = json.dumps(secret_config.to_manifest())
     (tmp_path / "manifest.json").write_text(manifest)
     # the config loaded with the canary in the environment resolves names only
     loaded = load_config(tmp_path / "run.toml", environ=env)
     blob = json.dumps(loaded.to_manifest()) + repr(loaded)
-    # a missing secret errors without a value; a value pasted as a name is refused quietly
+    # a missing held errors without a value; a value pasted as a name is refused quietly
     with pytest.raises(CliError) as e:
         read_secret(secret_config, "aug_key_env", environ={})
     err = json.dumps(e.value.to_dict())
