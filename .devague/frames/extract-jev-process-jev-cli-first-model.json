@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-30T17:42:37Z",
-  "updated": "2026-09-30T17:59:40Z",
+  "updated": "2026-09-30T18:04:23Z",
   "claims": [
     {
       "id": "c1",
@@ -731,7 +731,15 @@
           "instruction": ""
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q7",
+          "text": "Who writes the jev-tool seed corpus? nvsh's seed was 431 hand-written entries (dev.json), and issue #4 stage 2 says the one-sentence answer policy must be written first. Is it operator-written, agent-drafted for operator review, or teacher-drafted from the domain module? (challenge / unstated-assumptions)",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "Agent drafts the policy and seed; the operator reviews them before any teacher run (c68)"
+        }
+      ],
       "links": [],
       "instruction": "The dataset bundle card lists the teachers and licences; a validator over the accepted file checks the role and model fields",
       "revisions": []
@@ -872,7 +880,15 @@
           "instruction": ""
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q6",
+          "text": "There is no absolute accuracy minimum: the only accuracy bar is 'right proposals >= stock - 5 pts', and stock Qwen3.5-0.8B scored 6/83 in nvsh's gate run 8b59d0afa150, so the stock-derived bar could be near 0%. What absolute right-proposal minimum should be pre-registered? (challenge / missing-counter-evidence)",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "Absolute right-proposal minimum 95% (c67)"
+        }
+      ],
       "links": [],
       "instruction": "Schema test; the stock baseline measurement's record id is cited in the file",
       "revisions": []
@@ -960,7 +976,22 @@
           "instruction": ""
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q5",
+          "text": "Who uses the jev-tool model at runtime? The frame lists only build steps (c46), with no inference path. Is the deliverable only the private bundle, or does jev itself load it (for example a 'jev ask' verb that proposes a verb, with the gate and grounding applied)? (challenge / overlooked-actors)",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "Add a jev ask verb (c66)"
+        },
+        {
+          "id": "q8",
+          "text": "x",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Void: created by mistake during the challenge pass (lapse l1)"
+        }
+      ],
       "links": [],
       "instruction": "Verify with 'jev run --help' listing every stage, 'jev status' reading the stage manifests, and the jev-tool bundle carrying calibration.json, gate.json and scorer-train.json",
       "revisions": []
@@ -1058,6 +1089,225 @@
       "hard_questions": [],
       "links": [],
       "instruction": "uv run pytest tests/ -k toy_domain runs green in CI without a GPU",
+      "revisions": []
+    },
+    {
+      "id": "c56",
+      "kind": "boundary",
+      "text": "jev-factory never edits nvsh: nvsh retires its own copy (scripts/lfm-finetune, evals/, 37 test_lfm_finetune_*.py files, and the CI lint of scripts and evals at nvsh .github/workflows/tests.yml:61-89) on its own schedule; until then two copies exist and jev-factory's is canonical (challenge / adjacent-systems)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h45",
+          "text": "No jev-factory PR, script or stage writes to the nvsh repo; the nvsh-side change is requested on nvsh#62 only",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c57",
+      "kind": "requirement",
+      "text": "Each jev-tool bundle records the sha256 of the generated jev-CLI domain module (the CLI surface) it was trained on, and using a bundle whose surface hash differs from the running jev's argparse surface is flagged, because the CLI keeps growing (c36) and the domain is generated from argparse (c17) (challenge / adjacent-systems)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h46",
+          "text": "A test builds a bundle, adds a verb to a fixture parser, and checks that the surface-hash mismatch is reported",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c58",
+      "kind": "assumption",
+      "text": "jev run is a Python stage engine that replaces nvsh's pipeline.sh; pipeline.sh itself is not imported, and its stage contract and guards are re-expressed as stages and tests (implied by c29 and c30 but never stated) (challenge / unstated-assumptions)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c59",
+      "kind": "requirement",
+      "text": "Long stages (teacher drafting and review take a day or more; scorer training about 26 min) run detached from the invoking shell with a PID and done marker, resume at item granularity from a response cache, and report progress through jev status; issue #4 'Shell and automation traps' records that tool-backgrounded jobs die at the tool timeout, and s15 found only augment.py resumes at item level (challenge / failure-modes)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h47",
+          "text": "A stage killed mid-run and restarted re-sends 0 cached teacher requests and resumes from the next item; jev status shows items done out of total",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c60",
+      "kind": "requirement",
+      "text": "GPU stages (train, heal, quantize, served measure) check for other GPU compute processes before starting, and refuse unless the operator overrides; training runs under the memory-floor watchdog, because GB10 does not charge GPU allocations to the cgroup cap. A probe on 2026-09-30 found a resident vLLM EngineCore holding about 32 GB alongside another process (challenge / operations: nvidia-smi --query-compute-apps)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h48",
+          "text": "A test with a stubbed nvidia-smi that lists a foreign GPU process makes train, quantize and measure refuse without the override flag",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c61",
+      "kind": "requirement",
+      "text": "A run's work dir holds a lock, so a second concurrent jev run against the same run (for example the mesh agent and the operator at once) is refused; nvsh#58 records a stop/start race in serve_for_measure.sh on one port (challenge / concurrency)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h49",
+          "text": "A second jev run on a locked work dir exits non-zero with the lock holder's PID, and a stale lock from a dead PID is reported, not silently taken",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c62",
+      "kind": "boundary",
+      "text": "A jev-tool model's proposal is never executed with --apply on its own: when the model picks a mutating verb (train, upload, publish, retrain), a human still issues --apply, per issue #1 Layer 3 'the model proposes, and --apply plus the hard stops still apply' (challenge / security)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h50",
+          "text": "No code path calls a write verb with --apply because of a model's output; a test confirms that decide and propose paths only print a proposal",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c63",
+      "kind": "requirement",
+      "text": "Run work roots (drafts, splits, the sealed held-out set, predictions, bundles) live outside any git worktree, and stages refuse a work root inside one, as nvsh's evals writers already do (s6), so sealed or private data can never be committed (challenge / security + data-loss)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h51",
+          "text": "A test points a stage at a work root inside a git worktree (detected with rev-parse) and expects a refusal",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c64",
+      "kind": "requirement",
+      "text": "Secrets reach stages only by environment variable name (the hub token and the teacher gateway key), are never printed or logged, and a test pins that the run-config examples name no host and no secret, as nvsh's test_neither_env_example_names_a_host_or_a_secret does (challenge / security)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h52",
+          "text": "A secret's value never appears in stdout, stderr, logs or manifests; a test injects a canary token and greps every output",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c65",
+      "kind": "requirement",
+      "text": "Imported files keep their Apache-2.0 attribution, and the provenance record (c20) states their Apache-2.0 origin in nvsh; both repos are Apache-2.0, per the LICENSE files and pyproject license fields (challenge / migration: licence probe)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h53",
+          "text": "Every imported file keeps its licence header if it had one, and the provenance doc names nvsh's Apache-2.0 LICENSE",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c66",
+      "kind": "decision",
+      "text": "jev gains a 'jev ask' verb that loads the jev-tool bundle and, for a natural-language request, proposes one jev verb: it applies the bundle's calibration.json and gate.json and grounds arguments deterministically, and it only prints the proposal, never running --apply itself (operator decision on q5; see c62)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c67",
+      "kind": "decision",
+      "text": "The pre-registered absolute minimum for right proposals is 95% (r3b's test side was 79/83 = 95.2%); the bar is the stricter of this and stock Qwen3.5-0.8B minus 5 pts (operator decision on q6; refines c45)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c68",
+      "kind": "decision",
+      "text": "The agent drafts the one-sentence answer policy and an initial jev-tool seed corpus from the domain module; the operator reviews and approves the policy and a sample before any teacher run, and the seed stays train-only (operator decision on q7)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
       "revisions": []
     }
   ],
@@ -1274,8 +1524,94 @@
         "c46",
         "c47"
       ]
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / depth",
+      "finding": "rigorous: migration (absorbing the pipeline), hardware (GB10 GPU jobs), hard-to-reverse ops (hub upload, once-only sealed measurement), data-loss surface (sealed held-out set)",
+      "seeds": []
+    },
+    {
+      "id": "s22",
+      "surface": "challenge pass / adjacent-systems lens: nvsh CI, nvsh/nvsh package, bundle consumers",
+      "finding": "nvsh/nvsh never imports scripts/lfm-finetune, which only nvsh's tests and CI lint touch (tests.yml:61-89); the bundle's surface depends on the growing jev CLI",
+      "seeds": [
+        "c56",
+        "c57"
+      ]
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / unstated-assumptions lens: frame claims c29, c30, c38, c45, c50",
+      "finding": "the pipeline.sh replacement was implied, never stated (c58); there is no absolute accuracy minimum (q6 on c45); seed authorship (q7 on c38) and the runtime consumer (q5 on c50) are unstated. CORRECTION: this entry's seed list wrongly names q2, q3 and q4, which were cited before the real ids existed; the correct questions are q5, q6 and q7",
+      "seeds": [
+        "c58",
+        "q2",
+        "q3",
+        "q4"
+      ]
+    },
+    {
+      "id": "s24",
+      "surface": "challenge pass / failure-modes + operations lens: issue #4 shell traps, s15, nvidia-smi probe",
+      "finding": "detached long jobs, item-level resume, and a GPU residency check are missing from the spec; the probe found about 34 GB of resident GPU processes",
+      "seeds": [
+        "c59",
+        "c60"
+      ]
+    },
+    {
+      "id": "s25",
+      "surface": "challenge pass / concurrency lens: nvsh#58, run work dir",
+      "finding": "concurrent runs on one work dir are unguarded",
+      "seeds": [
+        "c61"
+      ]
+    },
+    {
+      "id": "s26",
+      "surface": "challenge pass / security lens: issue #1 Layer 3, nvsh evals writers, env examples",
+      "finding": "model proposals need a human --apply; work roots must sit outside a worktree; secrets pass by variable name only",
+      "seeds": [
+        "c62",
+        "c63",
+        "c64"
+      ]
+    },
+    {
+      "id": "s27",
+      "surface": "challenge pass / migration lens: LICENSE and pyproject of both repos",
+      "finding": "both Apache-2.0, so no licence conflict; attribution is kept in provenance",
+      "seeds": [
+        "c65"
+      ]
+    },
+    {
+      "id": "s28",
+      "surface": "challenge pass / observability + rollback lens: decision records, stage manifests, private upload",
+      "finding": "clean pass: stage manifests (c29), decision records citing metric hashes (c9) and private-only upload (c6) cover detection and containment; no rollback path exists for a bad private bundle beyond not promoting it, which is acceptable while public is a human hard stop",
+      "seeds": []
+    },
+    {
+      "id": "s29",
+      "surface": "challenge pass / cheap probes",
+      "finding": "run read-only: licence, teacher gateway (HTTP 401: up, needs a key), GPU residency, llama-server not on PATH (the toolchain lives in the operator's training area); not probed: reviewer throughput and the Qwen3.5-4B held-out drafter",
+      "seeds": []
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "provenance-missing",
+      "what": "Challenge pass wrote seed ids q2, q3 and q4 into scope entry s23 before creating the questions (they became q5, q6 and q7), so s23 links to unrelated questions; a leftover no-op line also created a junk hard question q8 ('x') on c50",
+      "skipped_check": "read back the minted ids before citing them as --seeds",
+      "refs": [
+        "s23",
+        "c50/q8"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    }
+  ],
   "obligations": []
 }

@@ -109,6 +109,20 @@
 - Every step of building the jev-tool model is imported (operator decision): environment and run config, pre-registration, seed, teachers and reviewer pilot, sealed held-out set, eval pool with split and folds, grounding snapshot and baseline, augment and targeted recipes, assemble and freeze, scorer training with merge verification, selection (logprob calibration: temperature plus optional per-label vector, gate fit, permutation probe), quantize, one-round heal, recalibration on the deployed quant, one final measurement, edge check, bundle, private upload, and the release gate
   - instruction: Compare jev run --help with the step list; jev status for the jev-tool run
   - honesty: Each listed step exists as a jev run stage or a documented sub-step and ran for the jev-tool model
+- Each jev-tool bundle records the sha256 of the generated jev-CLI domain module (the CLI surface) it was trained on, and using a bundle whose surface hash differs from the running jev's argparse surface is flagged, because the CLI keeps growing (c36) and the domain is generated from argparse (c17) (challenge / adjacent-systems)
+  - honesty: A test builds a bundle, adds a verb to a fixture parser, and checks that the surface-hash mismatch is reported
+- Long stages (teacher drafting and review take a day or more; scorer training about 26 min) run detached from the invoking shell with a PID and done marker, resume at item granularity from a response cache, and report progress through jev status; issue #4 'Shell and automation traps' records that tool-backgrounded jobs die at the tool timeout, and s15 found only augment.py resumes at item level (challenge / failure-modes)
+  - honesty: A stage killed mid-run and restarted re-sends 0 cached teacher requests and resumes from the next item; jev status shows items done out of total
+- GPU stages (train, heal, quantize, served measure) check for other GPU compute processes before starting, and refuse unless the operator overrides; training runs under the memory-floor watchdog, because GB10 does not charge GPU allocations to the cgroup cap. A probe on 2026-09-30 found a resident vLLM EngineCore holding about 32 GB alongside another process (challenge / operations: nvidia-smi --query-compute-apps)
+  - honesty: A test with a stubbed nvidia-smi that lists a foreign GPU process makes train, quantize and measure refuse without the override flag
+- A run's work dir holds a lock, so a second concurrent jev run against the same run (for example the mesh agent and the operator at once) is refused; nvsh#58 records a stop/start race in `serve_for_measure.sh` on one port (challenge / concurrency)
+  - honesty: A second jev run on a locked work dir exits non-zero with the lock holder's PID, and a stale lock from a dead PID is reported, not silently taken
+- Run work roots (drafts, splits, the sealed held-out set, predictions, bundles) live outside any git worktree, and stages refuse a work root inside one, as nvsh's evals writers already do (s6), so sealed or private data can never be committed (challenge / security + data-loss)
+  - honesty: A test points a stage at a work root inside a git worktree (detected with rev-parse) and expects a refusal
+- Secrets reach stages only by environment variable name (the hub token and the teacher gateway key), are never printed or logged, and a test pins that the run-config examples name no host and no secret, as nvsh's `test_neither_env_example_names_a_host_or_a_secret` does (challenge / security)
+  - honesty: A secret's value never appears in stdout, stderr, logs or manifests; a test injects a canary token and greps every output
+- Imported files keep their Apache-2.0 attribution, and the provenance record (c20) states their Apache-2.0 origin in nvsh; both repos are Apache-2.0, per the LICENSE files and pyproject license fields (challenge / migration: licence probe)
+  - honesty: Every imported file keeps its licence header if it had one, and the provenance doc names nvsh's Apache-2.0 LICENSE
 
 ## Honesty conditions
 
@@ -127,6 +141,8 @@
 - The gate report is produced by jev-factory code, and its rows include the jev-tool candidate
 - The grep and the no-ML-import test run in CI on every PR
 - The toy domain shares every stage implementation with the jev-tool domain; only its module differs
+- No jev-factory PR, script or stage writes to the nvsh repo; the nvsh-side change is requested on nvsh#62 only
+- No code path calls a write verb with --apply because of a model's output; a test confirms that decide and propose paths only print a proposal
 
 ## Success signals
 
@@ -153,6 +169,8 @@
   - instruction: harness-smoke --stage config in CI
 - No new r3b work: the nvsh r3b/#53 frozen data is not replayed, reproduced or retrained unless the jev-tool model fails an evaluation; only then is it replayed through the extracted stages, to find whether the fault is in the pipeline or in the jev-CLI data or model, and used to fix it (operator decision)
   - instruction: The r3b diagnostic path exists only as a documented procedure, gated on a failed-evaluation record id
+- jev-factory never edits nvsh: nvsh retires its own copy (scripts/lfm-finetune, evals/, 37 `test_lfm_finetune_`\*.py files, and the CI lint of scripts and evals at nvsh .github/workflows/tests.yml:61-89) on its own schedule; until then two copies exist and jev-factory's is canonical (challenge / adjacent-systems)
+- A jev-tool model's proposal is never executed with --apply on its own: when the model picks a mutating verb (train, upload, publish, retrain), a human still issues --apply, per issue #1 Layer 3 'the model proposes, and --apply plus the hard stops still apply' (challenge / security)
 
 ## Non-goals
 
@@ -169,6 +187,7 @@
 - The jev-CLI domain's candidate table is small and almost entirely read-only until the factory verbs exist: today jev exposes whoami, learn, `explain <path>`, overview, doctor, cli, cli overview (cli/`__init__.py`:64-95), all read-only, so the mutating gate and the '0 wrong mutating' bar are vacuous until init, `run <stage>` and decide with --apply land
 - nvsh's tests for scripts/lfm-finetune (37 `test_lfm_finetune_`\*.py files, about 24k lines, including tests/`test_lfm_finetune_pipeline.py` at 3,074 lines with a stubbed `_Pipeline` fixture) are the pinned behaviour to port with the scripts, re-fixtured onto a tiny test domain rather than nvsh's table
 - The jev-CLI domain's groundable arguments come from the CLI's own catalog, with no machine lookup: `explain <path>` grounds against explain/catalog.py keys, and `run <stage>` against the stage list. Its world snapshot is the CLI introspection itself, so grounding is deterministic and offline
+- jev run is a Python stage engine that replaces nvsh's pipeline.sh; pipeline.sh itself is not imported, and its stage contract and guards are re-expressed as stages and tests (implied by c29 and c30 but never stated) (challenge / unstated-assumptions)
 
 ## Scope exploration
 
@@ -212,12 +231,37 @@
   - seeds: `c39`, `c40`, `c41`, `c42`
 - `s20` — `operator direction (2026-09-30, second)`: the bar reference is stock Qwen3.5-0.8B combined with minimums, stricter per metric; import scope is every step of the jev-tool build path including healing, logprob calibration and evaluations
   - seeds: `c45`, `c46`, `c47`
+- `s21` — `challenge pass / depth`: rigorous: migration (absorbing the pipeline), hardware (GB10 GPU jobs), hard-to-reverse ops (hub upload, once-only sealed measurement), data-loss surface (sealed held-out set)
+- `s22` — `challenge pass / adjacent-systems lens: nvsh CI, nvsh/nvsh package, bundle consumers`: nvsh/nvsh never imports scripts/lfm-finetune, which only nvsh's tests and CI lint touch (tests.yml:61-89); the bundle's surface depends on the growing jev CLI
+  - seeds: `c56`, `c57`
+- `s23` — `challenge pass / unstated-assumptions lens: frame claims c29, c30, c38, c45, c50`: the pipeline.sh replacement was implied, never stated (c58); there is no absolute accuracy minimum (q6 on c45); seed authorship (q7 on c38) and the runtime consumer (q5 on c50) are unstated. CORRECTION: this entry's seed list wrongly names q2, q3 and q4, which were cited before the real ids existed; the correct questions are q5, q6 and q7
+  - seeds: `c58`, `q2` (question, resolved), `q3` (question, resolved), `q4` (question, resolved)
+- `s24` — `challenge pass / failure-modes + operations lens: issue #4 shell traps, s15, nvidia-smi probe`: detached long jobs, item-level resume, and a GPU residency check are missing from the spec; the probe found about 34 GB of resident GPU processes
+  - seeds: `c59`, `c60`
+- `s25` — `challenge pass / concurrency lens: nvsh#58, run work dir`: concurrent runs on one work dir are unguarded
+  - seeds: `c61`
+- `s26` — `challenge pass / security lens: issue #1 Layer 3, nvsh evals writers, env examples`: model proposals need a human --apply; work roots must sit outside a worktree; secrets pass by variable name only
+  - seeds: `c62`, `c63`, `c64`
+- `s27` — `challenge pass / migration lens: LICENSE and pyproject of both repos`: both Apache-2.0, so no licence conflict; attribution is kept in provenance
+  - seeds: `c65`
+- `s28` — `challenge pass / observability + rollback lens: decision records, stage manifests, private upload`: clean pass: stage manifests (c29), decision records citing metric hashes (c9) and private-only upload (c6) cover detection and containment; no rollback path exists for a bad private bundle beyond not promoting it, which is acceptable while public is a human hard stop
+- `s29` — `challenge pass / cheap probes`: run read-only: licence, teacher gateway (HTTP 401: up, needs a key), GPU residency, llama-server not on PATH (the toolchain lives in the operator's training area); not probed: reviewer throughput and the Qwen3.5-4B held-out drafter
+
+## Decisions
+
+- jev gains a 'jev ask' verb that loads the jev-tool bundle and, for a natural-language request, proposes one jev verb: it applies the bundle's calibration.json and gate.json and grounds arguments deterministically, and it only prints the proposal, never running --apply itself (operator decision on q5; see c62)
+- The pre-registered absolute minimum for right proposals is 95% (r3b's test side was 79/83 = 95.2%); the bar is the stricter of this and stock Qwen3.5-0.8B minus 5 pts (operator decision on q6; refines c45)
+- The agent drafts the one-sentence answer policy and an initial jev-tool seed corpus from the domain module; the operator reviews and approves the policy and a sample before any teacher run, and the seed stays train-only (operator decision on q7)
 
 ## Hard questions
 
 - Absorbing the whole pipeline for many future models includes nvsh's Track A (generative tool calling: train.py targets, `track_a_calibration.py`, the gate's Track A replay). Is Track A imported as a supported model family, or left behind as nvsh-only history? (resolved: Only steps that build the jev-tool (scorer) model are imported (c46); Track A-only code stays in nvsh (c47))
 - With parity dropped, what proves the extracted calibrate/gate-sweep/select/decide stages still behave like nvsh's? Candidates: the ported nvsh unit tests (c34) alone, or a cheap no-GPU replay of the local frozen #53 predictions kept as a regression fixture rather than an acceptance gate (resolved: Proven by the jev-tool model passing all evaluations (c39); the frozen r3b replay is only a failure-time diagnostic (c42), not a regression gate)
+- Who writes the jev-tool seed corpus? nvsh's seed was 431 hand-written entries (dev.json), and issue #4 stage 2 says the one-sentence answer policy must be written first. Is it operator-written, agent-drafted for operator review, or teacher-drafted from the domain module? (challenge / unstated-assumptions) (resolved: Agent drafts the policy and seed; the operator reviews them before any teacher run (c68))
 - The accuracy bar 'right proposals >= reference - 5 pts' needs a reference model. nvsh used scorer-b1. The jev-CLI domain has no prior model, so is the reference stock Qwen3.5-0.8B, the first trained candidate, or a pre-registered absolute floor? (resolved: Stock Qwen3.5-0.8B plus pre-registered minimums, taking the stricter of the two per metric (c45))
+- There is no absolute accuracy minimum: the only accuracy bar is 'right proposals >= stock - 5 pts', and stock Qwen3.5-0.8B scored 6/83 in nvsh's gate run 8b59d0afa150, so the stock-derived bar could be near 0%. What absolute right-proposal minimum should be pre-registered? (challenge / missing-counter-evidence) (resolved: Absolute right-proposal minimum 95% (c67))
+- Who uses the jev-tool model at runtime? The frame lists only build steps (c46), with no inference path. Is the deliverable only the private bundle, or does jev itself load it (for example a 'jev ask' verb that proposes a verb, with the gate and grounding applied)? (challenge / overlooked-actors) (resolved: Add a jev ask verb (c66))
+- x (resolved: Void: created by mistake during the challenge pass (lapse l1))
 
 ## Open parks
 
