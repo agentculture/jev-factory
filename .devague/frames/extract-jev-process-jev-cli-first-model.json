@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-30T17:42:37Z",
-  "updated": "2026-09-30T18:16:18Z",
+  "updated": "2026-09-30T18:24:16Z",
   "claims": [
     {
       "id": "c1",
@@ -1667,6 +1667,51 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l6",
+      "code": "control-absent",
+      "what": "Wave-2 briefs had task agents run pytest without NVSH_ROOT, so the provenance upstream-file check (o42) silently skipped in worktrees; t5 passed its own checks and then failed the merge gate, and the merge was reverted and fixed. Briefs now set NVSH_ROOT",
+      "skipped_check": "make every gate check that the merge runs also run in the task worktree",
+      "refs": [
+        "t5",
+        "brief.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l7",
+      "code": "control-absent",
+      "what": "t7 task agent wrote jev_factory/factory/gpu.py before its tests and never saw them fail first; one test (test_override_runs_the_stage_through_the_capped_runner) accepts exit 7 or 2, so it only proves the runner was reached, not which cap mode ran (re-filed: the first filing was lost to a git reset)",
+      "skipped_check": "TDD red step: watch each acceptance test fail before implementing",
+      "refs": [
+        "t7"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l8",
+      "code": "control-absent",
+      "what": "t9 task agent committed bff5101 before running flake8; a line-length error was fixed in a follow-up commit 3d06b8d before hand-back (re-filed: the first filing was lost to a git reset)",
+      "skipped_check": "run the full lint set before committing",
+      "refs": [
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l9",
+      "code": "control-absent",
+      "what": "Main agent's merge-gate script reverted a failed merge (t5) with 'git reset --hard', which also discarded uncommitted devague records in tracked .devague/*.json: lapses l6 and l7 (t7, t9) and plan risk r9 were lost and had to be re-filed under new ids. The script now refuses a dirty tracked tree and reverts with 'git reset --merge', and records are committed as soon as they are filed",
+      "skipped_check": "check for uncommitted tracked state before a destructive git command",
+      "refs": [
+        "merge.sh"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [

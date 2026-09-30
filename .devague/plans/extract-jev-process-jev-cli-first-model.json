@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-09-30T18:07:36Z",
-  "updated": "2026-09-30T18:12:32Z",
+  "updated": "2026-09-30T18:24:16Z",
   "targets": [
     {
       "id": "c1",
@@ -1613,6 +1613,14 @@
       "text": "Every PR must bump the version (CI version-check), and a push to main publishes to PyPI; each wave's PR runs /version-bump, and importing the package code triggers publish.yml",
       "kind": "follow_up",
       "task_id": "t1",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r9",
+      "text": "The 'train' extra and the 'evals' dependency group cannot share an environment: deepeval==4.2.6 needs click<8.4, while the training pins' huggingface-hub==1.32.0 needs click>=8.4.2. t1 declared them as conflicting in [tool.uv]; the gate (t26) and the training stages (t22, t23) must run in separate venvs (re-filed: the first filing, r9, was lost to a git reset)",
+      "kind": "unknown_nonblocking",
+      "task_id": "t26",
       "resolved": false,
       "resolution": ""
     }
