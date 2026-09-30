@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-09-30T19:45:40Z",
+  "updated": "2026-09-30T19:52:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -152,6 +152,17 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 10
+    },
+    {
+      "id": "d11",
+      "what": "t33 drafting (answer policy, reasons, prose fields, seed corpus) is done by an opus subagent in a worktree instead of by the main agent; the main agent reviews it and the operator approves the policy and a seed sample before any teacher call, as planned",
+      "task_ref": "t33",
+      "reason": "the gate-2 split assigned t33 to 'main agent + operator'; drafting a few-hundred-entry seed in parallel with t32 is faster in a worktree, and nothing about the approval gate changes",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 11
     }
   ],
   "evidence": [],
