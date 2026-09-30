@@ -59,7 +59,7 @@ def _as_json_payload() -> dict[str, object]:
     return {
         "tool": "jev-factory",
         "version": __version__,
-        "purpose": "Factory for jev-like calibrated candidate scorers (an AgentCulture mesh agent).",
+        "purpose": "Factory for jev-like calibrated candidate scorers (a mesh agent).",
         "commands": [
             {"path": ["init"], "summary": "Scaffold a run directory (dry-run by default)."},
             {"path": ["run", "<stage>"], "summary": "Run one build stage (dry-run by default)."},
