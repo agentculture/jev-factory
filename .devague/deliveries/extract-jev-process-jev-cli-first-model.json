@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-09-30T19:09:51Z",
+  "updated": "2026-09-30T19:10:44Z",
   "deviations": [
     {
       "id": "d1",
@@ -106,6 +106,22 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "t30 also resolves follow-up risks r10 (dedupe the draft/augment/targeted helpers into one module) and r12 (measure/serve.py calls gen_config for the greedy check), adds '-p no:deepeval' to pytest addopts, and adds core.calibration and core.sweep_gate to the distribution-stage allow-list",
+      "task_ref": "t30",
+      "reason": "these follow-ups were attached to t30 by plan risks r10/r12 and the t26/t16 reports; t30 is the hygiene task that already owns layering greps and CI; behaviour must stay identical and existing tests prove it",
+      "affects": [
+        "t19",
+        "t20",
+        "t24",
+        "t26"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 8
     }
   ],
   "evidence": [],
