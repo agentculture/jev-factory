@@ -29,9 +29,9 @@ override it where they differ, are in
 `docs/specs/2026-09-30-extract-jev-process-jev-cli-first-model.md`.
 The first and only acceptance target is a **jev-tool** model (a scorer whose
 candidates are the `jev` CLI's own verbs); nvsh `scorer-r3b` parity is not a
-gate. **None of the factory is built
-yet.** Only the agent scaffold exists, so describe factory verbs and modules
-as planned.
+gate. The factory code now exists (`jev init`, the `jev run` stages,
+`jev status`, `jev decide`, `jev ask`, domain modules), but the jev-tool model
+is not yet trained, so do not describe a bundle as shipped.
 
 A **jev-like** model is a candidate scorer, not a generative tool caller:
 

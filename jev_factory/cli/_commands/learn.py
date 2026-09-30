@@ -39,6 +39,29 @@ Commands
   jev-factory doctor             Check the agent-identity invariants.
   jev-factory cli overview       Describe the CLI surface itself.
 
+Who does what
+-------------
+  operator       Approves every gate. Scaffold a run with `init`, dry-run each
+                 stage, then pass --apply; read `status` and the records in
+                 decisions.jsonl; going public is always your decision.
+  mesh agent     Runs stages in order (`run --help` lists them), reads
+                 `status --json` to see what is stale or running, and records
+                 each between-runs verdict with `decide`. It never edits a
+                 record, the pre-registration or a sealed set.
+  domain author  Builds a jev-like model for a new domain by writing one
+                 domain module, not by forking scripts. The contract is
+                 jev_factory/domain/model.py (operations with read_only flags,
+                 groundable argument kinds, the world snapshot, one list of
+                 escalate reasons, prompts, seed corpus); a complete small
+                 example is tests/fixtures/toy_domain. `init <domain>`
+                 validates it loudly, one named error per problem.
+
+Current state
+-------------
+The factory code exists and is tested. The first product, a jev-tool model
+whose candidates are this CLI's own verbs, is not yet trained. The failures the
+checks prevent, and the test behind each, are in docs/lessons-encoded.md.
+
 Machine-readable output
 -----------------------
 Every command supports --json. Errors in JSON mode emit
@@ -67,6 +90,7 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["run", "<stage>"], "summary": "Run one build stage (dry-run by default)."},
             {"path": ["status"], "summary": "Stage manifests, staleness and job progress."},
             {"path": ["decide"], "summary": "Apply the pre-registered rule; record it."},
+            {"path": ["ask"], "summary": "Propose one jev verb from a bundle; executes nothing."},
             {"path": ["whoami"], "summary": "Identity probe from culture.yaml."},
             {"path": ["learn"], "summary": "Self-teaching prompt."},
             {"path": ["explain"], "summary": "Markdown docs by path."},
@@ -74,6 +98,30 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["doctor"], "summary": "Check the agent-identity invariants."},
             {"path": ["cli", "overview"], "summary": "Describe the CLI surface."},
         ],
+        "audiences": [
+            {
+                "reader": "operator",
+                "does": "approves gates; runs init and stages (dry-run, then --apply); "
+                "reads status and decisions.jsonl; decides anything public",
+            },
+            {
+                "reader": "mesh agent",
+                "does": "runs stages in order, reads status --json, records verdicts "
+                "with decide; never edits records, pre-registration or sealed sets",
+            },
+            {
+                "reader": "domain author",
+                "does": "writes one domain module instead of forking scripts; validated "
+                "by init <domain>",
+            },
+        ],
+        "domain_module": {
+            "contract": "jev_factory/domain/model.py",
+            "example": "tests/fixtures/toy_domain",
+            "explain": "jev-factory explain domain",
+        },
+        "state": "factory code exists; the jev-tool model is not yet trained",
+        "lessons": "docs/lessons-encoded.md",
         "exit_codes": {
             "0": "success",
             "1": "user-input error",

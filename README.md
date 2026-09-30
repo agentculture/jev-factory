@@ -6,9 +6,11 @@ models**. It adds explicit knobs and a recorded decision step after every run.
 It then fine-tunes its own jev-like model to make those decisions
 (self-hosting).
 
-> **Status: scaffold.** Nothing of the factory is built yet. What exists today
-> is the agent scaffold described under [What's here now](#whats-here-now).
-> The build brief is
+> **Status: the factory exists; the first model is not yet trained.** The
+> domain-module contract, the 22 `jev run` stages, `jev status`, `jev decide`
+> and `jev ask` are built and tested. The first product, a **jev-tool**
+> scorer whose candidates are this CLI's own verbs, is not yet trained. The
+> build brief is
 > [issue #1](https://github.com/agentculture/jev-factory/issues/1).
 
 ## What "jev-like" means
@@ -31,8 +33,7 @@ nvsh's "Track B"), not a generative tool caller. It works like this:
 nvsh's reference build is `scorer-r3b` on `Qwen/Qwen3.5-0.8B`, served as
 GGUF `Q4_K_M`. It scored 0 wrong mutating proposals and ECE 0.016 after
 calibration on the test side, at about 355 ms per decision on an AGX Orin.
-The recipe is in nvsh's
-[`docs/scorer-finetune-playbook.md`](https://github.com/agentculture/nvsh/blob/main/docs/scorer-finetune-playbook.md).
+jev-factory carries that recipe as code (see [Who uses it](#who-uses-it)).
 Other model families are planned too, such as the GLiNER2.5-Decide encoder
 ([nvsh#67](https://github.com/agentculture/nvsh/issues/67)). The factory
 treats the backbone as a pluggable adapter behind the same
@@ -68,12 +69,44 @@ These honesty rules are enforced in code, not exposed as knobs:
 - Every write verb is dry-run unless you pass `--apply`.
 - Publishing is private-first. Going public is always a human decision.
 
-Planned CLI: `jev init <domain>`, `jev run <stage>`, `jev status` and
-`jev decide`. Training dependencies will stay out of the base install,
-behind an extra or an external venv.
+The CLI is `jev init <domain>`, `jev run <stage>`, `jev status <run>`,
+`jev decide <run>` and `jev ask <request>`. Training dependencies stay out of
+the base install, behind the `train` extra or an external venv.
+
+## Who uses it
+
+- **The operator** approves every gate. Scaffold a run with
+  `jev init <domain> --work <dir>`, dry-run each stage, then pass `--apply`.
+  Read progress with `jev status <dir>` (manifests, staleness, detached-job
+  progress) and the append-only records in `decisions.jsonl`. Publishing
+  privately is automatic; going public is always your decision.
+- **The mesh agent** (this repo's resident) runs the stages in order
+  (`jev run --help` lists them), reads `jev status --json` and records each
+  between-runs verdict with `jev decide`. It never edits a record, the
+  pre-registration or a sealed set.
+- **A domain author** builds a jev-like model for a new domain by writing one
+  *domain module* instead of forking scripts. The contract is
+  [`jev_factory/domain/model.py`](jev_factory/domain/model.py): operations
+  with `read_only` flags, groundable argument kinds, the world snapshot
+  schema, one list of escalate reasons, prompts and a seed corpus. A complete
+  small example is [`tests/fixtures/toy_domain`](tests/fixtures/toy_domain).
+  `jev init` validates a module loudly, one named error per problem. See
+  `jev explain domain`.
+
+## Lessons encoded
+
+Each failure nvsh hit is a check in code with a test that fails when it is
+violated: the mid-run rule change, leakage, the silent adapter merge,
+hand-copied bundle files, stale snapshots and the verdict-parser blacklist.
+[`docs/lessons-encoded.md`](docs/lessons-encoded.md) maps each one to its nvsh
+record and to the tests.
 
 ## What's here now
 
+- **The factory**: the domain module (`jev_factory/domain`), the staged
+  pipeline (`jev_factory/factory`), the stage code (`core`, `data`,
+  `measure`, `backbones`, `release`, `evals`), the decision surface
+  (`decide`) and the jev-CLI domain (`jev_factory/domains/jev_cli`).
 - **An agent-first CLI**, `jev`, cited from
   [teken](https://github.com/agentculture/teken) (`afi-cli`). The runtime
   package has no third-party dependencies.
@@ -155,6 +188,11 @@ distribution is `jev-factory`.
 
 | Verb | What it does |
 |------|--------------|
+| `init <domain>` | Scaffold a run directory and run config (dry-run by default). |
+| `run <stage>` | Run one build stage; `--apply` commits, `--detach` survives the shell. |
+| `status <run>` | Stage manifests, staleness and job progress. |
+| `decide <run>` | Apply the pre-registered rule; append a decision record. |
+| `ask <request>` | Propose one jev verb from a bundle; executes nothing. |
 | `whoami` | Report this agent's nick, version, backend, and model from `culture.yaml`. |
 | `learn` | Print a structured self-teaching prompt. |
 | `explain <path>` | Markdown docs for any noun/verb path. |

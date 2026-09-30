@@ -19,6 +19,20 @@ process behind the first Tool-Jev scorer into a staged, resumable,
 dry-run-by-default pipeline, records every between-runs decision, and is itself
 an AgentCulture mesh agent (`culture.yaml` + `CLAUDE.md`).
 
+## Who it is for
+
+- **The operator** approves every gate: scaffold a run with `init`, dry-run
+  each stage, pass `--apply`, read `status` and the decision records, and
+  decide anything public.
+- **The mesh agent** (this repo's resident) runs the stages in order, reads
+  `status --json`, and records each between-runs verdict with `decide`.
+- **A domain author** writes one domain module to build a jev-like model for a
+  new domain: `jev-factory explain domain`.
+
+The factory code exists and is tested; the first product, a jev-tool model
+whose candidates are this CLI's own verbs, is not yet trained. The failures the
+checks prevent, and the test behind each, are in `docs/lessons-encoded.md`.
+
 ## Verbs
 
 - `jev-factory init <domain>` — scaffold a run directory and run config.
@@ -51,6 +65,7 @@ before training, and publishing is private-first.
 - `jev-factory explain run`
 - `jev-factory explain status`
 - `jev-factory explain decide`
+- `jev-factory explain domain`
 """
 
 _WHOAMI = """\
@@ -231,6 +246,40 @@ it differently), or in this process for a bf16 bundle (needs the `train` extra).
     jev-factory ask "explain doctor" --bundle <dir> --json
 """
 
+_DOMAIN = """\
+# jev-factory domain module
+
+A domain module is everything that makes one jev-like model about one domain,
+as one immutable `Domain` value. The contract is `jev_factory/domain/model.py`;
+`jev_factory/domain/validate.py` checks it loudly, one named error per problem.
+A complete small example (a smart-home lamp controller) is
+`tests/fixtures/toy_domain`, and the jev CLI's own domain is generated from its
+argparse tree.
+
+## What to write
+
+- **Operations**: name, description, `read_only`, and typed args (`str` or
+  `choice`). Mutating operations are the ones that change something.
+- **Groundable argument kinds**: how an argument value is matched against a
+  world snapshot (or a live lookup), so the model never generates values.
+- **The world snapshot schema**: the fields grounding reads.
+- **Escalate reasons**: one list; `escalate:<r>` and `decline:<r>` derive from it.
+- **Prose**: the one answer-policy sentence, persona, explain topics, phrasing
+  styles, probe paraphrases and the bundle card text.
+- **A seed corpus**: a JSON file of labelled requests.
+
+## Use it
+
+    jev-factory init my_pkg.my_domain --work <dir>          # dry-run: validates and lists files
+    jev-factory init my_pkg.my_domain --work <dir> --apply
+    jev-factory run --help                                   # the stages, in order
+    jev-factory run config --work <dir> --apply
+    jev-factory status <dir>                                 # manifests, staleness, jobs
+    jev-factory decide <dir>                                 # appends to decisions.jsonl
+
+`init` accepts a dotted module exposing `DOMAIN` or a domain JSON file.
+"""
+
 _CLI = """\
 # jev-factory cli
 
@@ -258,6 +307,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("status",): _STATUS,
     ("decide",): _DECIDE,
     ("ask",): _ASK,
+    ("domain",): _DOMAIN,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
 }

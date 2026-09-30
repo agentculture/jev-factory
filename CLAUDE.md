@@ -43,17 +43,19 @@ it before designing anything). The intended flow is `/scope` → `/think` →
 - The factory verbs (`jev init`, `jev run`, `jev status`, `jev decide`) ship
   before the first model is trained.
 
-## Current state: scaffold only
+## Current state: the factory exists; the jev-tool model is not yet trained
 
-**None of the factory exists yet.** On disk there is only the
-`culture-agent-template` scaffold: the agent-first CLI (`whoami`, `learn`,
-`explain`, `overview`, `doctor`, `cli overview`), the four harness prompt
-files, the vendored skill kit and CI. Every factory verb and module named in
-this file is **planned**. Before calling one implemented, check that it
-exists (`uv run jev --help`). Some CLI strings still describe the project as
-"a clonable template" (`jev_factory/cli/_commands/learn.py`,
-`jev_factory/explain/catalog.py`, the parser `description`). Rewrite them
-when those verbs are next touched.
+The factory code is built and tested: the domain-module contract
+(`jev_factory/domain/model.py`, example `tests/fixtures/toy_domain`), the 22
+`jev run <stage>` stages with per-stage manifests, `jev status`, `jev decide`
+(pre-registered rule, append-only records), `jev ask`, the jev-CLI domain
+(`jev_factory/domains/jev_cli`) and the release gate. **No jev-tool model has
+been trained yet**: its bundle, calibration and gate do not exist, so never
+claim one as shipped. Check a verb with `uv run jev --help` and
+`uv run jev learn --json`. `docs/lessons-encoded.md` maps each nvsh failure to
+the test that prevents it. The spec and plan are under `docs/specs` and
+`docs/plans`. Some CLI strings may still describe a "clonable template";
+rewrite them when next touched.
 
 Names: the **command is `jev`**
 (`[project.scripts] jev = "jev_factory.cli:main"`), the import package is

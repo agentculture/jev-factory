@@ -39,11 +39,10 @@ the first and only acceptance target is a **jev-tool** model (a scorer whose
 candidates are the `jev` CLI's own verbs), and nvsh `scorer-r3b` parity is
 not a gate.
 
-**Current state: scaffold only.** None of the factory is built yet. On disk
-today are the agent-first CLI (`jev whoami|learn|explain|overview|doctor`),
-the four harness prompt files, the vendored skill kit and CI. If you are
-asked about `jev run`, `jev decide`, domain modules or training stages,
-report them as *planned*, not present.
+**Current state.** The factory code exists: `jev init`, the 22 `jev run`
+stages, `jev status`, `jev decide`, `jev ask` and domain modules are built
+and tested. The jev-tool model itself is not yet trained, so report no bundle
+as shipped. `docs/lessons-encoded.md` lists the failures the checks prevent.
 
 A **jev-like** model is a calibrated candidate scorer (nvsh's "Track B"). It
 reads one request plus up to 52 lettered candidate actions. Two controls are

@@ -46,10 +46,11 @@ override it where they differ, are in
 only acceptance target is a **jev-tool** model (candidates are the `jev`
 CLI's own verbs); nvsh `scorer-r3b` parity is not a gate.
 
-**Current state: scaffold only.** On disk there is the agent-first CLI
-(command `jev`, package `jev_factory`), the harness prompt files, the skill
-kit and CI. None of the factory is built. Treat `jev run`, `jev decide` and
-domain modules as planned.
+**Current state.** The factory code exists (command `jev`, package
+`jev_factory`): `jev init`, the 22 `jev run` stages, `jev status`,
+`jev decide`, `jev ask` and the domain-module contract in
+`jev_factory/domain/model.py`. The jev-tool model is not yet trained. Check a
+verb with `uv run jev --help` before calling it implemented.
 
 For a delegated task that touches the pipeline, the source to read is
 `../nvsh`:
