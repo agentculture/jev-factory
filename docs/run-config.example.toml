@@ -44,6 +44,15 @@ train_watchdog_seconds = 5
 # --- teachers ---
 # aug_url = "<chat-completions url of your teacher gateway>"
 workers = 2
+teacher_generator_model = "worker"
+teacher_reviewer_a_model = "senses"
+teacher_reviewer_b_model = "cortex"
+# teacher_models = "<json {alias: {name, licence}} listing extra Apache-2.0 teachers>"
+teacher_generator_max_tokens = 12000
+teacher_reviewer_max_tokens = 8192
+teacher_timeout = 300.0
+# teacher_reasoning_effort = "low"
+# teacher_cache = "<dir for the teacher response cache; default under work>"
 
 # --- secrets, by the NAME of the environment variable ---
 # aug_key_env = "TEACHER_GATEWAY_KEY"

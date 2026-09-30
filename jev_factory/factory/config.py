@@ -106,6 +106,20 @@ KEYS: tuple[Key, ...] = (
     # teachers and augmentation
     _k("aug_url", "str", None, "OpenAI-compatible chat-completions URL of the teacher gateway"),
     _k("workers", "int", 2, "concurrent teacher requests"),
+    _k("teacher_generator_model", "str", "worker", "gateway model alias of the generator role"),
+    _k("teacher_reviewer_a_model", "str", "senses", "gateway model alias of reviewer A (senses)"),
+    _k("teacher_reviewer_b_model", "str", "cortex", "gateway model alias of reviewer B (cortex)"),
+    _k(
+        "teacher_models",
+        "path",
+        None,
+        "JSON file {alias: {name, licence}} extending the teacher list",
+    ),
+    _k("teacher_generator_max_tokens", "int", 12000, "generator reply budget in tokens"),
+    _k("teacher_reviewer_max_tokens", "int", 8192, "reviewer reply budget in tokens"),
+    _k("teacher_timeout", "float", 300.0, "per-request teacher timeout in seconds"),
+    _k("teacher_reasoning_effort", "str", None, "reasoning_effort sent to teachers, if any"),
+    _k("teacher_cache", "path", None, "teacher response cache directory (default: under work)"),
     # secrets, by the NAME of the environment variable that holds them
     _k("aug_key_env", "envname", None, "name of the env var holding the teacher gateway key"),
     _k("hf_token_env", "envname", "HF_TOKEN", "name of the env var holding the hub token"),
