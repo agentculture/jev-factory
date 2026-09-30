@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-09-30T19:10:44Z",
+  "updated": "2026-09-30T19:38:24Z",
   "deviations": [
     {
       "id": "d1",
@@ -122,6 +122,22 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "Add a fix task (t24-fix): key measure/once.py's measure-once ledger by (side, slice) instead of side only, and let pipeline measure-final run the missing-candidate slice once per side without a deviation id; until then t27 reports the final MC-escalation bar as unmeasured",
+      "task_ref": "t27",
+      "reason": "merged t24 code refuses the MC slice after the full side as a second measurement, contradicting t37 ('measure-final on test (full and MC slice) ... exactly once') and leaving c52's MC-escalation bar unmeasurable",
+      "affects": [
+        "t24",
+        "t37",
+        "c52",
+        "c5"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up",
+      "seq": 9
     }
   ],
   "evidence": [],
