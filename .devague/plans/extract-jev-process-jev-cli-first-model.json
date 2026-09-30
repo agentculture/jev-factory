@@ -1,0 +1,1621 @@
+{
+  "slug": "extract-jev-process-jev-cli-first-model",
+  "title": "extract jev process; jev-cli first model",
+  "frame_slug": "extract-jev-process-jev-cli-first-model",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-09-30T18:07:36Z",
+  "updated": "2026-09-30T18:12:32Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "jev-factory ships nvsh's Tool-Jev fine-tune process (issue #4, under umbrella #1) as a domain-generic staged pipeline, and the first new model it builds is a jev scorer that operates the jev CLI itself",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "At the end, the jev-tool model was built by jev run stages in jev-factory, with no step run from nvsh's scripts",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Stages that only need a candidate distribution (calibrate, gate sweep, metrics, selection rule, decide) take a backbone-agnostic predictions record; the letter-token readout, prompt rendering, trainer and quantizer live behind a per-backbone adapter, so #3's CLM heads and nvsh#67's GLiNER encoder can plug in later without touching those stages",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "calibrate, gate sweep, metrics, select and decide read only a backbone-agnostic predictions record (candidates, raw scores, probabilities) and never import the causal-LM adapter",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "boundary",
+      "text": "Sealed held-out and test sets are touched once, in the final run only; the lead never reads their text, only counts and sha256 (issue #4 stage 4 and 'Process discipline'); migrating nvsh's sealed set copies it only as a hash-verified file",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "No jev-factory code path prints, logs or returns the text of a test or sealed held-out entry, and measuring either twice without a deviation record is refused",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Publishing is private-first: hub_upload creates private, fetches back and verifies every sha256 and the file list, and refuses symlinks; going public is a per-repo operator decision and a hard stop (issue #4 stage 16)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The upload verb creates and forces private, fetches back and compares every sha256 and the remote file list, refuses symlinks, and never changes visibility to public",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "The checks listed in issue #4 extraction step 5 are code, not docs: readout completeness N/0, merge changed weights with 0 missing adapter keys, leakage fails closed against every protected file, heal trigger fires at most once, bundle carries calibration.json + gate.json + scorer-train.json with no symlinks and no absolute paths in GGUF imatrix metadata, private upload with hash-verified fetch-back, no final rerun without a deviation record",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "Each check in issue #4 extraction step 5 has a named test that fails when the check is violated",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Teacher reviewers return a structured JSON verdict instead of free text parsed by augment.parse_verdict's blacklist, which misread 'no-argument', 'ambiguous' and a mid-sentence 'but' (issue #4 stage 3)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "Reviewer verdicts are parsed from JSON against a schema; a malformed or empty reply is retried twice and then recorded as an error, never as a reject",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Between-run decisions are machine-readable, append-only records (D-style: evidence with cited metrics, choice, who decided, record id), not only prose ledgers, because they are the Layer 3 decider's corpus (issue #4 'Process discipline'; issue #1 Layer 2)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "jev decide writes append-only JSON decision records (id, run, verdict, cited metric values with source-file sha256, rule version, decider rule|model|human) that a schema validates; an override is a new record, never an edit",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "Code reviewers (codex, agy, kiro) never generate or correct training data; teachers are Apache-2.0 models so the data can be published (issue #4 'Reviewers for code')",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "No code path sends training or eval data to codex, agy or kiro; the teacher config accepts only models listed with an Apache-2.0 licence",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "The release gate port is the last stage and keeps nvsh evals/' generic core (ledger/resume, manifest-as-data, provider adapters, per-provider USD caps with worst-case reservation, truncation stop, replay of saved predictions, model-only vs model+harness rows) while replacing its nvsh couplings: nvsh.ops.table (cases.py:49, request.py:64-67) becomes the domain module's read_only table with unknown=mutating, nvsh.redact (providers/base.py:50, judge.py:115) a jev-factory redactor, and path-loaded scripts/lfm-finetune metrics/gate/calibration_fit (trace.py:50, policies.py:82) the cited copies",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The imported release gate runs for the jev-tool candidate with raw policy and one provider, and its generic core has no nvsh import",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "The evals worktree guard uses 'git rev-parse --is-inside-work-tree' rather than detecting a .git directory, since nvsh#71 item 2 shows an empty /tmp/.git trips every evals test in a sandbox",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The worktree guard uses git rev-parse --is-inside-work-tree, and the evals tests pass in a temp dir that contains an empty .git",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "The jev-CLI domain module is generated from the argparse tree (_build_parser) plus a per-verb read_only/args annotation, not hand-copied: today three hand-kept lists (overview.py:70-112 _VERBS, learn.py:56-62 commands, explain/catalog.py:126-135) can drift and none carries read_only or arg schemas",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The jev-CLI domain's operation list is generated from the argparse tree, and a test fails when a verb exists in argparse but not in the domain module, or the reverse",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Runtime package keeps dependencies = [] (pyproject.toml:15); training/quantize/serve/eval deps go in a jev-factory[train] extra or an external venv (plus a separate AWQ venv and an evals group), and verbs import them lazily",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "pyproject dependencies stays [] and every heavy import (torch, transformers, peft, unsloth, llmcompressor, huggingface_hub, deepeval) sits inside a function or behind an extra",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "Imported nvsh code has a deliberate home: code inside jev_factory/ ships in the wheel, triggers publish.yml, and is subject to black/isort/flake8/bandit and the 60% coverage gate (pyproject coverage source=jev_factory); GPU-only paths that cannot be unit-tested import their heavy deps lazily and keep a tested pure-Python core",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "Coverage stays >= 60% on jev_factory with the imported code included, with no blanket 'pragma: no cover' on whole modules",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "The absorbed nvsh code carries a one-time import provenance record (per file: upstream ../nvsh path, nvsh commit 9debdc6, adaptations made), laid out in docs/skill-sources.md's table style; after import jev-factory owns the code, and there is no ongoing re-sync from nvsh",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "Every imported file appears in a provenance table with its nvsh path, commit 9debdc6 and a list of adaptations",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "boundary",
+      "text": "Imported code and committed docs carry no `/home/<user>` paths, hostnames, IPs or serving-model locations, and JSON configs carry no non-localhost URLs: scan-secrets.py check 2 (:97-110) and cicd portability-lint.sh flag them; use $WORK/$DRAFTS/$SEALED placeholders as nvsh's guides do",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "scan-secrets.py and portability-lint.sh pass on the repo after import",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "boundary",
+      "text": "No root AGENTS.md is added and the four harness prompt files (CLAUDE.md, AGENTS.override.md + .pi/SYSTEM.md, AGENTS.colleague.md, QWEN.md) are each updated in their own framing when project facts change (tests/test_harness_smoke.py:200, docs/harness-invocations.yaml:35,83)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "No root AGENTS.md exists and the harness smoke config stage passes after every PR",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "Every new verb (init, run, status, decide) registers under cli/_commands with register(subparsers), raises CliError, supports --json, is dry-run by default with --apply for writes, and gets an explain/catalog.py entry so teken cli doctor --strict and test_every_catalog_path_resolves (tests/test_cli.py:111) pass",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "Every new verb has an explain catalog entry, --json output and a CliError path, and write verbs change nothing without --apply",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "The stale 'already domain-generic' list (issue #1, CLAUDE.md, nvsh playbook l.148-151) is not trusted when importing: gate.py:72-73 and metrics.py:127-128 import nvsh.ops.table and nvsh.tiers.bench, train_scorer.py:73-74 imports nvsh.tiers.lfm/bench, scan_bundle.py:34 imports nvsh.redact, calibration_fit.py:78 and sweep_gate.py:54-56 reach nvsh by path-loading metrics/gate, and leakage_check.py:38 imports Track-A-only jetson_skills; every import is rewired to the domain-module seam (operation table, explain/escalate labels, redactor, request formatting)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "No imported module imports nvsh, directly or transitively",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "The letter/token readout (LABEL_ALPHABET scorer.py:121, label_token_ids :347, label_variant_ids :365, READOUT_TOP :128) is lifted out of nvsh-coupled scorer.py into the causal-LM backbone adapter as the single label definition that training, in-process scoring and served scoring all use",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "One module defines the label alphabet and the token-variant summing, and training, in-process scoring and served scoring all call it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "Imported scripts become package modules with normal imports, replacing nvsh's _sibling importlib path-loading (e.g. gate -> metrics, sweep_gate -> gate + calibration_fit, train_scorer -> scorer + train)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "No module uses importlib spec_from_file_location to load a sibling",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "The pre-registered bars and lexicographic selection rule are a machine-readable, hashed artifact written before the first training command; nvsh's docs/tool-jev-calibration-rule.md is prose only (71 lines, committed b1c6cb6) and jev decide must evaluate it mechanically",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "Pre-registration is a schema-validated file, hashed and recorded before the train stage may run; the train stage refuses without it, and any later change requires a deviation record",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "jev run stages write a real per-stage state manifest (inputs with sha256, outputs, knobs, status) that makes them resumable; nvsh's pipeline.sh has no stage-state file \u2014 resumability is a docstring claim, sequencing is 'die if the prior artifact is missing', and stage_cache.py only stages a merged checkpoint into an HF cache (stage_cache.py:67-82)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "Re-running a completed stage with unchanged inputs is a no-op, and changing an input's sha256 marks that stage and all downstream stages stale",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "jev-factory's run-config loader has one explicit, documented precedence rule, rather than copying pipeline.sh's surprise: the sourced env file overrides exported shell values (pipeline.sh:180), except MEASURE_CTX, which is saved and restored (:178-182); tool paths (LLAMA_CPP_*, AWQ_PY, LLAMA_SERVER) are required config, not undocumented exports",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "The config loader documents one precedence order and a test pins it, including the measure context value",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "Knobs that pipeline.sh hard-codes to nvsh become domain or run config: BUNDLE_REPO_PREFIX (:500) and hub_upload.ALLOWED_PREFIX (hub_upload.py:51), require_qwen_base (:508-512), split always reading dev.json (split.py:664, no --corpus passed), bundle-dataset --issue 46 and nvsh LICENSE; train-scorer's mtime-based choice of scorer-train.json (:648-649) becomes an explicit choice by frozen sha256",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "No nvsh name, org prefix or Qwen-only check is hard-coded outside the nvsh domain module; the hub prefix, base model, licence and issue refs come from domain or run config",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "The domain module is one declarative, loudly validated definition covering: operations (name, description, read_only, args of kind str|choice, order), groundable arg kinds with their world lookup and canonicalisation, the world/snapshot schema, escalate reasons as a single source (prompt description plus generator definition, deriving `escalate:<r>` and `decline:<r>`), one answer-policy sentence used by every generator and reviewer prompt, persona/explain topics/phrasing styles, probe paraphrases, the seed corpus {header, world, entries}, and hub prefix plus card text; today these are duplicated across nvsh/ops/table.py:15-133, ground.py:148-160, scorer.py:100-140, data/reasons.json, draft_sources.py:87-118 and :266-293, augment.py:507-601, measure.py:1788, hub_upload.py:51 and release_bundle.py:306-673",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "The domain module loader rejects an invalid module with a named error: duplicate operation, empty description, a reason missing its prompt description or generator definition, over 52 candidates including controls, or an unknown arg kind",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "Served measurement does not depend on nvsh's tier runtime: measure.py:171-183 imports nvsh.tiers (bench, lfm, toolchat, router, base, runtime, runtime_docker), nvsh.config, nvsh.redact and nvsh.platform, so jev-factory needs its own decision contract (propose/explain/escalate/abstain), corpus loader, snapshot grounding runner and serve adapter behind the score seam (scorer.score_next_token)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "Served measurement runs a jev-tool Q4_K_M through llama-server with no nvsh package installed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "Sequencing (operator decision): the factory verbs (jev init, `jev run <stage>`, jev status, jev decide) with dry-run by default and --apply ship before the first model is trained, and the first model is a jev scorer whose candidates are the grown jev CLI's verbs, including a real mutating half",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "init, run, status and decide are implemented (in jev --help, with explain entries and tests) before any jev-tool training data is drafted",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "jev-CLI training data is drafted and reviewed by nvsh's lobes teachers (generator Qwen3.6-35B-A3B; reviewers Gemma-4-26B-A4B and Qwen3.8-27B) through the OpenAI-compatible gateway, Apache-2.0 only, with reviewers returning structured JSON verdicts (operator decision)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "Every drafted and reviewed jev-tool entry's provenance names the teacher model and its role, and all of them are Apache-2.0",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "Correctness of the extracted factory is proven by the jev-tool model itself passing every evaluation the pipeline defines: selection-fold rule, fit-fold calibration and gate, permutation probe, missing-candidate slice, one final measurement on test and the sealed held-out set on the deployed Q4_K_M, and the release gate (operator decision)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "Every evaluation listed ran on the jev-tool model and its results are recorded, including misses, before the model is called done",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "jev-factory owns the whole fine-tune pipeline (absorb, not cite): nvsh's scripts/lfm-finetune/ and evals/ move into jev-factory as its canonical implementation, and nvsh becomes a consumer (operator decision)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "The imported nvsh code is jev-factory's canonical copy: all of scripts/lfm-finetune on the scorer path and evals/ are imported, and a handoff tells nvsh how to consume jev-factory",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c41",
+      "kind": "requirement",
+      "text": "The pipeline is built as a general factory for many models across other domains, not only the jev-tool model: nothing jev-CLI-specific lives outside that domain's module (operator decision)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h31",
+      "kind": "honesty",
+      "text": "Nothing jev-CLI-specific lives outside its domain module",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c42",
+      "kind": "boundary",
+      "text": "No new r3b work: the nvsh r3b/#53 frozen data is not replayed, reproduced or retrained unless the jev-tool model fails an evaluation; only then is it replayed through the extracted stages, to find whether the fault is in the pipeline or in the jev-CLI data or model, and used to fix it (operator decision)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h32",
+      "kind": "honesty",
+      "text": "No stage reads nvsh's #53 or r3b artifacts unless a jev-tool evaluation has failed and a deviation record is open",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c43",
+      "kind": "requirement",
+      "text": "Docs that contradict the operator's decisions are corrected in the first PR: CLAUDE.md (and, in their own framing, AGENTS.override.md, AGENTS.colleague.md and QWEN.md) still say 'the first acceptance test is parity', 'cite (copy) rather than import' and list 6 nvsh-coupled scripts as 'already domain-generic'; issue #1's text says the same",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h33",
+      "kind": "honesty",
+      "text": "After the first PR, CLAUDE.md, AGENTS.override.md, AGENTS.colleague.md and QWEN.md say absorb (not cite), drop parity as the first acceptance test, and list no nvsh-coupled script as generic",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c44",
+      "kind": "requirement",
+      "text": "nvsh is told it is becoming a consumer (on nvsh#62, via the communicate skill), with the absorbed scope listed (scripts/lfm-finetune, evals/) and the seam nvsh must then implement as a jev-factory domain module",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h34",
+      "kind": "honesty",
+      "text": "nvsh#62 carries a comment from jev-factory that states the absorb decision and the domain-module interface nvsh will implement",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c45",
+      "kind": "requirement",
+      "text": "The reference for the jev-tool model's bars is stock Qwen3.5-0.8B plus pre-registered minimum requirements: for each metric the bar is the stricter of the stock-derived value and the minimum (operator decision). The minimums are nvsh's: 0 wrong mutating on test and held-out, ECE <= 0.10 on the deployed build, pooled permutation change <= 2.3%, missing-candidate escalation >= 80%, and right proposals >= stock - 5 pts",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h35",
+      "kind": "honesty",
+      "text": "The pre-registration file records, for each bar, the stock Qwen3.5-0.8B value, the minimum, and the stricter one as the bar, before training",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c46",
+      "kind": "requirement",
+      "text": "Every step of building the jev-tool model is imported (operator decision): environment and run config, pre-registration, seed, teachers and reviewer pilot, sealed held-out set, eval pool with split and folds, grounding snapshot and baseline, augment and targeted recipes, assemble and freeze, scorer training with merge verification, selection (logprob calibration: temperature plus optional per-label vector, gate fit, permutation probe), quantize, one-round heal, recalibration on the deployed quant, one final measurement, edge check, bundle, private upload, and the release gate",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h36",
+      "kind": "honesty",
+      "text": "Each listed step exists as a jev run stage or a documented sub-step and ran for the jev-tool model",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c48",
+      "kind": "audience",
+      "text": "The operator, who approves every gate and runs builds; the jev-factory mesh agent, which runs the stages and records decisions; and future domain authors, nvsh first, who build their own jev-like models by writing a domain module instead of forking scripts",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h37",
+      "kind": "honesty",
+      "text": "Each named audience can do its job from jev learn, jev explain and the spec without reading nvsh's docs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c49",
+      "kind": "before_state",
+      "text": "Building a jev-like model means running nvsh's scripts/lfm-finetune by hand: 22 shell stages with no stage state, scripts wired to nvsh's operation table and tier runtime, domain facts duplicated across a dozen files, the selection rule in prose and decisions in a prose ledger, so a new domain means forking nvsh",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h38",
+      "kind": "honesty",
+      "text": "Each part of the before-state statement is backed by a recorded scope entry (s12, s13, s15, s16)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c50",
+      "kind": "after_state",
+      "text": "jev-factory owns the full jev-like build pipeline as `jev run <stage>` stages over a declarative domain module, with a state manifest per stage, machine-readable pre-registration and decision records, and every honesty check in code; its first product is a jev-tool scorer on Qwen3.5-0.8B that picks the right jev CLI verb, calibrated and gated, shipped privately as a GGUF bundle",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h39",
+      "kind": "honesty",
+      "text": "The after-state is observable: jev run lists every stage, jev status reads the stage manifests, and the jev-tool bundle exists privately with the three required files",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c51",
+      "kind": "why_it_matters",
+      "text": "The operator will build many models across domains with this factory, and nvsh showed that each build costs days of GPU and reviewer time and fails silently when the process lives in a person's head (overfit rules chosen mid-run, leakage lapses, unverified merges, hand-copied bundle files); encoding the process once makes each new domain a module, not a fork",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h40",
+      "kind": "honesty",
+      "text": "Each failure named in the why-it-matters claim has a matching nvsh record, and the factory has a check or stage that prevents it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c52",
+      "kind": "success_signal",
+      "text": "The jev-tool model's deployed Q4_K_M build, measured once, meets every pre-registered bar on both test and the sealed held-out set: 0 wrong mutating, ECE <= 0.10, pooled permutation change <= 2.3% (>= 10 permutations per entry), missing-candidate escalation >= 80%, and right proposals >= the stricter of (stock Qwen3.5-0.8B - 5 pts) and the pre-registered minimum",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h41",
+      "kind": "honesty",
+      "text": "The bars are read from the hashed pre-registration file, not re-derived after measurement, and the final measurement ran exactly once",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c53",
+      "kind": "success_signal",
+      "text": "The jev-tool bundle's release-gate run records 0 wrong mutating in both the model-only and model+harness rows, with the gate run from jev-factory's own evals code and no nvsh checkout present",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h42",
+      "kind": "honesty",
+      "text": "The gate report is produced by jev-factory code, and its rows include the jev-tool candidate",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c54",
+      "kind": "success_signal",
+      "text": "jev-factory imports nothing from nvsh: 0 matches for 'import nvsh' or 'from nvsh' under jev_factory/, and the base install still has dependencies = [] with 0 heavy ML imports at module import time",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h43",
+      "kind": "honesty",
+      "text": "The grep and the no-ML-import test run in CI on every PR",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c55",
+      "kind": "success_signal",
+      "text": "A second tiny domain in tests (at least 3 operations, at least 1 mutating) runs the CPU-only stages end to end \u2014 validate, split, assemble, calibrate, gate sweep, select, decide \u2014 through the same code as the jev-tool domain, proving the factory is not jev-specific",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h44",
+      "kind": "honesty",
+      "text": "The toy domain shares every stage implementation with the jev-tool domain; only its module differs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c56",
+      "kind": "boundary",
+      "text": "jev-factory never edits nvsh: nvsh retires its own copy (scripts/lfm-finetune, evals/, 37 test_lfm_finetune_*.py files, and the CI lint of scripts and evals at nvsh .github/workflows/tests.yml:61-89) on its own schedule; until then two copies exist and jev-factory's is canonical (challenge / adjacent-systems)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h45",
+      "kind": "honesty",
+      "text": "No jev-factory PR, script or stage writes to the nvsh repo; the nvsh-side change is requested on nvsh#62 only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c57",
+      "kind": "requirement",
+      "text": "Each jev-tool bundle records the sha256 of the generated jev-CLI domain module (the CLI surface) it was trained on, and using a bundle whose surface hash differs from the running jev's argparse surface is flagged, because the CLI keeps growing (c36) and the domain is generated from argparse (c17) (challenge / adjacent-systems)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h46",
+      "kind": "honesty",
+      "text": "A test builds a bundle, adds a verb to a fixture parser, and checks that the surface-hash mismatch is reported",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c59",
+      "kind": "requirement",
+      "text": "Long stages (teacher drafting and review take a day or more; scorer training about 26 min) run detached from the invoking shell with a PID and done marker, resume at item granularity from a response cache, and report progress through jev status; issue #4 'Shell and automation traps' records that tool-backgrounded jobs die at the tool timeout, and s15 found only augment.py resumes at item level (challenge / failure-modes)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h47",
+      "kind": "honesty",
+      "text": "A stage killed mid-run and restarted re-sends 0 cached teacher requests and resumes from the next item; jev status shows items done out of total",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c60",
+      "kind": "requirement",
+      "text": "GPU stages (train, heal, quantize, served measure) check for other GPU compute processes before starting, and refuse unless the operator overrides; training runs under the memory-floor watchdog, because GB10 does not charge GPU allocations to the cgroup cap. A probe on 2026-09-30 found a resident vLLM EngineCore holding about 32 GB alongside another process (challenge / operations: nvidia-smi --query-compute-apps)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h48",
+      "kind": "honesty",
+      "text": "A test with a stubbed nvidia-smi that lists a foreign GPU process makes train, quantize and measure refuse without the override flag",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c61",
+      "kind": "requirement",
+      "text": "A run's work dir holds a lock, so a second concurrent jev run against the same run (for example the mesh agent and the operator at once) is refused; nvsh#58 records a stop/start race in serve_for_measure.sh on one port (challenge / concurrency)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h49",
+      "kind": "honesty",
+      "text": "A second jev run on a locked work dir exits non-zero with the lock holder's PID, and a stale lock from a dead PID is reported, not silently taken",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c62",
+      "kind": "boundary",
+      "text": "A jev-tool model's proposal is never executed with --apply on its own: when the model picks a mutating verb (train, upload, publish, retrain), a human still issues --apply, per issue #1 Layer 3 'the model proposes, and --apply plus the hard stops still apply' (challenge / security)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h50",
+      "kind": "honesty",
+      "text": "No code path calls a write verb with --apply because of a model's output; a test confirms that decide and propose paths only print a proposal",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c63",
+      "kind": "requirement",
+      "text": "Run work roots (drafts, splits, the sealed held-out set, predictions, bundles) live outside any git worktree, and stages refuse a work root inside one, as nvsh's evals writers already do (s6), so sealed or private data can never be committed (challenge / security + data-loss)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h51",
+      "kind": "honesty",
+      "text": "A test points a stage at a work root inside a git worktree (detected with rev-parse) and expects a refusal",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c64",
+      "kind": "requirement",
+      "text": "Secrets reach stages only by environment variable name (the hub token and the teacher gateway key), are never printed or logged, and a test pins that the run-config examples name no host and no secret, as nvsh's test_neither_env_example_names_a_host_or_a_secret does (challenge / security)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h52",
+      "kind": "honesty",
+      "text": "A secret's value never appears in stdout, stderr, logs or manifests; a test injects a canary token and greps every output",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c65",
+      "kind": "requirement",
+      "text": "Imported files keep their Apache-2.0 attribution, and the provenance record (c20) states their Apache-2.0 origin in nvsh; both repos are Apache-2.0, per the LICENSE files and pyproject license fields (challenge / migration: licence probe)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h53",
+      "kind": "honesty",
+      "text": "Every imported file keeps its licence header if it had one, and the provenance doc names nvsh's Apache-2.0 LICENSE",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Hygiene harness: behavioral marker, extras, import-hygiene tests",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pyproject.toml registers the pytest marker 'behavioral' (one arg: obligation id), keeps dependencies = [], adds optional extra 'train' and dependency group 'evals' (deepeval==4.2.6)",
+        "tests/test_import_hygiene.py imports every jev_factory module with torch, transformers, peft, unsloth, llmcompressor, huggingface_hub, datasets and deepeval blocked in sys.modules, and fails on any import error",
+        "the same file fails if any jev_factory module imports nvsh (AST walk, direct or transitive) or uses importlib spec_from_file_location",
+        "t1 creates the empty package skeleton (jev_factory/factory, domain, domains/jev_cli, backbones/causal_lm, core, data, measure, release, decide, evals, each with __init__.py) so later same-wave tasks never create the same file"
+      ],
+      "deps": [],
+      "covers": [
+        "c18",
+        "h12",
+        "c54",
+        "h43",
+        "c24",
+        "h18",
+        "c26",
+        "h20"
+      ],
+      "instruction": "Only this task edits pyproject.toml in wave A. Mark the tests @pytest.mark.behavioral('o5'), ('o44'), ('o45'). The train extra pins match ../nvsh/scripts/lfm-finetune/requirements-train.txt except torch (installed from the cu130 index, documented in docs/training-env.md). Tests must pass on today's scaffold."
+    },
+    {
+      "id": "t2",
+      "summary": "Correct the four harness prompt files and issue-facing docs to the operator decisions",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md, AGENTS.override.md, AGENTS.colleague.md and QWEN.md say jev-factory absorbs nvsh's pipeline (not cite), drop nvsh parity as the first acceptance test, name the jev-tool model as the first acceptance target, and list no nvsh-coupled script as 'already domain-generic'",
+        "harness-smoke --stage config passes; lobes-cli attribution still appears only in .pi/SYSTEM.md; CLAUDE.md and QWEN.md still describe the project as jev-factory"
+      ],
+      "deps": [],
+      "covers": [
+        "c43",
+        "h33"
+      ],
+      "instruction": "Each file in its own framing (see CLAUDE.md 'Four harnesses'). Cite the spec docs/specs/2026-09-30-extract-jev-process-jev-cli-first-model.md. Do not touch .pi/SYSTEM.md's attribution. Also propose (do not post) an update comment for issue #1."
+    },
+    {
+      "id": "t3",
+      "summary": "Tell nvsh it becomes a consumer (nvsh#62)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a comment on agentculture/nvsh#62, signed '- jev-factory (Claude)', states the absorb decision, the absorbed scope (scripts/lfm-finetune scorer path, evals/), what stays in nvsh (Track A), and the domain-module interface nvsh will implement",
+        "no jev-factory commit, script or stage writes to the nvsh repository"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c44",
+        "h34",
+        "c56",
+        "h45"
+      ],
+      "instruction": "Use the communicate skill (post-comment.sh). Outward-facing: show the operator the draft and post only on approval. Link the domain-module schema once t8 lands; post after t8 merges."
+    },
+    {
+      "id": "t4",
+      "summary": "Work-root guard and run lock",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/factory/workroot.py refuses a work root inside any git worktree using 'git rev-parse --is-inside-work-tree', and accepts a temp dir that contains an empty .git",
+        "jev_factory/factory/lock.py: a second acquire on a locked run exits with CliError naming the holder PID; a lock left by a dead PID is reported as stale, never silently taken"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c63",
+        "h51",
+        "c61",
+        "h49"
+      ],
+      "instruction": "Behavioral tests: o39 (lock), o40 (workroot). The evals port (t26) reuses workroot.py for its guard, so keep the API tiny: resolve_work_root(path) -> Path and RunLock(run_dir) context manager."
+    },
+    {
+      "id": "t5",
+      "summary": "Run-config loader and secrets-by-name",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/factory/config.py loads a TOML run config with one documented precedence (CLI flag > run file > environment > default) that applies to every key, including the measure context; a test pins the order",
+        "tool paths (llama.cpp convert/quantize/imatrix, llama-server, AWQ python) and base model, base revision, hub prefix, licence and issue refs are required or defaulted config keys, never undocumented exports",
+        "jev_factory/factory/secrets.py reads secrets only via the env-var name given in config; a canary value never appears in stdout, stderr, logs or manifests; docs/run-config.example.toml names no host and no secret"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c30",
+        "h23",
+        "c64",
+        "h52"
+      ],
+      "instruction": "Replaces ../nvsh/scripts/lfm-finetune/pipeline.sh:174-191 env sourcing and its MEASURE_CTX exception (:178-182) with one rule. Knob list: ../nvsh/scripts/lfm-finetune/pipeline-qwen.env.example. Behavioral tests: o24 (precedence), o41 (canary)."
+    },
+    {
+      "id": "t6",
+      "summary": "Stage engine: manifests, staleness, detached long jobs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/factory/stages.py: each stage run writes a manifest (stage, jev-factory version, inputs with sha256, outputs with sha256, knobs, status, started/finished, rc); re-running with unchanged inputs is a no-op; changing any input sha256 marks that stage and every downstream stage stale",
+        "jev_factory/factory/detach.py starts a long stage detached from the invoking shell (setsid), writes a pid file and a done marker holding the real rc, and reports items-done/total for progress"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c29",
+        "h22"
+      ],
+      "instruction": "Replaces pipeline.sh's 'die if prior artifact missing' sequencing. Keep stages as a registry of pure-Python callables with declared inputs/outputs so t28 can list them. Behavioral tests: o23 (staleness), part of o37 (detach/progress)."
+    },
+    {
+      "id": "t7",
+      "summary": "GPU residency guard and memory-floor watchdog",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/factory/gpu.py refuses to start a GPU stage when nvidia-smi --query-compute-apps lists a process not started by this run, unless the explicit override flag is set; tested with a stubbed nvidia-smi",
+        "the memory-floor watchdog (port of ../nvsh/scripts/lfm-finetune/capped.sh) kills the stage and its children when MemAvailable drops below the configured floor; its capped.sh tests are ported"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c60",
+        "h48"
+      ],
+      "instruction": "Port ../nvsh/scripts/lfm-finetune/capped.sh (225 lines) and its tests from ../nvsh/tests/test_lfm_finetune_pipeline.py (run_capped/watchdog tests). GB10 does not charge GPU allocations to the cgroup cap. Behavioral test: o38."
+    },
+    {
+      "id": "t8",
+      "summary": "Domain-module contract, validator and toy domain",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/domain/model.py defines a declarative Domain: operations (name, description, read_only, args of kind str|choice, order), groundable arg kinds with world lookup and canonicalisation, world/snapshot schema, escalate reasons as one source (prompt description + generator definition), one answer-policy sentence, persona/explain topics/phrasing styles, paraphrases, seed corpus path, hub prefix and card text",
+        "jev_factory/domain/validate.py rejects, each with a named error: duplicate operation, empty description, a reason missing either text, more than 52 candidates including controls, unknown arg kind",
+        "tests/fixtures/toy_domain/ defines a valid toy domain with >= 3 operations (>= 1 mutating) used by later tasks"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c32",
+        "h25"
+      ],
+      "instruction": "Field list and nvsh locations: scope entry s16 and spec claim c32 (nvsh/ops/table.py:15-133, _model.py, ground.py:148-160, scorer.py:100-140, data/reasons.json, draft_sources.py:87-118,:266-293, augment.py:507-601). Derive `escalate:<r>` and `decline:<r>` from the one reason list. Behavioral test: o25."
+    },
+    {
+      "id": "t9",
+      "summary": "Label readout module (single definition of letters and token variants)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/backbones/causal_lm/readout.py is the only definition of the label alphabet (A-Z then a-z), label token-variant ids and variant-summed distribution normalised over offered labels",
+        "an incomplete readout (an offered label missing from top-k) is reported incomplete and never renormalised; a readout tally reports complete/incomplete counts",
+        "a tiny-model fixture scores one prompt in-process and from a synthetic served top-k logprob map and gets the same distribution within 1e-6"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c25",
+        "h19"
+      ],
+      "instruction": "Lift from ../nvsh/scripts/lfm-finetune/scorer.py:121,128,347-400 (LABEL_ALPHABET, READOUT_TOP, label_token_ids, label_variant_ids, label_logits_from_vocab, distribution). torch/transformers imports lazy. Behavioral tests: o14 (readout N/0), o27."
+    },
+    {
+      "id": "t10",
+      "summary": "Pre-registration: schema, stock-vs-minimum bars, hashing",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/factory/prereg.py validates a pre-registration file: bars (wrong mutating, ECE, permutation change + perms/entry, MC escalation, right proposals) each with stock value, minimum and the stricter-as-bar; the lexicographic rule order and tolerances; named candidates",
+        "the right-proposal minimum defaults to 95% and the bar is max(95%, stock - 5 pts); the stock baseline's record id is required",
+        "registering hashes the file into the run; a later change to the file makes consumers refuse until a deviation id is supplied"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c27",
+        "h21",
+        "c45",
+        "h35"
+      ],
+      "instruction": "Model on ../nvsh/docs/tool-jev-calibration-rule.md (rule order, +/-1 pt permutation, +/-0.01 ECE, ties) and issue #4 stage 1 bars. Behavioral tests: o11, o12."
+    },
+    {
+      "id": "t11",
+      "summary": "Provenance header convention for imported modules",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a documented module-level NVSH_PROVENANCE dict (upstream path, nvsh commit 9debdc6, adaptations list, licence 'Apache-2.0') and tests/test_provenance.py that fails when a module under the imported packages lacks it or names a missing upstream file"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c20",
+        "h14",
+        "c65",
+        "h53"
+      ],
+      "instruction": "Per-module headers keep import tasks file-disjoint (no shared ledger file to conflict on). t30 generates docs/nvsh-import-provenance.md from these headers. Behavioral test: o42."
+    },
+    {
+      "id": "t12",
+      "summary": "Import metrics and gate onto the domain seam",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/core/metrics.py and jev_factory/core/gate.py port ../nvsh/scripts/lfm-finetune/metrics.py and gate.py with nvsh.ops.table / nvsh.tiers.bench replaced by the Domain (read_only lookup, explain/escalate labels); outcomes propose/explain/escalate/abstain_uncertain unchanged",
+        "both run on a synthetic backbone-agnostic predictions record (candidates, raw scores, probabilities) with no tokenizer or model present; their nvsh unit tests are ported onto the toy domain and pass"
+      ],
+      "deps": [
+        "t8",
+        "t11"
+      ],
+      "covers": [
+        "c3",
+        "h2",
+        "c24",
+        "h18"
+      ],
+      "instruction": "Sources: ../nvsh/scripts/lfm-finetune/metrics.py (972 lines; nvsh imports at :127-128, uses at :321-332,:357,:423-428,:653), ../nvsh/scripts/lfm-finetune/gate.py (287; :72-73,:88-92,:270). Tests: ../nvsh/tests/test_lfm_finetune_metrics.py, test_lfm_finetune_gate.py. Unknown operation = mutating. Behavioral tests: o9, o44."
+    },
+    {
+      "id": "t13",
+      "summary": "Import split, merge-variations and leakage check",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/core/split.py, merge_variations.py, leakage.py and textsim.py port the nvsh scripts; split takes the corpus from domain/run config (never a hard-coded dev.json) and refuses a held-out split",
+        "leakage against every protected file (exact, 5-token shingles, word-set Jaccard >= 0.8) fails closed and prints ids only; sealed/test loaders expose ids, counts and sha256 only"
+      ],
+      "deps": [
+        "t8",
+        "t11"
+      ],
+      "covers": [
+        "c7",
+        "h5",
+        "c5",
+        "h3"
+      ],
+      "instruction": "Sources: ../nvsh/scripts/lfm-finetune/split.py (709), merge_variations.py (177), leakage_check.py (153; imports jetson_skills helpers at :36-44 -> move normalize_text/_shingles/_jaccard into core/textsim.py). Port their nvsh tests. Behavioral tests: o10, o16."
+    },
+    {
+      "id": "t14",
+      "summary": "jev-CLI domain generator from argparse",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/domains/jev_cli/generate.py builds the jev-CLI Domain from jev_factory.cli._build_parser() plus a read_only/args annotation registry; a test fails if a verb exists on one side only",
+        "groundable args resolve offline against the CLI's own catalog (explain paths from explain/catalog.py, run stages from the stage registry); the generated module's sha256 is exposed as the CLI surface hash"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c17",
+        "h11"
+      ],
+      "instruction": "Annotation registry lives in jev_factory/domains/jev_cli/annotations.py (verb -> read_only, args). Every write verb (--apply) is mutating. Behavioral test: o26 (generator); the surface hash is used by o36."
+    },
+    {
+      "id": "t15",
+      "summary": "Decision records and rule evaluation for jev decide",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/decide/records.py appends schema-valid JSON records (id, run, verdict, cited metric values with source sha256, rule version, decider rule|model|human) and never rewrites earlier ones; an override is a new record",
+        "jev_factory/decide/rules.py applies the pre-registered lexicographic rule mechanically to candidate summaries and emits one of the verdicts (ship candidate, more/fewer epochs, targeted augment class X, fix the grader, recalibrate, heal, refit gate, stop/escalate) with reasons"
+      ],
+      "deps": [
+        "t10"
+      ],
+      "covers": [
+        "c9",
+        "h7"
+      ],
+      "instruction": "Verdict triggers: issue #1 Layer 2 table and issue #4 Stage 9 (overfit: confidence stays high while abstain recall falls; underfit: both fall; loss ~0.001 is not a stop signal), yield < 30% -> fix grader, > 3 pts or new wrong-mutating id -> heal once, ECE > 0.10 -> recalibrate. Behavioral test: o21."
+    },
+    {
+      "id": "t16",
+      "summary": "Import calibration fit and gate sweep",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/core/calibration.py and sweep_gate.py port calibration_fit.py and sweep_gate.py: temperature then per-label vector kept only if it lowers selection-fold ECE; gate fit on the fit fold only (never reads selection-fold outcomes); sweep --final takes one value per grid knob",
+        "their nvsh tests are ported onto the toy domain and pass; apply changes probabilities only and re-made decisions mark newly chosen operations not grounded"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c7",
+        "h5"
+      ],
+      "instruction": "Sources: ../nvsh/scripts/lfm-finetune/calibration_fit.py (706), sweep_gate.py (465). D47: never peek at the selection fold while fitting. Behavioral test: part of o9."
+    },
+    {
+      "id": "t17",
+      "summary": "Causal-LM scorer adapter: prompt render, scoring, grounding",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/backbones/causal_lm/scorer.py renders the lettered prompt from the Domain (instruction, candidate lines, explain/escalate controls or reasons), randomises letters/order/subsets, scores in-process or via a served top-k endpoint through readout.py, and returns a backbone-agnostic predictions record",
+        "arguments are grounded deterministically from the Domain's grounding (punctuation stripped, exactly one grounded value, choice spellings) and never generated by the model"
+      ],
+      "deps": [
+        "t9",
+        "t8",
+        "t11"
+      ],
+      "covers": [
+        "c3",
+        "h2"
+      ],
+      "instruction": "Source: ../nvsh/scripts/lfm-finetune/scorer.py (748; nvsh imports :82-86, prompt :137-140,:454-483, ground_arguments :551-629). The predictions record is the adapter seam other backbones (#3 CLM, nvsh#67 GLiNER) will also emit."
+    },
+    {
+      "id": "t18",
+      "summary": "Teacher client: roles, JSON verdicts, response cache, Apache-only",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/data/teachers.py calls generator/reviewer A/reviewer B through an OpenAI-compatible gateway configured by role, with explicit reply budgets (reviewers 8192, generator 12000), timeouts and reasoning effort recorded",
+        "reviewer verdicts are parsed from JSON against a schema; 'no-argument', 'ambiguous' and mid-sentence 'but' replies parse correctly; empty or malformed replies are retried twice then recorded as errors, never rejects",
+        "every request/response is cached by content hash so a killed run restarted re-sends 0 cached requests; the teacher config rejects any model not listed Apache-2.0 and any codex/agy/kiro endpoint"
+      ],
+      "deps": [
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c8",
+        "h6",
+        "c12",
+        "h8",
+        "c59",
+        "h47"
+      ],
+      "instruction": "Replaces augment.parse_verdict's blacklist. Default roles: generator Qwen3.6-35B-A3B (worker), reviewer A Gemma-4-26B-A4B (senses), reviewer B Qwen3.8-27B (cortex, decides and corrects). Key via secrets.py. Behavioral tests: o20, o22, o37."
+    },
+    {
+      "id": "t19",
+      "summary": "Import drafting: eval pool and sealed held-out",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/data/draft.py ports draft_sources.py and draft_heldout.py with all persona, explain topics, escalate examples and effect labels read from the Domain; held-out drafted by a non-teacher model in process",
+        "a drafted held-out file carries the 'Held-out split' header, a unique id prefix per seed, is written read-only, and only counts and sha256 are ever printed"
+      ],
+      "deps": [
+        "t18",
+        "t13",
+        "t8"
+      ],
+      "covers": [
+        "c5",
+        "h3"
+      ],
+      "instruction": "Sources: ../nvsh/scripts/lfm-finetune/draft_sources.py (923), draft_heldout.py (240). Ask for small batches (a 60-item explain request never parsed in #53). Port their tests onto the toy domain."
+    },
+    {
+      "id": "t20",
+      "summary": "Import augmentation and targeted recipes",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/data/augment.py and targeted.py port augment.py and targeted_augment.py (missing-argument, diagnosis-explain, power-set generalised to 'every choice value', disambiguation, hard-negative) with prompts from the Domain and verdicts via teachers.py",
+        "the 'name the subject the way a user would' rule is in the hard-negative prompt; each recipe records its reject reasons; tests run on the toy domain with a fake teacher"
+      ],
+      "deps": [
+        "t18",
+        "t13",
+        "t8"
+      ],
+      "covers": [
+        "c46",
+        "h36"
+      ],
+      "instruction": "Sources: ../nvsh/scripts/lfm-finetune/augment.py (1925), targeted_augment.py (1087). VAGUE_REFS/_SPAN_NOUNS derive from the Domain's arg kinds. Drop Track-A skills fields."
+    },
+    {
+      "id": "t21",
+      "summary": "Import assemble and freeze (scorer training set)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/data/assemble.py merges variations and supplements, runs leakage, builds scorer-train.json with per-row random order, letters and subsets and -nocand rows at the configured rate, then records sha256 of every data file as the freeze",
+        "training later selects its data by the frozen sha256, never by mtime; any change after freeze requires a deviation id"
+      ],
+      "deps": [
+        "t17",
+        "t13"
+      ],
+      "covers": [
+        "c31",
+        "h24"
+      ],
+      "instruction": "Source: ../nvsh/scripts/lfm-finetune/build_dataset.py (961; nvsh imports :57-66, REASON_CANDIDATES :87). Defaults per issue #4: --randomize-labels, perm seed, missing-candidate rate 0.3. Behavioral: part of o28."
+    },
+    {
+      "id": "t22",
+      "summary": "Import scorer training, merge verification and heal",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/backbones/causal_lm/train_scorer.py and train.py port LoRA scorer training (CE restricted to offered letters, per-row letter map) and merge; merge fails on any missing-adapter-key warning or when a sampled merged weight equals the base weight",
+        "heal is a 1-epoch lr 5e-5 bf16 continuation on the same frozen set; gen_config.py and stage_cache.py are ported; the run writes train-log.json and row-maps.json"
+      ],
+      "deps": [
+        "t21",
+        "t9",
+        "t7"
+      ],
+      "covers": [
+        "c7",
+        "h5"
+      ],
+      "instruction": "Sources: ../nvsh/scripts/lfm-finetune/train_scorer.py (740; nvsh imports :73-74 -> Domain + scorer adapter), train.py (508), gen_config.py, stage_cache.py. Qwen3.5 specifics (issue #4 stage 8): use processor.tokenizer, merge to text-only Qwen3_5ForCausalLM mapping VL keys. Heavy imports lazy. Behavioral test: o15."
+    },
+    {
+      "id": "t23",
+      "summary": "Import quantize with the one-round heal trigger",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/backbones/causal_lm/quantize.py ports quantize.py and awq_oneshot.py: bf16 GGUF (--no-mtp when a declared MTP head has no weights), imatrix from train-side text, Q4_K_M, optional AWQ; records the llama.cpp commit",
+        "heal_needed() fires only on > 3 pts right-proposal loss against its own bf16 or a new wrong-mutating id, the trigger is logged before any heal, and a second heal round is refused",
+        "GGUF quantize.imatrix.* metadata carries no absolute paths"
+      ],
+      "deps": [
+        "t22"
+      ],
+      "covers": [
+        "c7",
+        "h5"
+      ],
+      "instruction": "Sources: ../nvsh/scripts/lfm-finetune/quantize.py (633), awq_oneshot.py (171, runs under the separate AWQ venv as a subprocess). Behavioral test: o17."
+    },
+    {
+      "id": "t24",
+      "summary": "Measurement: served and in-process, snapshot grounding, probe, slices",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/measure/ ports measure.py's scorer path, serve_for_measure.sh (vLLM by digest, llama-server for GGUF, one-port lock fixing nvsh#58), eval_slices.py and permutation_probe.py, with no nvsh import",
+        "final and held-out measurement run once: a second run without a deviation id exits non-zero; a failed start-up never leaves a results page that blocks the real run",
+        "a Q4_K_M build is measured through llama-server from an environment without nvsh installed; served top-k equals the readout's READOUT_TOP"
+      ],
+      "deps": [
+        "t17",
+        "t16",
+        "t7",
+        "t4"
+      ],
+      "covers": [
+        "c33",
+        "h26",
+        "c5",
+        "h3"
+      ],
+      "instruction": "Sources: ../nvsh/scripts/lfm-finetune/measure.py (3150; take only the scorer path, not Track A/tiers), serve_for_measure.sh (546), eval_slices.py, permutation_probe.py. Snapshot grounding comes from the Domain world schema. Behavioral tests: o10, o30."
+    },
+    {
+      "id": "t25",
+      "summary": "Bundle, scan and private upload",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/release/bundle.py builds model and dataset bundles that must contain calibration.json, gate.json and scorer-train.json (the set actually trained on) and the CLI surface hash; a symlink or an absolute path in GGUF metadata refuses the bundle",
+        "jev_factory/release/hub.py: without --apply nothing is sent; with --apply it creates private, forces private again, uploads, fetches back and compares every sha256 and the remote file list, and never calls a visibility-to-public API",
+        "the hub prefix, licence and card text come from the Domain/run config"
+      ],
+      "deps": [
+        "t5",
+        "t14",
+        "t11"
+      ],
+      "covers": [
+        "c6",
+        "h4",
+        "c57",
+        "h46"
+      ],
+      "instruction": "Sources: ../nvsh/scripts/lfm-finetune/release_bundle.py (977), dataset_bundle.py (827), scan_bundle.py (407; nvsh.redact -> jev redactor), hub_upload.py (243). Test with a fake hub client. Behavioral tests: o18, o19, o36 (surface hash recorded)."
+    },
+    {
+      "id": "t26",
+      "summary": "Import the release gate (evals) generic core",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/evals/ ports the gate's ledger/resume, manifest, providers, cases, trace, report, deepeval layer and runner with nvsh.ops.table replaced by the Domain (unknown = mutating), nvsh.redact by the jev redactor, and metrics/gate/calibration from jev_factory.core",
+        "the worktree guard uses factory.workroot (rev-parse); the smoke run with the fake provider and raw policy passes in CI with no secrets; the gate code has no nvsh import",
+        "Track A replay, the judge panel, Discord alerts, docker driver and batch APIs are not imported (deferred per c14)"
+      ],
+      "deps": [
+        "t12",
+        "t16",
+        "t4",
+        "t8",
+        "t1"
+      ],
+      "covers": [
+        "c13",
+        "h9",
+        "c15",
+        "h10"
+      ],
+      "instruction": "Source: ../nvsh/evals/ (about 27k lines incl. about 12k tests). Keep model-only vs model+harness rows, per-provider USD caps with worst-case reservation, the truncation stop. deepeval stays in the 'evals' dependency group. Behavioral tests: o31 (smoke), o32 (guard)."
+    },
+    {
+      "id": "t27",
+      "summary": "Stage registry: every jev-tool build step as a jev run stage",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev_factory/factory/pipeline.py registers, in order: config, preregister, seed, teachers-pilot, draft-heldout, draft-eval, split, snapshot, baseline, augment, targeted, assemble, train, select (calibrate -> gate fit -> probe -> rule), quantize, heal, recalibrate, measure-final, edge-check, bundle, upload, release-gate",
+        "select fits calibration and the gate on the fit fold only and applies the pre-registered rule via decide/rules.py; recalibrate re-fits on the deployed quant's own predictions",
+        "tests/test_toy_domain_e2e.py runs validate, split, assemble, calibrate, gate sweep, select and decide end to end on CPU for the toy domain through the same stage code"
+      ],
+      "deps": [
+        "t6",
+        "t10",
+        "t19",
+        "t20",
+        "t21",
+        "t22",
+        "t23",
+        "t24",
+        "t25",
+        "t26",
+        "t15"
+      ],
+      "covers": [
+        "c46",
+        "h36",
+        "c55",
+        "h44"
+      ],
+      "instruction": "This replaces pipeline.sh (c58): re-express its guards from ../nvsh/tests/test_lfm_finetune_pipeline.py as stage tests. Behavioral tests: o6, o8."
+    },
+    {
+      "id": "t28",
+      "summary": "CLI verbs: jev init, run, status, decide",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev init, jev run (one subcommand per registered stage), jev status and jev decide are registered in cli/_commands with register(subparsers), support --json, raise CliError, and have explain catalog entries; teken cli doctor --strict passes",
+        "every write stage/verb is dry-run by default and changes no file in the work dir without --apply; jev status reads the stage manifests and shows items-done/total for running stages",
+        "`jev decide <run>` writes a decision record via decide/records.py and prints the verdict with its cited metrics"
+      ],
+      "deps": [
+        "t27",
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c23",
+        "h17",
+        "c36",
+        "h27"
+      ],
+      "instruction": "Also rewrite the 'clonable template' strings in cli/__init__.py description, learn.py and explain/catalog.py. Only this task edits catalog.py/learn.py/overview.py in this wave. Behavioral tests: o2, o33."
+    },
+    {
+      "id": "t29",
+      "summary": "jev ask: propose a jev verb from the bundle",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "`jev ask <request>` loads a jev-tool bundle, applies its calibration.json and gate.json, grounds arguments from the CLI catalog, and prints exactly one of propose/explain/escalate/abstain_uncertain with the probability; it executes nothing",
+        "a test proves no code path invokes a write verb with --apply because of model output (ask or decide); a surface-hash mismatch between bundle and running CLI is reported"
+      ],
+      "deps": [
+        "t28",
+        "t17",
+        "t25",
+        "t14"
+      ],
+      "covers": [
+        "c62",
+        "h50"
+      ],
+      "instruction": "Model inference via llama-server or in-process through the causal_lm adapter, heavy imports lazy. Behavioral tests: o34, o35, o36."
+    },
+    {
+      "id": "t30",
+      "summary": "Provenance doc, CI hygiene and layering checks",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/nvsh-import-provenance.md is generated from the NVSH_PROVENANCE headers and lists every imported scorer-path script and evals module with nvsh path, commit 9debdc6, adaptations and Apache-2.0",
+        "CI passes: coverage >= 60% on jev_factory with no module-level 'pragma: no cover'; scan-secrets.py, portability-lint.sh and harness-smoke config; no root AGENTS.md",
+        "a test greps jev_factory for nvsh names, the jetson-ai-lab prefix and jev-CLI verb lists outside their domain modules and finds none"
+      ],
+      "deps": [
+        "t12",
+        "t13",
+        "t16",
+        "t17",
+        "t19",
+        "t20",
+        "t21",
+        "t22",
+        "t23",
+        "t24",
+        "t25",
+        "t26"
+      ],
+      "covers": [
+        "c20",
+        "h14",
+        "c65",
+        "h53",
+        "c40",
+        "h30",
+        "c19",
+        "h13",
+        "c21",
+        "h15",
+        "c22",
+        "h16",
+        "c41",
+        "h31",
+        "c24",
+        "h18"
+      ],
+      "instruction": "Add portability-lint.sh to the CI lint job. Behavioral tests: o42 (provenance), o43 (hygiene), o28 and o29 (layering greps)."
+    },
+    {
+      "id": "t31",
+      "summary": "r3b failure diagnostic procedure (gated)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/r3b-diagnostic.md describes replaying nvsh's frozen #53 r3b predictions through the extracted select stages to localise a jev-tool failure, and the replay entry point refuses unless given a failed jev-tool evaluation record id",
+        "no default config or stage reads nvsh #53/r3b artifacts"
+      ],
+      "deps": [
+        "t27"
+      ],
+      "covers": [
+        "c42",
+        "h32"
+      ],
+      "instruction": "Do not run the replay. Paths to the frozen tree are operator-supplied config, never committed. Behavioral test: o13."
+    },
+    {
+      "id": "t32",
+      "summary": "Encode lessons: before-state and why-it-matters mapped to checks",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/lessons-encoded.md maps each nvsh failure (#46 mid-run rule, #39 l5 leakage, #46 l4 silent merge, hand-copied bundle files, stale snapshot, parser blacklist) to its nvsh record and to the jev-factory test that now prevents it",
+        "jev learn and jev explain describe the factory for the operator, the mesh agent and domain authors (how to write a domain module, run stages, read status and decisions) without pointing at nvsh docs"
+      ],
+      "deps": [
+        "t30",
+        "t29"
+      ],
+      "covers": [
+        "c49",
+        "h38",
+        "c51",
+        "h40",
+        "c48",
+        "h37"
+      ],
+      "instruction": "Cite scope entries s12, s13, s15, s16 for the before state. Update README.md too."
+    },
+    {
+      "id": "t33",
+      "summary": "jev-tool domain content: answer policy and seed corpus (operator-approved)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the jev-tool domain module has a one-sentence answer policy, reason classes, persona, explain topics and paraphrases; the seed corpus (train-only) covers every verb with operation, explain and escalate entries and all 8 decline classes",
+        "the operator approved the policy and a sample of the seed before any teacher call (recorded as a decision record)"
+      ],
+      "deps": [
+        "t28",
+        "t29",
+        "t14"
+      ],
+      "covers": [
+        "c38",
+        "h28"
+      ],
+      "instruction": "Agent drafts, operator reviews (c68). The CLI must already have its mutating verbs (c36). Mark the seed header 'Split train of'."
+    },
+    {
+      "id": "t34",
+      "summary": "Pre-register the jev-tool bars against stock Qwen3.5-0.8B",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a stock Qwen3.5-0.8B baseline is measured on the jev-tool validation side and its record id cited; the pre-registration file (bars = stricter of stock-derived and minimums, right-proposal minimum 95%) is registered and hashed before any train --apply"
+      ],
+      "deps": [
+        "t33"
+      ],
+      "covers": [
+        "c45",
+        "h35"
+      ],
+      "instruction": "Needs the eval pool split first: run teachers-pilot, draft-heldout, draft-eval, split, snapshot and baseline stages; register before the train stage. Operator reviews the file."
+    },
+    {
+      "id": "t35",
+      "summary": "Build jev-tool training data: pilot, sealed held-out, eval pool, augment, freeze",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "teacher pilot (about 20 good / 20 bad) read and yield per class >= 30% or the grader fixed first; sealed held-out has >= about 30 entries per answer kind and only counts/sha256 were printed; validation and test >= 150 each with fit/selection folds grouped by source",
+        "the training set is assembled and frozen with sha256 recorded; every accepted entry names its teacher model and role"
+      ],
+      "deps": [
+        "t34"
+      ],
+      "covers": [
+        "c38",
+        "h28"
+      ],
+      "instruction": "Lobes must be up for drafting/review; GPU training later needs them dropped (risk). Long stages run detached; report progress via jev status."
+    },
+    {
+      "id": "t36",
+      "summary": "Train candidates, select, decide",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the pre-registered candidates train with merge verification; select runs calibration, fit-fold gate, permutation probe and MC slice; jev decide applies the rule and writes a decision record for the chosen candidate, including losers' numbers"
+      ],
+      "deps": [
+        "t35"
+      ],
+      "covers": [
+        "c39",
+        "h29"
+      ],
+      "instruction": "One GPU, one job. A failure class is a data request (targeted recipe), recorded as a decision; any out-of-plan run is a deviation."
+    },
+    {
+      "id": "t37",
+      "summary": "Quantize, heal once if triggered, recalibrate, measure once, edge check",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Q4_K_M built; heal trigger evaluated and logged (at most one heal round); calibration and gate re-fit on the quant's own validation predictions",
+        "measure-final on test (full and MC slice), measure-heldout and the permutation probe run exactly once; every bar is compared with n and bootstrap CI against the hashed pre-registration and misses reported as misses",
+        "an AGX Orin run of the same Q4_K_M reports decisions and latency, with operator approval for stopping any resident server"
+      ],
+      "deps": [
+        "t36"
+      ],
+      "covers": [
+        "c52",
+        "h41"
+      ],
+      "instruction": "If any bar fails: stop, record, and follow docs/r3b-diagnostic.md only then (c42)."
+    },
+    {
+      "id": "t38",
+      "summary": "Bundle, private upload, release gate for the jev-tool model",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the jev-tool bundle carries calibration.json, gate.json, scorer-train.json and the CLI surface hash, is uploaded privately with hash-verified fetch-back (operator approves --apply and the repo name)",
+        "the release gate runs from jev-factory with no nvsh checkout and reports 0 wrong mutating in the model-only and model+harness rows",
+        "every artifact manifest of the run names a jev-factory stage and none points into an nvsh checkout; jev status shows every stage complete with record ids"
+      ],
+      "deps": [
+        "t37"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c50",
+        "h39",
+        "c53",
+        "h42"
+      ],
+      "instruction": "Going public is a separate operator decision, never part of this task. Behavioral tests at execution strength: o1, o3, o4, o7."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "GPU contention between teachers and training: the lobes (reviewer B about 56 GB, reviewer A about 34 GB) must be up for drafting and review, while training, quantize and measure need the GPU to themselves; the 2026-09-30 probe found about 34 GB already resident. Drafting and review must finish before GPU stages, and dropping or moving a lobe needs operator approval",
+      "kind": "unknown_nonblocking",
+      "task_id": "t35",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "Reviewer throughput is unprobed for the jev-tool domain: issue #4 measured about 2-3 verdicts a minute from a 27B thinking reviewer at 2 concurrent requests, which means a day or more of review; the schedule depends on it",
+      "kind": "unknown_nonblocking",
+      "task_id": "t35",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "The held-out drafter (a non-teacher, Qwen3.5-4B, run in process) is unprobed on this machine",
+      "kind": "unknown_nonblocking",
+      "task_id": "t35",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "Data may be thin: a jev CLI of about 10-40 verbs may not reach about 30 entries per answer kind in the sealed held-out set or 150 per validation/test side; a thin slice is a data request (targeted recipe) before the freeze, never an explanation for a missed bar",
+      "kind": "unknown_nonblocking",
+      "task_id": "t35",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "The hub prefix for jev-tool bundles is undecided (frame park v2); the operator names the private repo before upload --apply",
+      "kind": "unknown_nonblocking",
+      "task_id": "t38",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "Porting evals/ (about 27k lines, about 12k of them tests) may push CI time up and strain the 60% coverage gate; keep the deferred parts out rather than importing and excluding them",
+      "kind": "unknown_nonblocking",
+      "task_id": "t26",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r7",
+      "text": "The Orin edge check needs device access and operator approval to stop the resident model server; addresses come from the operator, never guessed",
+      "kind": "unknown_nonblocking",
+      "task_id": "t37",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r8",
+      "text": "Every PR must bump the version (CI version-check), and a push to main publishes to PyPI; each wave's PR runs /version-bump, and importing the package code triggers publish.yml",
+      "kind": "follow_up",
+      "task_id": "t1",
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": []
+}
