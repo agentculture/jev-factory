@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-30T17:42:37Z",
-  "updated": "2026-09-30T18:37:20Z",
+  "updated": "2026-09-30T18:38:09Z",
   "claims": [
     {
       "id": "c1",
@@ -1753,6 +1753,17 @@
       "skipped_check": "TDD red step",
       "refs": [
         "t21"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l14",
+      "code": "control-absent",
+      "what": "t19 task agent wrote tests alongside the code with no separate red run; post_seeded duplicates about 10 lines of teachers._post and only a mocked urlopen covers it",
+      "skipped_check": "TDD red step",
+      "refs": [
+        "t19"
       ],
       "origin": "llm",
       "status": "proposed"
