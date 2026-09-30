@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-09-30T19:38:24Z",
+  "updated": "2026-09-30T19:45:40Z",
   "deviations": [
     {
       "id": "d1",
@@ -138,6 +138,20 @@
       "status": "proposed",
       "classification": "needs-follow-up",
       "seq": 9
+    },
+    {
+      "id": "d10",
+      "what": "jev decide writes its append-only decision record without --apply (no dry-run gate); it is annotated mutating (read_only=False) in the jev-CLI domain",
+      "task_ref": "t28",
+      "reason": "t28's acceptance criterion says 'jev decide <run> writes a decision record'; c23/h17 say every write verb is dry-run by default. The record is append-only, cites its inputs and never changes model or data state, so decide is treated as a recording verb, not a write verb",
+      "affects": [
+        "c23",
+        "h17"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 10
     }
   ],
   "evidence": [],
