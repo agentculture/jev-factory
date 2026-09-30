@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-30T17:42:37Z",
-  "updated": "2026-09-30T18:32:08Z",
+  "updated": "2026-09-30T18:33:21Z",
   "claims": [
     {
       "id": "c1",
@@ -1731,6 +1731,17 @@
       "skipped_check": "TDD red step",
       "refs": [
         "t15"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l12",
+      "code": "control-absent",
+      "what": "t17 task agent wrote the module before running its tests, so no failing run was observed; the torch path (transformers_logprobs) and the default urllib post are untested",
+      "skipped_check": "TDD red step; exercise the real in-process and served paths",
+      "refs": [
+        "t17"
       ],
       "origin": "llm",
       "status": "proposed"
