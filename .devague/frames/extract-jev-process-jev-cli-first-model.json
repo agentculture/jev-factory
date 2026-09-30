@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-30T17:42:37Z",
-  "updated": "2026-09-30T18:04:23Z",
+  "updated": "2026-09-30T18:06:44Z",
   "claims": [
     {
       "id": "c1",
@@ -1309,6 +1309,18 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c69",
+      "kind": "decision",
+      "text": "Behavioral tests are marked @pytest.mark.behavioral(\"oN\"), naming the obligation they back, registered in pyproject's pytest markers, and run with 'pytest -m behavioral'; /validate-delivery files evidence per oN from that run (operator decision)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -1613,5 +1625,411 @@
       "status": "approved"
     }
   ],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c1",
+      "seam": "jev-tool run work dir: stage manifests",
+      "behavior": "Every artifact of the jev-tool build names the jev-factory stage and version that produced it, and no manifest input or output path points into an nvsh checkout",
+      "source_text": "jev-factory ships nvsh's Tool-Jev fine-tune process (issue #4, under umbrella #1) as a domain-generic staged pipeline, and the first new model it builds is a jev scorer that operates the jev CLI itself",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c50",
+      "seam": "jev CLI: run --help, status, bundle dir",
+      "behavior": "jev run --help lists every build stage; jev status reads each stage's manifest; the jev-tool bundle contains calibration.json, gate.json and scorer-train.json",
+      "source_text": "jev-factory owns the full jev-like build pipeline as `jev run <stage>` stages over a declarative domain module, with a state manifest per stage, machine-readable pre-registration and decision records, and every honesty check in code; its first product is a jev-tool scorer on Qwen3.5-0.8B that picks the right jev CLI verb, calibrated and gated, shipped privately as a GGUF bundle",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c52",
+      "seam": "final measurement record vs hashed pre-registration",
+      "behavior": "The deployed Q4_K_M, measured once on test and sealed held-out, is compared per bar (with n and bootstrap CI) against the hashed pre-registration: 0 wrong mutating, ECE <= 0.10, pooled permutation change <= 2.3% at >= 10 perms/entry, MC escalation >= 80%, right proposals >= max(95%, stock - 5 pts); a miss is recorded as a miss",
+      "source_text": "The jev-tool model's deployed Q4_K_M build, measured once, meets every pre-registered bar on both test and the sealed held-out set: 0 wrong mutating, ECE <= 0.10, pooled permutation change <= 2.3% (>= 10 permutations per entry), missing-candidate escalation >= 80%, and right proposals >= the stricter of (stock Qwen3.5-0.8B - 5 pts) and the pre-registered minimum",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c53",
+      "seam": "release gate (jev-factory evals) with no nvsh checkout",
+      "behavior": "The gate runs the jev-tool candidate from jev-factory code alone and reports 0 wrong mutating in both the model-only and model+harness rows",
+      "source_text": "The jev-tool bundle's release-gate run records 0 wrong mutating in both the model-only and model+harness rows, with the gate run from jev-factory's own evals code and no nvsh checkout present",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c54",
+      "seam": "jev_factory package import graph",
+      "behavior": "No module under jev_factory imports nvsh, and importing every module with torch, transformers, peft, unsloth, llmcompressor, huggingface_hub and deepeval blocked succeeds; pyproject dependencies == []",
+      "source_text": "jev-factory imports nothing from nvsh: 0 matches for 'import nvsh' or 'from nvsh' under jev_factory/, and the base install still has dependencies = [] with 0 heavy ML imports at module import time",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c55",
+      "seam": "toy domain fixture through the stage engine",
+      "behavior": "A toy domain with >= 3 operations (>= 1 mutating) runs validate, split, assemble, calibrate, gate sweep, select and decide end to end on CPU through the same stage code as the jev-tool domain",
+      "source_text": "A second tiny domain in tests (at least 3 operations, at least 1 mutating) runs the CPU-only stages end to end \u2014 validate, split, assemble, calibrate, gate sweep, select, decide \u2014 through the same code as the jev-tool domain, proving the factory is not jev-specific",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c39",
+      "seam": "jev status for the jev-tool run",
+      "behavior": "Every evaluation stage (selection rule, calibration, gate fit, permutation probe, MC slice, final test and held-out measurement, release gate) shows completed with a record id before the model is declared done",
+      "source_text": "Correctness of the extracted factory is proven by the jev-tool model itself passing every evaluation the pipeline defines: selection-fold rule, fit-fold calibration and gate, permutation probe, missing-candidate slice, one final measurement on test and the sealed held-out set on the deployed Q4_K_M, and the release gate (operator decision)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c46",
+      "seam": "jev run stage list vs issue #4 stages 0-17",
+      "behavior": "Each scorer-path step (config, pre-registration, seed, teachers and pilot, sealed held-out, eval pool and folds, snapshot and baseline, augment, assemble and freeze, train with merge check, select, quantize, heal, recalibrate, final measurement, edge check, bundle, upload, release gate) exists as a stage or documented sub-step",
+      "source_text": "Every step of building the jev-tool model is imported (operator decision): environment and run config, pre-registration, seed, teachers and reviewer pilot, sealed held-out set, eval pool with split and folds, grounding snapshot and baseline, augment and targeted recipes, assemble and freeze, scorer training with merge verification, selection (logprob calibration: temperature plus optional per-label vector, gate fit, permutation probe), quantize, one-round heal, recalibration on the deployed quant, one final measurement, edge check, bundle, private upload, and the release gate",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c3",
+      "seam": "distribution-only stages (calibrate, gate sweep, metrics, select, decide)",
+      "behavior": "They run on a synthetic predictions record with no tokenizer or model present, and none imports the backbone adapter module",
+      "source_text": "Stages that only need a candidate distribution (calibrate, gate sweep, metrics, selection rule, decide) take a backbone-agnostic predictions record; the letter-token readout, prompt rendering, trainer and quantizer live behind a per-backbone adapter, so #3's CLM heads and nvsh#67's GLiNER encoder can plug in later without touching those stages",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c5",
+      "seam": "sealed/test split loaders and the final-measure stage",
+      "behavior": "Loaders expose only ids, counts and sha256, never entry text; a second final or held-out measurement without a deviation id exits non-zero",
+      "source_text": "Sealed held-out and test sets are touched once, in the final run only; the lead never reads their text, only counts and sha256 (issue #4 stage 4 and 'Process discipline'); migrating nvsh's sealed set copies it only as a hash-verified file",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c27",
+      "seam": "pre-registration file and train stage",
+      "behavior": "train refuses to run without a schema-valid, hashed pre-registration; after registration, a changed file makes decide refuse until a deviation id is given",
+      "source_text": "The pre-registered bars and lexicographic selection rule are a machine-readable, hashed artifact written before the first training command; nvsh's docs/tool-jev-calibration-rule.md is prose only (71 lines, committed b1c6cb6) and jev decide must evaluate it mechanically",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c45",
+      "seam": "pre-registration schema",
+      "behavior": "Each bar records the stock Qwen3.5-0.8B value, the pre-registered minimum (right proposals minimum 95%, per c67), and the stricter of the two as the bar; the stock baseline's record id is cited",
+      "source_text": "The reference for the jev-tool model's bars is stock Qwen3.5-0.8B plus pre-registered minimum requirements: for each metric the bar is the stricter of the stock-derived value and the minimum (operator decision). The minimums are nvsh's: 0 wrong mutating on test and held-out, ECE <= 0.10 on the deployed build, pooled permutation change <= 2.3%, missing-candidate escalation >= 80%, and right proposals >= stock - 5 pts",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c42",
+      "seam": "r3b/#53 artifact access",
+      "behavior": "No stage or default config reads nvsh #53/r3b artifacts; the replay diagnostic is refused unless a failed jev-tool evaluation record id is given",
+      "source_text": "No new r3b work: the nvsh r3b/#53 frozen data is not replayed, reproduced or retrained unless the jev-tool model fails an evaluation; only then is it replayed through the extracted stages, to find whether the fault is in the pipeline or in the jev-CLI data or model, and used to fix it (operator decision)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c7",
+      "seam": "scorer readout (served and in-process)",
+      "behavior": "An incomplete readout (any offered label missing from top-k) is reported as incomplete and never renormalised; the run's readout tally must read N complete / 0 incomplete",
+      "source_text": "The checks listed in issue #4 extraction step 5 are code, not docs: readout completeness N/0, merge changed weights with 0 missing adapter keys, leakage fails closed against every protected file, heal trigger fires at most once, bundle carries calibration.json + gate.json + scorer-train.json with no symlinks and no absolute paths in GGUF imatrix metadata, private upload with hash-verified fetch-back, no final rerun without a deviation record",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c7",
+      "seam": "merge step (train, heal)",
+      "behavior": "The merge fails when any missing-adapter-key warning appears or when a sampled merged weight equals the base weight",
+      "source_text": "The checks listed in issue #4 extraction step 5 are code, not docs: readout completeness N/0, merge changed weights with 0 missing adapter keys, leakage fails closed against every protected file, heal trigger fires at most once, bundle carries calibration.json + gate.json + scorer-train.json with no symlinks and no absolute paths in GGUF imatrix metadata, private upload with hash-verified fetch-back, no final rerun without a deviation record",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c7",
+      "seam": "assemble leakage check",
+      "behavior": "Leakage against every protected file (exact, 5-token shingle, Jaccard >= 0.8) fails closed and prints ids only",
+      "source_text": "The checks listed in issue #4 extraction step 5 are code, not docs: readout completeness N/0, merge changed weights with 0 missing adapter keys, leakage fails closed against every protected file, heal trigger fires at most once, bundle carries calibration.json + gate.json + scorer-train.json with no symlinks and no absolute paths in GGUF imatrix metadata, private upload with hash-verified fetch-back, no final rerun without a deviation record",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c7",
+      "seam": "heal trigger",
+      "behavior": "heal fires only when the quant loses > 3 pts of right proposals against its own bf16 or adds a new wrong-mutating id, logs the trigger first, and refuses a second round",
+      "source_text": "The checks listed in issue #4 extraction step 5 are code, not docs: readout completeness N/0, merge changed weights with 0 missing adapter keys, leakage fails closed against every protected file, heal trigger fires at most once, bundle carries calibration.json + gate.json + scorer-train.json with no symlinks and no absolute paths in GGUF imatrix metadata, private upload with hash-verified fetch-back, no final rerun without a deviation record",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c7",
+      "seam": "bundle stage",
+      "behavior": "A bundle without calibration.json, gate.json or scorer-train.json, or containing a symlink, or with an absolute path in GGUF quantize.imatrix metadata, is refused",
+      "source_text": "The checks listed in issue #4 extraction step 5 are code, not docs: readout completeness N/0, merge changed weights with 0 missing adapter keys, leakage fails closed against every protected file, heal trigger fires at most once, bundle carries calibration.json + gate.json + scorer-train.json with no symlinks and no absolute paths in GGUF imatrix metadata, private upload with hash-verified fetch-back, no final rerun without a deviation record",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o19",
+      "claim_id": "c6",
+      "seam": "upload verb with a fake hub client",
+      "behavior": "Without --apply nothing is sent; with --apply the repo is created private and forced private again, fetched back and every sha256 and the remote file list compared, a symlink refused, and no visibility-to-public call is ever made",
+      "source_text": "Publishing is private-first: hub_upload creates private, fetches back and verifies every sha256 and the file list, and refuses symlinks; going public is a per-repo operator decision and a hard stop (issue #4 stage 16)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o20",
+      "claim_id": "c8",
+      "seam": "reviewer verdict parser",
+      "behavior": "Verdicts parse from JSON against a schema; replies containing 'no-argument', 'ambiguous' or a mid-sentence 'but' parse correctly; malformed or empty replies are retried twice and then recorded as errors, never as rejects",
+      "source_text": "Teacher reviewers return a structured JSON verdict instead of free text parsed by augment.parse_verdict's blacklist, which misread 'no-argument', 'ambiguous' and a mid-sentence 'but' (issue #4 stage 3)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o21",
+      "claim_id": "c9",
+      "seam": "jev decide record store",
+      "behavior": "decide appends a schema-valid record (id, run, verdict, cited metrics with source sha256, rule version, decider) and leaves earlier records byte-identical; a human override is a new record",
+      "source_text": "Between-run decisions are machine-readable, append-only records (D-style: evidence with cited metrics, choice, who decided, record id), not only prose ledgers, because they are the Layer 3 decider's corpus (issue #4 'Process discipline'; issue #1 Layer 2)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o22",
+      "claim_id": "c38",
+      "seam": "accepted training data provenance",
+      "behavior": "Every accepted entry names its teacher model and role, and the teacher config rejects any model not listed as Apache-2.0",
+      "source_text": "jev-CLI training data is drafted and reviewed by nvsh's lobes teachers (generator Qwen3.6-35B-A3B; reviewers Gemma-4-26B-A4B and Qwen3.8-27B) through the OpenAI-compatible gateway, Apache-2.0 only, with reviewers returning structured JSON verdicts (operator decision)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o23",
+      "claim_id": "c29",
+      "seam": "stage engine",
+      "behavior": "Re-running a completed stage with unchanged inputs is a no-op; changing an input's sha256 marks that stage and every downstream stage stale",
+      "source_text": "jev run stages write a real per-stage state manifest (inputs with sha256, outputs, knobs, status) that makes them resumable; nvsh's pipeline.sh has no stage-state file \u2014 resumability is a docstring claim, sequencing is 'die if the prior artifact is missing', and stage_cache.py only stages a merged checkpoint into an HF cache (stage_cache.py:67-82)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o24",
+      "claim_id": "c30",
+      "seam": "run-config loader",
+      "behavior": "A key set in both the run file and the environment resolves by the one documented precedence order, measure context included",
+      "source_text": "jev-factory's run-config loader has one explicit, documented precedence rule, rather than copying pipeline.sh's surprise: the sourced env file overrides exported shell values (pipeline.sh:180), except MEASURE_CTX, which is saved and restored (:178-182); tool paths (LLAMA_CPP_*, AWQ_PY, LLAMA_SERVER) are required config, not undocumented exports",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o25",
+      "claim_id": "c32",
+      "seam": "domain module validator",
+      "behavior": "It rejects, each with a named error: duplicate operation, empty description, reason missing its prompt description or generator definition, more than 52 candidates with controls, unknown arg kind",
+      "source_text": "The domain module is one declarative, loudly validated definition covering: operations (name, description, read_only, args of kind str|choice, order), groundable arg kinds with their world lookup and canonicalisation, the world/snapshot schema, escalate reasons as a single source (prompt description plus generator definition, deriving `escalate:<r>` and `decline:<r>`), one answer-policy sentence used by every generator and reviewer prompt, persona/explain topics/phrasing styles, probe paraphrases, the seed corpus {header, world, entries}, and hub prefix plus card text; today these are duplicated across nvsh/ops/table.py:15-133, ground.py:148-160, scorer.py:100-140, data/reasons.json, draft_sources.py:87-118 and :266-293, augment.py:507-601, measure.py:1788, hub_upload.py:51 and release_bundle.py:306-673",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o26",
+      "claim_id": "c17",
+      "seam": "jev-CLI domain generator vs _build_parser()",
+      "behavior": "The generated operation list matches the argparse subcommands exactly; a verb missing on either side fails the test",
+      "source_text": "The jev-CLI domain module is generated from the argparse tree (_build_parser) plus a per-verb read_only/args annotation, not hand-copied: today three hand-kept lists (overview.py:70-112 _VERBS, learn.py:56-62 commands, explain/catalog.py:126-135) can drift and none carries read_only or arg schemas",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o27",
+      "claim_id": "c25",
+      "seam": "label readout module",
+      "behavior": "The same prompt scored in-process and from served logprobs yields the same distribution within 1e-6 on a tiny model fixture, using one shared alphabet and variant definition",
+      "source_text": "The letter/token readout (LABEL_ALPHABET scorer.py:121, label_token_ids :347, label_variant_ids :365, READOUT_TOP :128) is lifted out of nvsh-coupled scorer.py into the causal-LM backbone adapter as the single label definition that training, in-process scoring and served scoring all use",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o28",
+      "claim_id": "c31",
+      "seam": "jev_factory source outside domain modules",
+      "behavior": "No nvsh name, jetson-ai-lab prefix or Qwen-only check exists outside the nvsh domain module; train-scorer picks data by frozen sha256, not mtime",
+      "source_text": "Knobs that pipeline.sh hard-codes to nvsh become domain or run config: BUNDLE_REPO_PREFIX (:500) and hub_upload.ALLOWED_PREFIX (hub_upload.py:51), require_qwen_base (:508-512), split always reading dev.json (split.py:664, no --corpus passed), bundle-dataset --issue 46 and nvsh LICENSE; train-scorer's mtime-based choice of scorer-train.json (:648-649) becomes an explicit choice by frozen sha256",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o29",
+      "claim_id": "c41",
+      "seam": "jev_factory source outside the jev-tool domain module",
+      "behavior": "No jev-CLI verb list or jev-specific prompt exists outside the jev-tool domain module and its tests",
+      "source_text": "The pipeline is built as a general factory for many models across other domains, not only the jev-tool model: nothing jev-CLI-specific lives outside that domain's module (operator decision)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o30",
+      "claim_id": "c33",
+      "seam": "served measure stage",
+      "behavior": "A Q4_K_M build is measured through llama-server from an environment with no nvsh package installed",
+      "source_text": "Served measurement does not depend on nvsh's tier runtime: measure.py:171-183 imports nvsh.tiers (bench, lfm, toolchat, router, base, runtime, runtime_docker), nvsh.config, nvsh.redact and nvsh.platform, so jev-factory needs its own decision contract (propose/explain/escalate/abstain), corpus loader, snapshot grounding runner and serve adapter behind the score seam (scorer.score_next_token)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o31",
+      "claim_id": "c13",
+      "seam": "release gate smoke",
+      "behavior": "The gate smoke runs with the fake provider and raw policy in CI, and the gate code has no nvsh import",
+      "source_text": "The release gate port is the last stage and keeps nvsh evals/' generic core (ledger/resume, manifest-as-data, provider adapters, per-provider USD caps with worst-case reservation, truncation stop, replay of saved predictions, model-only vs model+harness rows) while replacing its nvsh couplings: nvsh.ops.table (cases.py:49, request.py:64-67) becomes the domain module's read_only table with unknown=mutating, nvsh.redact (providers/base.py:50, judge.py:115) a jev-factory redactor, and path-loaded scripts/lfm-finetune metrics/gate/calibration_fit (trace.py:50, policies.py:82) the cited copies",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o32",
+      "claim_id": "c15",
+      "seam": "evals worktree guard",
+      "behavior": "The guard uses git rev-parse --is-inside-work-tree and passes in a temp dir containing an empty .git",
+      "source_text": "The evals worktree guard uses 'git rev-parse --is-inside-work-tree' rather than detecting a .git directory, since nvsh#71 item 2 shows an empty /tmp/.git trips every evals test in a sandbox",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o33",
+      "claim_id": "c23",
+      "seam": "new CLI verbs (init, run, status, decide, ask)",
+      "behavior": "Each has an explain entry, --json output and a CliError path; teken cli doctor --strict passes; every write verb leaves the work dir unchanged without --apply",
+      "source_text": "Every new verb (init, run, status, decide) registers under cli/_commands with register(subparsers), raises CliError, supports --json, is dry-run by default with --apply for writes, and gets an explain/catalog.py entry so teken cli doctor --strict and test_every_catalog_path_resolves (tests/test_cli.py:111) pass",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o34",
+      "claim_id": "c66",
+      "seam": "jev ask",
+      "behavior": "Given a request, jev ask loads the bundle, applies calibration.json and gate.json, grounds arguments deterministically, and prints one proposal (propose, explain, escalate or abstain_uncertain) without executing anything",
+      "source_text": "jev gains a 'jev ask' verb that loads the jev-tool bundle and, for a natural-language request, proposes one jev verb: it applies the bundle's calibration.json and gate.json and grounds arguments deterministically, and it only prints the proposal, never running --apply itself (operator decision on q5; see c62)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o35",
+      "claim_id": "c62",
+      "seam": "every model-driven path (ask, decide --model)",
+      "behavior": "No code path invokes a write verb with --apply as a result of model output",
+      "source_text": "A jev-tool model's proposal is never executed with --apply on its own: when the model picks a mutating verb (train, upload, publish, retrain), a human still issues --apply, per issue #1 Layer 3 'the model proposes, and --apply plus the hard stops still apply' (challenge / security)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o36",
+      "claim_id": "c57",
+      "seam": "bundle surface hash",
+      "behavior": "A bundle records the jev-CLI domain module sha256; when the running CLI's surface differs, jev ask reports the mismatch",
+      "source_text": "Each jev-tool bundle records the sha256 of the generated jev-CLI domain module (the CLI surface) it was trained on, and using a bundle whose surface hash differs from the running jev's argparse surface is flagged, because the CLI keeps growing (c36) and the domain is generated from argparse (c17) (challenge / adjacent-systems)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o37",
+      "claim_id": "c59",
+      "seam": "long-running stages (draft, review, train)",
+      "behavior": "A stage killed mid-run and restarted re-sends 0 cached teacher requests, resumes at the next item, and jev status shows items done out of total",
+      "source_text": "Long stages (teacher drafting and review take a day or more; scorer training about 26 min) run detached from the invoking shell with a PID and done marker, resume at item granularity from a response cache, and report progress through jev status; issue #4 'Shell and automation traps' records that tool-backgrounded jobs die at the tool timeout, and s15 found only augment.py resumes at item level (challenge / failure-modes)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o38",
+      "claim_id": "c60",
+      "seam": "GPU stages (train, heal, quantize, measure)",
+      "behavior": "With a stubbed nvidia-smi listing a foreign compute process, each refuses to start unless the override flag is given",
+      "source_text": "GPU stages (train, heal, quantize, served measure) check for other GPU compute processes before starting, and refuse unless the operator overrides; training runs under the memory-floor watchdog, because GB10 does not charge GPU allocations to the cgroup cap. A probe on 2026-09-30 found a resident vLLM EngineCore holding about 32 GB alongside another process (challenge / operations: nvidia-smi --query-compute-apps)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o39",
+      "claim_id": "c61",
+      "seam": "run work-dir lock",
+      "behavior": "A second jev run on a locked run exits non-zero naming the holder PID; a stale lock from a dead PID is reported, not silently taken over",
+      "source_text": "A run's work dir holds a lock, so a second concurrent jev run against the same run (for example the mesh agent and the operator at once) is refused; nvsh#58 records a stop/start race in serve_for_measure.sh on one port (challenge / concurrency)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o40",
+      "claim_id": "c63",
+      "seam": "work-root resolution",
+      "behavior": "A work root inside a git worktree (detected with rev-parse) is refused",
+      "source_text": "Run work roots (drafts, splits, the sealed held-out set, predictions, bundles) live outside any git worktree, and stages refuse a work root inside one, as nvsh's evals writers already do (s6), so sealed or private data can never be committed (challenge / security + data-loss)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o41",
+      "claim_id": "c64",
+      "seam": "secrets handling",
+      "behavior": "A canary token injected via the named env var never appears in stdout, stderr, logs or manifests; the run-config examples contain no host and no secret",
+      "source_text": "Secrets reach stages only by environment variable name (the hub token and the teacher gateway key), are never printed or logged, and a test pins that the run-config examples name no host and no secret, as nvsh's test_neither_env_example_names_a_host_or_a_secret does (challenge / security)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o42",
+      "claim_id": "c20",
+      "seam": "provenance doc",
+      "behavior": "Every imported module is listed with its nvsh path, commit 9debdc6, adaptations and Apache-2.0 origin, and every listed file exists",
+      "source_text": "The absorbed nvsh code carries a one-time import provenance record (per file: upstream ../nvsh path, nvsh commit 9debdc6, adaptations made), laid out in docs/skill-sources.md's table style; after import jev-factory owns the code, and there is no ongoing re-sync from nvsh",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o43",
+      "claim_id": "c22",
+      "seam": "repo hygiene (CI)",
+      "behavior": "harness-smoke --stage config, scan-secrets.py and portability-lint.sh pass, and no root AGENTS.md exists",
+      "source_text": "No root AGENTS.md is added and the four harness prompt files (CLAUDE.md, AGENTS.override.md + .pi/SYSTEM.md, AGENTS.colleague.md, QWEN.md) are each updated in their own framing when project facts change (tests/test_harness_smoke.py:200, docs/harness-invocations.yaml:35,83)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o44",
+      "claim_id": "c24",
+      "seam": "imported modules (gate, metrics, calibration_fit, sweep_gate, train_scorer, scan_bundle, leakage_check)",
+      "behavior": "Each reads the operation table, explain and escalate labels, redactor and request formatting from the domain module seam; none imports nvsh or jetson_skills, directly or transitively",
+      "source_text": "The stale 'already domain-generic' list (issue #1, CLAUDE.md, nvsh playbook l.148-151) is not trusted when importing: gate.py:72-73 and metrics.py:127-128 import nvsh.ops.table and nvsh.tiers.bench, train_scorer.py:73-74 imports nvsh.tiers.lfm/bench, scan_bundle.py:34 imports nvsh.redact, calibration_fit.py:78 and sweep_gate.py:54-56 reach nvsh by path-loading metrics/gate, and leakage_check.py:38 imports Track-A-only jetson_skills; every import is rewired to the domain-module seam (operation table, explain/escalate labels, redactor, request formatting)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o45",
+      "claim_id": "c26",
+      "seam": "jev_factory source",
+      "behavior": "No module loads a sibling with importlib spec_from_file_location; imported scripts use normal package imports",
+      "source_text": "Imported scripts become package modules with normal imports, replacing nvsh's _sibling importlib path-loading (e.g. gate -> metrics, sweep_gate -> gate + calibration_fit, train_scorer -> scorer + train)",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
 }

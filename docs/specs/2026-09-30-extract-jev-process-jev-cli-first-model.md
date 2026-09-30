@@ -252,6 +252,7 @@
 - jev gains a 'jev ask' verb that loads the jev-tool bundle and, for a natural-language request, proposes one jev verb: it applies the bundle's calibration.json and gate.json and grounds arguments deterministically, and it only prints the proposal, never running --apply itself (operator decision on q5; see c62)
 - The pre-registered absolute minimum for right proposals is 95% (r3b's test side was 79/83 = 95.2%); the bar is the stricter of this and stock Qwen3.5-0.8B minus 5 pts (operator decision on q6; refines c45)
 - The agent drafts the one-sentence answer policy and an initial jev-tool seed corpus from the domain module; the operator reviews and approves the policy and a sample before any teacher run, and the seed stays train-only (operator decision on q7)
+- Behavioral tests are marked @pytest.mark.behavioral("oN"), naming the obligation they back, registered in pyproject's pytest markers, and run with 'pytest -m behavioral'; /validate-delivery files evidence per oN from that run (operator decision)
 
 ## Hard questions
 
