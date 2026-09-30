@@ -24,14 +24,20 @@ what the repo is and how it is laid out, not who is reading it.
 [`nvsh`](https://github.com/agentculture/nvsh) used to build its **Tool-Jev**
 model into a reusable factory for **jev-like** models. It has three layers:
 
-1. **Factory.** nvsh's staged fine-tune pipeline, made domain-generic through
-   a declarative domain module.
+1. **Factory.** nvsh's staged fine-tune pipeline, absorbed into this repo
+   (not cited; nvsh becomes a consumer) and made domain-generic through a
+   declarative domain module.
 2. **Decision surface.** `jev decide` applies a pre-registered rule to each
    run's metrics and records the verdict.
 3. **Self-hosting.** A jev-like decider model is built to make those
    decisions.
 
-The brief is GitHub issue #1 in `agentculture/jev-factory`.
+The brief is GitHub issue #1 in `agentculture/jev-factory`. The operator's
+decisions, which override older text in that brief, are in
+`docs/specs/2026-09-30-extract-jev-process-jev-cli-first-model.md`:
+the first and only acceptance target is a **jev-tool** model (a scorer whose
+candidates are the `jev` CLI's own verbs), and nvsh `scorer-r3b` parity is
+not a gate.
 
 **Current state: scaffold only.** None of the factory is built yet. On disk
 today are the agent-first CLI (`jev whoami|learn|explain|overview|doctor`),
@@ -45,16 +51,21 @@ always offered: `explain` and `escalate`. It outputs a distribution over
 those candidates, which is calibrated with a temperature and an optional
 per-label vector. A gate with separate read-only and mutating thresholds
 turns that into propose / explain / escalate / abstain. Arguments are
-grounded outside the model. nvsh's reference build is `scorer-r3b` on
-Qwen3.5-0.8B, and other model families are planned, such as GLiNER2.5-Decide
-(nvsh issue #67).
+grounded outside the model. nvsh's reference build, `scorer-r3b` on
+Qwen3.5-0.8B, is context only; it is replayed only if a jev-tool evaluation
+fails. Other model families are planned, such as GLiNER2.5-Decide
+(nvsh issue #67) are planned.
 
 When a question is about the fine-tune process itself, the source material
-lives in the sibling checkout `../nvsh`:
+lives in the sibling checkout `../nvsh`. jev-factory absorbs its scorer-path
+code once and then owns it, so read it as the origin, not as a dependency.
+Not every script there is domain-generic: `gate.py`, `metrics.py`,
+`calibration_fit.py`, `sweep_gate.py`, `train_scorer.py`, `scan_bundle.py`
+and `leakage_check.py` are nvsh-coupled and get rewired on import.
 
 - `docs/scorer-finetune-playbook.md`, especially its Step 0 port checklist;
 - `docs/tool-jev-calibration-rule.md`;
-- `scripts/lfm-finetune/`.
+- `scripts/lfm-finetune/` and `evals/`.
 
 nvsh issue #62 is the domain-module seam between the two repos.
 

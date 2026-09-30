@@ -22,8 +22,26 @@ domain. It has three layers, and each depends on the one before it:
    fallback.
 
 The brief is **[issue #1](https://github.com/agentculture/jev-factory/issues/1)**
-(`gh issue view 1`). Read it before designing anything. It is a brief, not a
-spec. The intended flow is `/scope` → `/think` → `/spec-to-plan` before code.
+(`gh issue view 1`). It is a brief, not a spec, and where it disagrees with
+the confirmed spec, the spec wins. The operator's decisions are in
+`docs/specs/2026-09-30-extract-jev-process-jev-cli-first-model.md` (read
+it before designing anything). The intended flow is `/scope` → `/think` →
+`/spec-to-plan` before code.
+
+**Operator decisions that override older text** (spec claims c37-c47, c66):
+
+- jev-factory **absorbs** nvsh's scorer-path pipeline (`scripts/lfm-finetune/`
+  and `evals/`) as its canonical implementation, rather than citing it.
+  nvsh becomes a consumer, on its own schedule. jev-factory never edits nvsh.
+- The **first and only acceptance target is the jev-tool model**: a scorer
+  whose candidates are the `jev` CLI's own verbs. Correctness of the
+  extracted factory is proven by that model passing every evaluation the
+  pipeline defines. nvsh `scorer-r3b` parity is **not** an acceptance gate.
+- nvsh's r3b / issue-53 frozen data is replayed only if a jev-tool
+  evaluation fails and a deviation record is open, and then only as a
+  diagnostic.
+- The factory verbs (`jev init`, `jev run`, `jev status`, `jev decide`) ship
+  before the first model is trained.
 
 ## Current state: scaffold only
 
@@ -89,8 +107,15 @@ such model families later, so:
   Serialization may differ per family but must not give one model
   information the other lacks, and any family-specific preprocessing is
   recorded in the run's artifacts.
-- The baseline to beat or complement is nvsh's `scorer-r3b` Q4_K_M (nvsh#63).
-  Compare like with like, because nvsh reports two sets of numbers for it:
+- The bars for the jev-tool model are pre-registered: for each metric, the
+  stricter of the stock Qwen3.5-0.8B-derived value and a minimum. The
+  minimums are nvsh's (0 wrong mutating on test and held-out, ECE <= 0.10 on
+  the deployed build, pooled permutation change <= 2.3%, missing-candidate
+  escalation >= 80%) plus a **95% right-proposal minimum**, with right
+  proposals also >= stock - 5 pts.
+- nvsh's `scorer-r3b` Q4_K_M (nvsh#63) is **reference context only**, not a
+  baseline to reproduce. If you read its numbers, compare like with like,
+  because nvsh reports two sets for it:
   - **Selection fold** (nvsh D47): 79/84 right proposals, 0 wrong mutating,
     abstain recall 94.0%, 1/120 false-positive tool calls, ECE 0.019 after
     temperature.
@@ -125,10 +150,13 @@ such model families later, so:
 
 ## Source material in `../nvsh`
 
-nvsh is the origin and the first domain. Read it; **don't fork its docs**.
-Coordinate with it on [nvsh#62](https://github.com/agentculture/nvsh/issues/62),
-the domain-module seam that is jev-factory's natural boundary. The key files
-(paths are relative to `../nvsh`):
+nvsh is the origin. jev-factory **absorbs** its scorer-path pipeline: the
+code is imported once, and after import jev-factory owns it (there is no
+ongoing re-sync). Read nvsh; **don't fork its docs**. Coordinate with it on
+[nvsh#62](https://github.com/agentculture/nvsh/issues/62), the domain-module
+seam: nvsh will implement that interface as a jev-factory domain module
+when it retires its own copy. The key files (paths are relative to
+`../nvsh`):
 
 - `docs/scorer-finetune-playbook.md`: the end-to-end recipe (steps 0–12).
   Its **Step 0 port checklist** lists exactly what is nvsh-specific, and its
@@ -147,11 +175,25 @@ the domain-module seam that is jev-factory's natural boundary. The key files
 - `scripts/lfm-finetune/`: `pipeline.sh` (resumable stages under `--env
   <file>`; `pipeline-qwen.env.example` shows every knob) and every script.
 
-**Already domain-generic, so cite (copy) rather than import:** `split.py`,
-`merge_variations.py`, `leakage_check.py`, `calibration_fit.py`, `gate.py`,
-`sweep_gate.py`, `metrics.py`, `train.py`, `train_scorer.py`, `quantize.py`,
-`gen_config.py`, `stage_cache.py`, `scan_bundle.py`, `serve_for_measure.sh`,
-`capped.sh`.
+**Import scope.** Absorbed: every step on the path that builds a jev-tool
+(scorer) model, from run config through the release gate, plus the `evals/`
+generic core. Not absorbed: code used only by Track A (generative tool
+calling): `track_a_calibration.py`, `jetson_skills.py`, `skills_dataset.py`,
+`measure_skills.py`, the release gate's Track A replay and the pipeline's
+skills stages. `pipeline.sh` itself is replaced by the `jev run` Python stage
+engine, not imported. Each imported file goes in a one-time provenance table
+(nvsh path, commit `9debdc6`, adaptations), and keeps its Apache-2.0
+attribution.
+
+**Do not trust nvsh's old "already domain-generic" list** (issue #1, the
+playbook and earlier versions of this file). Verify every script's imports
+as you absorb it. These are **nvsh-coupled**, not generic, and must be
+rewired to the domain-module seam on the way in: `gate.py` and `metrics.py` (import `nvsh.ops.table` and
+`nvsh.tiers.bench`), `train_scorer.py` (imports `nvsh.tiers.lfm`/`bench`),
+`scan_bundle.py` (imports `nvsh.redact`), `calibration_fit.py` and
+`sweep_gate.py` (path-load `metrics`/`gate`), and `leakage_check.py` (takes
+text-similarity helpers from Track-A-only `jetson_skills`). After import, no
+module imports nvsh and none path-loads a sibling.
 
 **nvsh-specific, so this becomes the domain module:** the operation table
 (`nvsh/ops/table.py`: `Operation(name, description, read_only, args)` plus the
@@ -162,17 +204,22 @@ reasons (three places that must agree: `scorer.REASON_CANDIDATES`,
 `data/reasons.json`, `draft_sources.REASON_DEFINITIONS`), probe paraphrases
 (`data/paraphrases.json`), the seed corpus (`dev.json`), the hub prefix and
 card text, and the test fixtures. Served measurement also runs through
-nvsh's tier runtime, which needs either a replacement or a documented adapter.
+nvsh's tier runtime (`measure.py` imports `nvsh.tiers`), so jev-factory needs
+its own decision contract, corpus loader, grounding runner and serve adapter
+behind the score seam.
 
-## Planned shape (from issue #1; not built)
+## Planned shape (from issue #1 and the spec; not built)
 
 - **Domain module contract:** one declarative, loudly validated definition
   of actions with their `read_only` flags, grounding, prompts, seed corpus
-  and escalate reason classes. **The first acceptance test is parity:**
-  re-express nvsh Tool-Jev as a domain module and reproduce scorer-r3b's
-  selection-fold verdict from the frozen data.
-- **Stages** (the same stages as nvsh), each resumable and each writing an
-  artifact manifest:
+  and escalate reason classes. **The first acceptance target is the
+  jev-tool model** (candidates are the `jev` CLI's own verbs, with the domain
+  module generated from the argparse tree plus per-verb `read_only`/args
+  annotations). nvsh parity is not a gate. A second tiny toy domain in tests
+  proves the stages are not jev-specific.
+- **Stages** (nvsh's stages, absorbed and re-expressed as `jev run` stages),
+  each resumable and each writing a per-stage state manifest (inputs with
+  sha256, outputs, knobs, status):
   1. Pre-register the bars and the rule.
   2. Seed, then set up the teachers.
   3. Seal the held-out set.
@@ -193,19 +240,26 @@ nvsh's tier runtime, which needs either a replacement or a documented adapter.
   14. Upload privately, then fetch back and verify the hash.
   15. Run the release gate.
 - **CLI verbs:** `jev init <domain>`, `jev run <stage>`, `jev status`,
-  `jev decide <run> [--model <bundle>]`.
+  `jev decide <run> [--model <bundle>]`, and later `jev ask`, which loads a
+  jev-tool bundle, proposes one `jev` verb for a natural-language request
+  (calibration and gate applied, arguments grounded) and only prints the
+  proposal, never running `--apply` itself.
 - **Minimum verdict set for `jev decide`:** ship candidate, more/fewer
   epochs, targeted augment for class X, fix the grader first, recalibrate,
   heal the quant (one round only), refit the gate, and stop/escalate to the
   human. Issue #1 has the table of triggers and knobs for each verdict.
-- **Suggested first milestone:** the domain-module contract plus an nvsh
-  Tool-Jev module; cite the generic scripts; build `jev run select` over
-  nvsh's frozen r3b predictions; and have a rule-based `jev decide`
-  reproduce the issue-53 r3b verdict with a decision record.
-- **Parked operator questions (don't decide them):** whether jev-factory
-  absorbs nvsh's `scripts/lfm-finetune/` or cites it; whether bundles use a
+- **Build order (spec c36):** the domain-module contract and the stage
+  engine first; then the factory verbs (`init`, `run`, `status`, `decide`,
+  dry-run by default) before any jev-tool training data is drafted; then the
+  jev-tool run itself, through every evaluation, with the pre-registration
+  file written before the first training command. The jev-tool bars are the
+  stricter of stock Qwen3.5-0.8B and the minimums (95% right proposals
+  minimum). nvsh#62 gets a comment stating the absorb decision and the
+  domain-module interface nvsh will implement.
+- **Parked operator questions (don't decide them):** whether bundles use a
   `jev-factory` hub prefix or per-domain prefixes; and how much unattended
-  autonomy the decider eventually gets.
+  autonomy the decider eventually gets. (Absorb versus cite is decided:
+  absorb.)
 
 ## Dependencies and environment
 
