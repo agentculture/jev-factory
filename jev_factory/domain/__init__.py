@@ -1,1 +1,1 @@
-"""jev_factory.domain package (skeleton; populated by later tasks)."""
+"""The domain-module contract: :mod:`.model` holds a Domain; :mod:`.validate` judges it."""
