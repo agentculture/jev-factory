@@ -96,10 +96,13 @@ Test references are `tests/<file>::<test name>`. A test marked
 
 ## Stale snapshot and stale stage state
 
-The record for this failure is the absence of any stage state in nvsh's
-pipeline (issue #4, stages and "Shell and automation traps"): a stage could
-be re-used after its inputs, knobs or grounding snapshot had changed, and a
-frozen input was identified only by a 16-hex prefix.
+The record for this failure is nvsh #53 lapse l9: a stale grounding
+snapshot was missing 23 services and 11 containers (issue #4, stage 6),
+because nothing tied a measurement to the snapshot it used. Behind it is
+the absence of any stage state in nvsh's pipeline (issue #4, stages and
+"Shell and automation traps"): a stage could be re-used after its inputs,
+knobs or grounding snapshot had changed, and a frozen input was identified
+only by a 16-hex prefix.
 
 - **Before.** The pipeline kept no stage-state file, so a finished stage
   looked fresh even when its inputs had moved. The grounding snapshot a
