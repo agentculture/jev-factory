@@ -54,7 +54,9 @@ NVSH_PROVENANCE = {
         "refuse_if_under_nvsh (:216-227) becomes refuse_if_under_package: a v2 corpus is never"
         " written inside the installed jev_factory package",
         "_load_calibration_fit/calibration_fit.make_folds (:205-214, :492-497) become the"
-        " local make_folds (grouped by source_id, same algorithm), because"
+        " local make_folds, taken from calibration_fit.py:165-200 (DEFAULT_FIT_FRACTION = 0.7,"
+        " line 83; grouped by source_id via group_of; sorted ids, sorted group keys, seeded"
+        " shuffle, n_fit = round(n_groups * fit_fraction)), because"
         " jev_factory.core.calibration does not exist yet; t16 may re-point it",
         "sys.path/_REPO_ROOT/importlib path loading removed in favour of package imports",
         "new load_sealed/SealedSide: read a sealed held-out or test side as ids, counts and"
@@ -227,7 +229,7 @@ def refuse_if_under_package(path: Path) -> None:
         raise ValueError(f"refusing to write inside the jev_factory package: {path}")
 
 
-DEFAULT_FIT_FRACTION = 0.5
+DEFAULT_FIT_FRACTION = 0.7
 
 
 def make_folds(
