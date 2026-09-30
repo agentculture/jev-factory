@@ -14,7 +14,8 @@ Qwen Code session.
 model (a calibrated scorer fine-tuned from `Qwen/Qwen3.5-0.8B`) into a
 reusable factory for **jev-like** models. It has three layers:
 
-1. **Factory.** nvsh's staged pipeline, made domain-generic through a
+1. **Factory.** nvsh's staged pipeline, absorbed into this repo (not cited;
+   nvsh becomes a consumer) and made domain-generic through a
    declarative *domain module*: actions with `read_only` flags, grounding,
    prompts, seed corpus and escalation reasons.
 2. **Decision surface.** `jev decide <run>` applies a pre-registered rule to
@@ -23,7 +24,12 @@ reusable factory for **jev-like** models. It has three layers:
    are those verdicts, and uses it to drive new builds, with the rule as
    baseline and fallback.
 
-The brief is issue #1 (`gh issue view 1`). **None of the factory is built
+The brief is issue #1 (`gh issue view 1`). The operator's decisions, which
+override it where they differ, are in
+`docs/specs/2026-09-30-extract-jev-process-jev-cli-first-model.md`.
+The first and only acceptance target is a **jev-tool** model (a scorer whose
+candidates are the `jev` CLI's own verbs); nvsh `scorer-r3b` parity is not a
+gate. **None of the factory is built
 yet.** Only the agent scaffold exists, so describe factory verbs and modules
 as planned.
 
@@ -44,7 +50,11 @@ so the backbone and its readout are pluggable adapters behind that contract.
 
 The source material is in `../nvsh`: `docs/scorer-finetune-playbook.md` (its
 Step 0 port checklist lists what is domain-specific),
-`docs/tool-jev-calibration-rule.md` and `scripts/lfm-finetune/`. nvsh
+`docs/tool-jev-calibration-rule.md`, `scripts/lfm-finetune/` and `evals/`.
+jev-factory absorbs the scorer-path code once and then owns it. Not every
+script there is domain-generic: `gate.py`, `metrics.py`,
+`calibration_fit.py`, `sweep_gate.py`, `train_scorer.py`, `scan_bundle.py`
+and `leakage_check.py` are nvsh-coupled and get rewired on import. nvsh
 issue #62 is the domain-module seam.
 
 Some rules are enforced in code, never exposed as knobs:
