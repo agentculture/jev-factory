@@ -45,8 +45,17 @@ from pathlib import Path
 from typing import Any
 
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
-from jev_factory.core.leakage import match
 from jev_factory.core.split import HELD_OUT_NAME, expectation_kind, load_sealed, sha256_file
+from jev_factory.data.common import (
+    bump,
+    duplicates_against,
+    expect_words,
+    list_check,
+    operation_table_text,
+    parse_json_list,
+    reviewer_intro,
+    sha256_of_entries,
+)
 from jev_factory.data.teachers import (
     RoleConfig,
     TeacherClient,
@@ -114,6 +123,10 @@ class HeldOutRefused(ValueError):
     """Raised when a path named like the sealed held-out corpus is opened."""
 
 
+#: The operation table as a prompt (kept under draft's historical name).
+table_text = operation_table_text
+
+
 def _err(message: str, remediation: str = "") -> CliError:
     return CliError(code=EXIT_USER_ERROR, message=message, remediation=remediation)
 
@@ -179,22 +192,6 @@ def make_seeded_caller(
 # ---------------------------------------------------------------------------
 
 
-def _arg_text(arg: Any) -> str:
-    if arg.kind == "choice":
-        return f"{arg.name} (one of: {'/'.join(arg.choices)})"
-    return f"{arg.name} (free text)"
-
-
-def table_text(domain: Domain) -> str:
-    """The operation table as a prompt: name, description, effect, arguments."""
-    lines = []
-    for op in domain.operations:
-        args = ", ".join(_arg_text(a) for a in op.args) or "no arguments"
-        effect = READ_ONLY_LABEL if domain.read_only(op.name) else MUTATING_LABEL
-        lines.append(f"- {op.name}: {op.description} [{effect}; arguments: {args}]")
-    return "\n".join(lines)
-
-
 def generator_system(domain: Domain) -> str:
     """The generator's system prompt: the domain's persona and phrasing styles."""
     who = domain.persona or "a user of the assistant"
@@ -236,7 +233,7 @@ def _explain_topics(domain: Domain) -> str:
 
 
 def _head(domain: Domain) -> str:
-    return f"Operations:\n{table_text(domain)}\n\n"
+    return f"Operations:\n{operation_table_text(domain)}\n\n"
 
 
 def _with_batch(ask: str, index: int, total: int) -> str:
@@ -276,27 +273,6 @@ def as_item(item: Any) -> dict[str, Any]:
     if isinstance(item, str):
         return {"text": item}
     return {}
-
-
-def parse_json_list(raw: str) -> list[Any]:
-    """The JSON list in a reply, tolerating a code fence and prose around it."""
-    raw = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.M).strip()
-    start, end = raw.find("["), raw.rfind("]")
-    if start == -1 or end < start:
-        raise ValueError("no JSON list in reply")
-    items = json.loads(raw[start : end + 1])
-    if not isinstance(items, list):
-        raise ValueError("reply is not a JSON list")
-    return items
-
-
-def _list_check(text: str) -> tuple[bool, str]:
-    """A ``TeacherClient`` parse hook: an unparsable reply is retried, never cached."""
-    try:
-        parse_json_list(text)
-    except ValueError:
-        raise TeacherError("reply is not a JSON list") from None
-    return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -342,10 +318,6 @@ class Candidate:
 Step = Callable[[str, Callable[[], Any]], Any]
 
 
-def _bump(counts: dict[str, int], key: str, by: int = 1) -> None:
-    counts[key] = counts.get(key, 0) + by
-
-
 def _generate_items(
     client: TeacherClient,
     system: str,
@@ -357,14 +329,14 @@ def _generate_items(
     """One generator batch as a list of item dicts; an unusable reply is counted, not raised."""
 
     def ask() -> list[dict[str, Any]]:
-        outcome = client.complete("generator", system, user, parse=_list_check)
+        outcome = client.complete("generator", system, user, parse=list_check)
         if outcome.status != "ok":
             return [{"__error__": True}]
         return [as_item(item) for item in parse_json_list(outcome.text)]
 
     items = step(key, ask)
     if items == [{"__error__": True}]:
-        _bump(rejects, "generator_error")
+        bump(rejects, "generator_error")
         return []
     return items
 
@@ -388,10 +360,10 @@ def _op_candidates(
                 text = str(item.get("text", "")).strip()
                 args = item.get("args") or {}
                 if not text or not isinstance(args, dict):
-                    _bump(rejects, "invalid_args")
+                    bump(rejects, "invalid_args")
                     continue
                 if domain.validate_args(op.name, args) is not None:
-                    _bump(rejects, "invalid_args")
+                    bump(rejects, "invalid_args")
                     continue
                 out.append(Candidate(f"op-{op.name}", text, {"operation": op.name, "args": args}))
     return out
@@ -415,7 +387,7 @@ def _decline_candidates(
             for item in _generate_items(client, system, user, rejects, step, key):
                 text = str(item.get("text", "")).strip()
                 if not text:
-                    _bump(rejects, "invalid_args")
+                    bump(rejects, "invalid_args")
                     continue
                 cand = Candidate(f"decline-{reason}", text, {"escalate": True}, f"decline:{reason}")
                 out.append(cand)
@@ -438,7 +410,7 @@ def _explain_candidates(
             text = str(item.get("text", "")).strip()
             answer = str(item.get("answer", "")).strip()
             if not text or not answer:
-                _bump(rejects, "invalid_args")
+                bump(rejects, "invalid_args")
                 continue
             out.append(Candidate("explain", text, {"explain": True, "answer": answer}))
     return out
@@ -474,15 +446,6 @@ def load_dev_texts(domain: Domain) -> list[str]:
     ]
 
 
-def duplicates_against(text: str, others: Sequence[str]) -> str | None:
-    """``"exact"``, ``"near-duplicate"`` or ``None``, from ``core.leakage.match``."""
-    for other in others:
-        kind = match(text, other)
-        if kind is not None:
-            return kind
-    return None
-
-
 def dedupe_candidates(
     candidates: list[Candidate], dev_texts: Sequence[str], rejects: dict[str, int]
 ) -> list[Candidate]:
@@ -494,10 +457,10 @@ def dedupe_candidates(
             candidate.text, kept_texts
         )
         if kind == "exact":
-            _bump(rejects, "dedupe_exact")
+            bump(rejects, "dedupe_exact")
             continue
         if kind == "near-duplicate":
-            _bump(rejects, "dedupe_near")
+            bump(rejects, "dedupe_near")
             continue
         kept.append(candidate)
         kept_texts.append(candidate.text)
@@ -511,42 +474,19 @@ def dedupe_candidates(
 
 def reviewer_system(domain: Domain) -> str:
     """The reviewers' system prompt: the domain's answer policy, then a strict yes/no ask."""
-    policy = f" {domain.answer_policy}" if domain.answer_policy else ""
     return (
-        "You are a strict reviewer for a training dataset that teaches a small assistant when to "
-        "run one of a fixed set of operations, when to hand a request off to a human, and when "
-        f"to just answer a question in words.{policy} Given the operation table and a request, "
+        f"{reviewer_intro(domain)} Given the operation table and a request, "
         "judge whether the stated handling is exactly correct."
     )
-
-
-def _expect_words(domain: Domain, expect: dict[str, Any], cls: str | None) -> str:
-    if expect.get("escalate"):
-        base = "no listed operation can safely handle this request, so it is escalated to a human"
-        reason = (cls or "").removeprefix("decline:")
-        definitions = domain.reason_definitions()
-        if reason in definitions:
-            base += f", because {definitions[reason]}"
-        return base
-    if expect.get("explain"):
-        answer = expect.get("answer", "")
-        return f"this is a knowledge question needing no action, correctly answered as: {answer}"
-    name = str(expect.get("operation"))
-    op = domain.get(name)
-    what = op.description.rstrip(".").lower() if op is not None else "the expected action"
-    values = ", ".join(f"{k} {v}" for k, v in sorted((expect.get("args") or {}).items()))
-    detail = f" -- {values}" if values else ""
-    verb = "run this read-only check" if domain.read_only(name) else "propose this change"
-    return f"{verb}: {what}{detail}"
 
 
 def reviewer_prompt(
     domain: Domain, text: str, expect: dict[str, Any], cls: str | None = None
 ) -> tuple[str, str]:
     user = (
-        f"Operation table:\n{table_text(domain)}\n\n"
+        f"Operation table:\n{operation_table_text(domain)}\n\n"
         f"Request: {text}\n\n"
-        f"Is this the correct handling: {_expect_words(domain, expect, cls)}?"
+        f"Is this the correct handling: {expect_words(expect, cls, domain)}?"
     )
     return reviewer_system(domain), user
 
@@ -576,9 +516,9 @@ def _tally_rejects(outcome: dict[str, Any], rejects: dict[str, int]) -> None:
     votes = outcome["votes"]
     for role in ("reviewer_a", "reviewer_b"):
         if votes[role]["accept"] is False:
-            _bump(rejects, role)
+            bump(rejects, role)
         elif votes[role]["accept"] is None:
-            _bump(rejects, f"{role}_error")
+            bump(rejects, f"{role}_error")
 
 
 # ---------------------------------------------------------------------------
@@ -604,11 +544,6 @@ def _entry_from_candidate(entry_id: str, candidate: Candidate) -> dict[str, Any]
     return entry
 
 
-def _sha256_of_entries(entries: list[dict[str, Any]]) -> str:
-    body = json.dumps(entries, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
-
-
 def _by_kind(entries: list[dict[str, Any]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for entry in entries:
@@ -617,7 +552,7 @@ def _by_kind(entries: list[dict[str, Any]]) -> dict[str, int]:
             kind = expectation_kind(expect)
         except (AttributeError, TypeError):
             kind = "unknown"
-        _bump(counts, kind or "unknown")
+        bump(counts, kind or "unknown")
     return counts
 
 
@@ -719,13 +654,13 @@ def run_draft(
             lambda c=candidate: judge(domain, c.text, c.expect, c.cls, client),
         )
         if outcome["accepted"]:
-            _bump(counters, candidate.kind_tag)
+            bump(counters, candidate.kind_tag)
             entry_id = _make_id(seed, candidate.kind_tag, counters[candidate.kind_tag])
             entries.append(_entry_from_candidate(entry_id, candidate))
         else:
             _tally_rejects(outcome, rejects)
             label = "error" if outcome["errored"] else "rejected"
-            _bump(rejected, f"{candidate.kind_tag}-{label}")
+            bump(rejected, f"{candidate.kind_tag}-{label}")
             entry_id = (
                 f"s{seed}-{POOL}-{candidate.kind_tag}-{label}-"
                 f"{rejected[f'{candidate.kind_tag}-{label}']:03d}"
@@ -735,9 +670,9 @@ def run_draft(
     by_reason: dict[str, int] = {}
     for entry in entries:
         if entry.get("class", "").startswith("decline:"):
-            _bump(by_reason, entry["class"].removeprefix("decline:"))
+            bump(by_reason, entry["class"].removeprefix("decline:"))
     by_kind = _by_kind(entries)
-    sha256 = _sha256_of_entries(entries)
+    sha256 = sha256_of_entries(entries)
     header = {
         "tool": "draft.run_draft",
         "domain": domain.name,
@@ -1008,10 +943,10 @@ def run_review(
         text = entry.get("text", "")
         kind = duplicates_against(text, texts) or duplicates_against(text, kept_texts)
         if kind == "exact":
-            _bump(rejects, "dedupe_exact")
+            bump(rejects, "dedupe_exact")
             continue
         if kind == "near-duplicate":
-            _bump(rejects, "dedupe_near")
+            bump(rejects, "dedupe_near")
             continue
         outcome = judge(domain, text, entry.get("expect", {}), entry.get("class"), client)
         rows.append({"id": entry.get("id", ""), "votes": outcome["votes"]})

@@ -69,7 +69,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from jev_factory.core.leakage import match as leakage_match
 from jev_factory.core.merge_variations import _TRAIN_HEADER, _normal
 from jev_factory.data.augment import (
     DECIDE_BY_RULES,
@@ -79,10 +78,19 @@ from jev_factory.data.augment import (
     asks_for_handoff,
     copies_answer_template,
     names_internal_operation,
-    operation_table_text,
     reviewer_verdict,
 )
-from jev_factory.data.teachers import TeacherClient, TeacherError
+from jev_factory.data.common import (
+    bump,
+    duplicates_against,
+    expect_words,
+    list_check,
+    operation_table_text,
+    parse_json_list,
+    reviewer_intro,
+    sha256_of_entries,
+)
+from jev_factory.data.teachers import TeacherClient
 from jev_factory.domain.model import ARG_KINDS, DECLINE_PREFIX, ArgSpec, Domain, Operation
 
 NVSH_PROVENANCE = {
@@ -197,10 +205,6 @@ class Unit:
     group: str | None = None
 
 
-def _bump(counts: dict[str, int], key: str, by: int = 1) -> None:
-    counts[key] = counts.get(key, 0) + by
-
-
 def decline_class(domain: Domain, recipe: str) -> str:
     """The corpus ``class`` (``decline:<reason>``) *recipe* labels escalations with."""
     name = RECIPE_REASONS[recipe]
@@ -231,35 +235,13 @@ def generator_system(domain: Domain) -> str:
 def strict_reviewer_system(domain: Domain) -> str:
     topics = ", ".join(domain.explain_topics)
     scope = f" (topics such as: {topics})" if topics else ""
-    policy = f" {domain.answer_policy}" if domain.answer_policy else ""
     return (
-        "You are a strict reviewer for a training dataset that teaches a small assistant when to "
-        "run one of a fixed set of operations, when to hand a request off to a human, and when to "
-        f"just answer a question in words.{policy} Answering in words is only for knowledge "
+        f"{reviewer_intro(domain)} Answering in words is only for knowledge "
         f"questions in this domain{scope}; any other text that is not a request in this domain "
         "(greetings, thanks, jokes, farewells, questions or remarks about the assistant itself) "
         "is handed off, not answered. Given the operation table and a request, judge whether the "
         "stated handling is exactly correct. Answer strictly 'yes' or 'no', then a short reason."
     )
-
-
-def expect_words(expect: dict[str, Any], cls: str | None, domain: Domain) -> str:
-    """The stated handling as a reviewer is asked to judge it, in words."""
-    if expect.get("escalate"):
-        base = "no listed operation can safely handle this request, so it is escalated to a human"
-        definition = domain.reason_definitions().get((cls or "").removeprefix(DECLINE_PREFIX))
-        return f"{base}, because {definition}" if definition else base
-    if expect.get("explain"):
-        answer = expect.get("answer", "")
-        return f"this is a knowledge question needing no action, correctly answered as: {answer}"
-    op = domain.get(str(expect.get("operation")))
-    what = op.description.rstrip(".").lower() if op is not None else "the expected action"
-    values = ", ".join(f"{k} {v}" for k, v in sorted((expect.get("args") or {}).items()))
-    detail = f" -- {values}" if values else ""
-    verb = (
-        "run this read-only check" if (op is not None and op.read_only) else "propose this change"
-    )
-    return f"{verb}: {what}{detail}"
 
 
 def review_prompt(
@@ -286,7 +268,7 @@ VAGUE_REFS: dict[str, tuple[str, ...]] = {
     "str": ("the {noun}", "that {noun}", "it"),
     "choice": ("a different {noun}", "another {noun}", "the other {noun}"),
 }
-if set(VAGUE_REFS) != set(ARG_KINDS):  # pragma: no cover - guards a contract change
+if set(VAGUE_REFS) != set(ARG_KINDS):  # guards a contract change
     raise RuntimeError("VAGUE_REFS must have one entry per argument kind in ARG_KINDS")
 
 
@@ -428,7 +410,7 @@ def missing_argument_units(
                 if stripped is not None:
                     break
             if stripped is None:
-                _bump(rejects, reason)
+                bump(rejects, reason)
                 continue
             made += 1
             noun = arg_noun(arg, domain)
@@ -568,28 +550,6 @@ def _rounds(k: int) -> list[int]:
     return [min(BATCH, k - start) for start in range(0, max(k, 0), BATCH)]
 
 
-def parse_json_list(raw: str) -> list[Any]:
-    """The JSON list in a generator reply (a fenced or chatty one is fine)."""
-    text = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.M).strip()
-    start, end = text.find("["), text.rfind("]")
-    if start == -1 or end < start:
-        raise ValueError("no JSON list in the reply")
-    items = json.loads(text[start : end + 1])
-    if not isinstance(items, list):
-        raise ValueError("the reply is not a JSON list")
-    return items
-
-
-def _list_reply(text: str) -> tuple[bool, str]:
-    """``TeacherClient`` parse hook: a reply that holds no JSON list is an error the
-    client retries (and never caches), not a usable draft."""
-    try:
-        parse_json_list(text)
-    except ValueError:
-        raise TeacherError("reply is not a JSON list") from None
-    return True, ""
-
-
 def _ask(
     client: TeacherClient,
     domain: Domain,
@@ -609,9 +569,9 @@ def _ask(
                 f"\n\n(Batch {index + 1} of {len(rounds)}: write requests different from "
                 "those of an earlier batch.)"
             )
-        outcome = client.complete("generator", system, user, _list_reply)
+        outcome = client.complete("generator", system, user, list_check)
         if outcome.status != "ok":
-            _bump(rejects, "error")
+            bump(rejects, "error")
             continue
         items.extend(i for i in parse_json_list(outcome.text) if isinstance(i, dict))
     return items[:k]
@@ -637,7 +597,7 @@ def dx_units(domain: Domain, client: TeacherClient, k: int, rejects: dict[str, i
             _text(item, "diagnose"),
         )
         if not (explain and answer and diagnose):
-            _bump(rejects, "invalid_item")
+            bump(rejects, "invalid_item")
             continue
         explain_expect = {"explain": True, "answer": answer}
         escalate_expect = {"escalate": True}
@@ -675,10 +635,10 @@ def choice_units(
         for item in _ask(client, domain, prompt, k, rejects):
             text, args = _text(item), item.get("args")
             if not text or domain.validate_args(op.name, args) is not None:
-                _bump(rejects, "invalid_args")
+                bump(rejects, "invalid_args")
                 continue
             if args.get(arg.name) != value:
-                _bump(rejects, "wrong_value")
+                bump(rejects, "wrong_value")
                 continue
             expect = {"operation": op.name, "args": dict(args)}
             review = review_prompt(text, expect, None, domain)
@@ -699,11 +659,11 @@ def disambiguation_units(
         for item in _ask(client, domain, prompt, k, rejects):
             text, args = _text(item), item.get("args")
             if not text or domain.validate_args(op.name, args) is not None:
-                _bump(rejects, "invalid_args")
+                bump(rejects, "invalid_args")
                 continue
             confusable = item.get("confusable")
             if confusable not in known or confusable == op.name:
-                _bump(rejects, "invalid_confusable")
+                bump(rejects, "invalid_confusable")
                 continue
             expect = {"operation": op.name, "args": dict(args)}
             review = most_natural_prompt(text, expect, confusable, domain)
@@ -728,7 +688,7 @@ def hard_negative_units(
         for item in _ask(client, domain, prompt, k, rejects):
             text, answer = _text(item), _text(item, "answer")
             if not text or not answer:
-                _bump(rejects, "invalid_item")
+                bump(rejects, "invalid_item")
                 continue
             expect = {"explain": True, "answer": answer}
             review = review_prompt(text, expect, None, domain)
@@ -763,7 +723,7 @@ def check_then_change_units(
                 or not checked.read_only
                 or domain.validate_args(name, args) is not None
             ):
-                _bump(rejects, "invalid_item")
+                bump(rejects, "invalid_item")
                 continue
             check_expect = {"operation": name, "args": dict(args)}
             escalate_expect = {"escalate": True}
@@ -838,15 +798,6 @@ def guard_reason(text: str, domain: Domain) -> str | None:
         return "template"
     if asks_for_handoff(text):
         return "handoff"
-    return None
-
-
-def duplicates_against(text: str, others: list[str]) -> str | None:
-    """``"exact"``, ``"near-duplicate"`` or ``None`` (the leakage check's own rule)."""
-    for other in others:
-        kind = leakage_match(text, other)
-        if kind is not None:
-            return kind
     return None
 
 
@@ -937,11 +888,6 @@ def _sha256_file(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def sha256_of_entries(entries: list[dict[str, Any]]) -> str:
-    body = json.dumps(entries, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
-
-
 # ---------------------------------------------------------------------------
 # run
 # ---------------------------------------------------------------------------
@@ -1026,9 +972,9 @@ def run(
                         reason = "reviewer"
                         for who in ("reviewer_a", "reviewer_b"):
                             if who in votes[-1] and not votes[-1][who]["accept"]:
-                                _bump(rejects, who)
+                                bump(rejects, who)
             if reason is not None and reason != "reviewer":
-                _bump(rejects, reason)
+                bump(rejects, reason)
             ids: list[str | None] = [None] * len(unit.items)
             if reason is None:
                 kept_units += 1

@@ -169,5 +169,5 @@ def main(
         return runner.EXIT_INTERRUPTED
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     sys.exit(main())

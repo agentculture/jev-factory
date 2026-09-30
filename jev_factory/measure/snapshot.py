@@ -175,7 +175,7 @@ def build_snapshot(
     return snapshot, counts
 
 
-def _today() -> str:  # pragma: no cover - wall clock
+def _today() -> str:  # wall clock
     return datetime.date.today().isoformat()
 
 

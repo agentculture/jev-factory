@@ -69,6 +69,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Iterator, Mapping, Sequence
 
+from jev_factory.backbones.causal_lm import gen_config
 from jev_factory.backbones.causal_lm.readout import READOUT_TOP
 
 NVSH_PROVENANCE = {
@@ -86,8 +87,9 @@ NVSH_PROVENANCE = {
         " the identity it read under that lock instead of re-reading the pid file",
         "the pid and argv files become one JSON state file per port; names are"
         " jev-measure-PORT instead of q46-measure-PORT",
-        "gen_config.py check (scripts/lfm-finetune/gen_config.py:check) is inlined as"
-        " greedy_problem; uv run from the nvsh repo root is gone",
+        "gen_config.py check (scripts/lfm-finetune/gen_config.py:check) is delegated to"
+        " backbones/causal_lm/gen_config.check (greedy_problem only adds refusals for an"
+        " unreadable or non-object file); uv run from the nvsh repo root is gone",
         "vLLM's --tool-call-parser is passed only when configured (the scorer path reads"
         " /completions log-probabilities, never tool calls); --max-logprobs below"
         " READOUT_TOP is refused",
@@ -427,20 +429,19 @@ def _write_record(record: Path, payload: Mapping[str, object]) -> None:
 
 def greedy_problem(model_dir: Path) -> str | None:
     """``None`` when *model_dir*'s generation_config.json decodes greedily, else why not."""
-    path = Path(model_dir) / "generation_config.json"
-    if not path.is_file():
-        return f"no generation_config.json in {model_dir}"
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        return f"unreadable generation_config.json: {exc}"
-    if not isinstance(payload, dict):
-        return "generation_config.json is not an object"
-    if payload.get("temperature") not in (0, 0.0) or isinstance(payload.get("temperature"), bool):
-        return f"temperature is {payload.get('temperature')!r}, not 0"
-    if payload.get("do_sample") is not False:
-        return f"do_sample is {payload.get('do_sample')!r}, not false"
-    return None
+    model_dir = Path(model_dir)
+    path = model_dir / gen_config.GEN_CONFIG_FILE
+    if path.is_file():
+        # gen_config.check reads the file bare; keep the structured refusals for bad files.
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            return f"unreadable generation_config.json: {exc}"
+        if not isinstance(payload, dict):
+            return "generation_config.json is not an object"
+        if isinstance(payload.get("temperature"), bool):
+            return f"temperature is {payload.get('temperature')!r}, not 0"
+    return gen_config.check(model_dir)
 
 
 # ---------------------------------------------------------------------------

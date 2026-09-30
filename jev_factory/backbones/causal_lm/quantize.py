@@ -134,7 +134,7 @@ class QuantizeError(CliError):
         super().__init__(code, message, remediation)
 
 
-def default_run(  # pragma: no cover - exercised through stub binaries in tests
+def default_run(  # exercised through stub binaries in tests
     argv: Sequence[str], timeout: float, cwd: Path | None = None
 ) -> tuple[int, str]:
     """Run *argv* (a fixed list, no shell) in *cwd* and return ``(exit code, output)``."""
@@ -848,7 +848,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:  # pragma: no cover - drives real tools
+def main(argv: list[str] | None = None) -> int:  # drives real tools
     from jev_factory.factory.config import load_config
 
     args = _parser().parse_args(argv)
@@ -882,5 +882,5 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - drives rea
     return 0
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     sys.exit(main())
