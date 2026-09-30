@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-09-30T18:07:36Z",
-  "updated": "2026-09-30T18:41:09Z",
+  "updated": "2026-09-30T18:50:37Z",
   "targets": [
     {
       "id": "c1",
@@ -1629,6 +1629,14 @@
       "text": "t20 rebuilt helpers that t19's draft.py also defines (table text, strict reviewer prompt, expect-words, JSON-list parse, duplicate check, entry sha256) because t19 was not merged when t20 started; both copies now live in data/augment.py, data/targeted.py and data/draft.py and should be deduped into one module",
       "kind": "follow_up",
       "task_id": "t30",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r11",
+      "text": "The real PEFT/transformers wiring in train.merge_adapter() and train_scorer._train() has never run (no env with transformers and peft; they are pragma: no cover); the missing-adapter-key regex is matched from nvsh's wording, not a live run. The first real jev-tool training run (t36) is its first test, and it may need a fix and a deviation",
+      "kind": "unknown_nonblocking",
+      "task_id": "t36",
       "resolved": false,
       "resolution": ""
     }
