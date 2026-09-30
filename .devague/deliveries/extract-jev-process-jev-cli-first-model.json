@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-09-30T18:38:09Z",
+  "updated": "2026-09-30T18:41:08Z",
   "deviations": [
     {
       "id": "d1",
@@ -79,6 +79,19 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "t20 edits jev_factory/data/teachers.py (t18's module): the response-cache temp file is unique per writer (pid + thread id), fixing a race where two worker threads caching the same key crashed in os.replace",
+      "task_ref": "t20",
+      "reason": "t20's multi-worker augment test exposed the race in merged t18 code; the fix is 3 lines and needed for t20's workers to run",
+      "affects": [
+        "t18"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 6
     }
   ],
   "evidence": [],
