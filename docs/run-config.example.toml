@@ -1,0 +1,50 @@
+# Run config for `jev run`. Copy to a private file and fill in.
+#
+# Precedence for EVERY key, the measure context included:
+#   CLI flag  >  this file  >  environment (JEV_<KEY>, e.g. JEV_MEASURE_CTX)  >  default
+#
+# No secret belongs here. The *_env keys name the environment variable that
+# holds a secret; the value is injected by the operator at run time.
+
+# --- identity of the run (required) ---
+work = "/path/to/work-root"          # outside any git worktree
+base = "org/base-model"
+base_rev = "0000000000000000000000000000000000000000"
+hub_prefix = "org/model-family"
+licence = "Apache-2.0"
+issue_refs = ""                      # comma-separated, optional
+
+seed = 46
+
+# --- tool paths (optional until a stage needs them) ---
+# train_py = "/path/to/train-venv/bin/python"
+# llama_cpp_convert = "/path/to/llama.cpp/convert_hf_to_gguf.py"
+# llama_cpp_quantize = "/path/to/llama.cpp/build/bin/llama-quantize"
+# llama_cpp_imatrix = "/path/to/llama.cpp/build/bin/llama-imatrix"
+# llama_server = "/path/to/llama.cpp/build/bin/llama-server"
+# awq_python = "/path/to/awq-venv/bin/python"
+# hf_cache = "/path/to/hf-cache"
+
+# --- measurement ---
+# measure_image = "registry/image@sha256:<digest>"   # a tag is refused
+measure_port = 18060
+measure_ctx = 2048
+measure_gpu_fraction = 0.08
+measure_max_logprobs = 20000
+enable_thinking = false
+# tool_call_parser = "<parser>"
+# ground_snapshot = "/path/to/ground-snapshot.json"
+
+# --- resource caps ---
+# train_memory_max = "24G"
+train_memory_floor = "8G"
+train_watchdog_seconds = 5
+# train_gpu_memory_gb = 40
+
+# --- teachers ---
+# aug_url = "<chat-completions url of your teacher gateway>"
+workers = 2
+
+# --- secrets, by the NAME of the environment variable ---
+# aug_key_env = "TEACHER_GATEWAY_KEY"
+hf_token_env = "HF_TOKEN"
