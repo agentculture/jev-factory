@@ -30,7 +30,7 @@ def start_detached(jobdir: Path, name: str, argv: list[str]) -> int:
     done_f.unlink(missing_ok=True)
     env = {**os.environ, "DONE": str(done_f)}
     with log_f.open("ab") as log:
-        proc = subprocess.Popen(  # nosec B603 - argv list, no shell interpolation
+        proc = subprocess.Popen(  # nosec B603
             ["/bin/sh", "-c", _WRAPPER, "jev-detach", *argv],
             stdin=subprocess.DEVNULL,
             stdout=log,
