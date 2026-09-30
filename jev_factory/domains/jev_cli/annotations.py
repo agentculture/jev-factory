@@ -91,6 +91,11 @@ _FACTORY: dict[str, Annotation] = {
     verb_name(("run",)): Annotation(read_only=True),
     verb_name(("status",)): Annotation(read_only=True, args=(ArgSpec(name="run", kind="str"),)),
     verb_name(("decide",)): Annotation(read_only=False, args=(ArgSpec(name="run", kind="str"),)),
+    # ``ask`` only proposes: it executes nothing and writes nothing, so it is read-only.
+    verb_name(("ask",)): Annotation(
+        read_only=True,
+        args=(ArgSpec(name="request", kind="str"), ArgSpec(name="bundle", kind="str")),
+    ),
     **{verb_name(("run", stage)): Annotation(read_only=False) for stage in stage_names()},
 }
 ANNOTATIONS = {**ANNOTATIONS, **_FACTORY}
