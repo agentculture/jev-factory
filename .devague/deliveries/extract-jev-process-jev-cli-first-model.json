@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-09-30T18:41:08Z",
+  "updated": "2026-09-30T19:09:51Z",
   "deviations": [
     {
       "id": "d1",
@@ -92,6 +92,20 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "t26 does not port the OpenAI Responses and Anthropic provider adapters (mostly batch code) or the gate's permutation module; ALLOWED_PROVIDERS is openrouter, nvidia and local, and result.json reports permutation as not_run",
+      "task_ref": "t26",
+      "reason": "c14 allows a single provider for the first jev-tool gate run, and the permutation probe is measured by jev_factory/measure/probe.py (t24); keeping the port small protects the coverage gate (risk r6)",
+      "affects": [
+        "c13",
+        "c14"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 7
     }
   ],
   "evidence": [],

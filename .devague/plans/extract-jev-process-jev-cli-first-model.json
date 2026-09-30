@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-09-30T18:07:36Z",
-  "updated": "2026-09-30T19:07:50Z",
+  "updated": "2026-09-30T19:09:51Z",
   "targets": [
     {
       "id": "c1",
@@ -1645,6 +1645,14 @@
       "text": "measure/serve.greedy_problem copies the greedy generation_config check inline; it duplicates backbones/causal_lm/gen_config (t22, merged) and should call it",
       "kind": "follow_up",
       "task_id": "t30",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r13",
+      "text": "Possible upstream nvsh bug found while porting evals (unverified): nvsh keyed reference choice distributions by 'explain'/'escalate' while its metrics expect '(explain)'/'(escalate)'; jev-factory maps them with Domain.calibration_label. Worth reporting to nvsh after verification",
+      "kind": "follow_up",
+      "task_id": "t26",
       "resolved": false,
       "resolution": ""
     }
