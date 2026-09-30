@@ -35,10 +35,10 @@ def _parser_verbs(parser: argparse.ArgumentParser) -> set[str]:
 
 
 def _fake_parser(apply_flag: bool = False) -> argparse.ArgumentParser:
-    """A parser shaped like the planned verbs: ``run <stage>`` and a noun group."""
+    """A parser shaped like the planned verbs: ``go <stage>`` and a noun group."""
     parser = _build_parser()
     sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
-    run = sub.add_parser("run", help="Run one factory stage.")
+    run = sub.add_parser("go", help="Go to one factory stage.")
     run.add_argument("stage")
     run.add_argument("--json", action="store_true")
     if apply_flag:
@@ -63,7 +63,7 @@ def test_verb_only_in_argparse_fails() -> None:
     with pytest.raises(CliDomainError) as exc:
         generate_domain(parser=_fake_parser())
     assert exc.value.code == "unannotated_verb"
-    assert "'jev.run'" in str(exc.value)
+    assert "'jev.go'" in str(exc.value)
 
 
 @pytest.mark.behavioral("o26")
@@ -76,27 +76,30 @@ def test_verb_only_in_annotations_fails() -> None:
 
 
 def test_write_verb_is_mutating_and_cannot_be_annotated_read_only() -> None:
-    notes = {**ann.ANNOTATIONS, "jev.run": ann.Annotation(read_only=False, args=RUN.args)}
+    notes = {**ann.ANNOTATIONS, "jev.go": ann.Annotation(read_only=False, args=RUN.args)}
     domain = generate_domain(parser=_fake_parser(apply_flag=True), annotations=notes)
-    assert domain.is_mutating("jev.run")
-    notes["jev.run"] = RUN
+    assert domain.is_mutating("jev.go")
+    notes["jev.go"] = RUN
     with pytest.raises(CliDomainError) as exc:
         generate_domain(parser=_fake_parser(apply_flag=True), annotations=notes)
     assert exc.value.code == "write_verb_read_only"
 
 
 def test_annotated_argument_must_exist_and_required_positional_must_be_annotated() -> None:
-    bad = {**ann.ANNOTATIONS, "jev.run": ann.Annotation(True, (ArgSpec("nope", "str"),))}
+    bad = {**ann.ANNOTATIONS, "jev.go": ann.Annotation(True, (ArgSpec("nope", "str"),))}
     with pytest.raises(CliDomainError, match="unknown_argument"):
         generate_domain(parser=_fake_parser(), annotations=bad)
-    bare = {**ann.ANNOTATIONS, "jev.run": ann.Annotation(True)}
+    bare = {**ann.ANNOTATIONS, "jev.go": ann.Annotation(True)}
     with pytest.raises(CliDomainError, match="unannotated_argument"):
         generate_domain(parser=_fake_parser(), annotations=bare)
 
 
-def test_existing_verbs_are_read_only_with_descriptions() -> None:
+def test_verbs_are_read_only_except_the_write_verbs_and_all_have_descriptions() -> None:
     domain = generate_domain()
-    assert all(domain.read_only(n) for n in domain.names())
+    stages = [n for n in domain.names() if n.startswith("jev.run.")]
+    writes = {"jev.init", "jev.decide", *stages}
+    assert stages and all(domain.is_mutating(n) for n in writes)
+    assert all(domain.read_only(n) for n in domain.names() if n not in writes)
     assert all(domain.get(n).description.strip() for n in domain.names())
 
 
@@ -120,11 +123,11 @@ def test_explain_path_grounds_offline_against_catalog() -> None:
 
 def test_run_stage_grounds_against_the_stage_registry() -> None:
     reg = Registry()
-    notes = {**ann.ANNOTATIONS, "jev.run": RUN}
+    notes = {**ann.ANNOTATIONS, "jev.go": RUN}
     domain = generate_domain(parser=_fake_parser(), annotations=notes, registry=reg)
-    assert isinstance(domain.ground("jev.run", {"stage": "seal"}), GroundDecline)
+    assert isinstance(domain.ground("jev.go", {"stage": "seal"}), GroundDecline)
     reg.register(Stage(name="seal", func=lambda w, k: None, summary="seal"))
-    assert domain.ground("jev.run", {"stage": "Seal"}) == Grounded({"stage": "seal"})
+    assert domain.ground("jev.go", {"stage": "Seal"}) == Grounded({"stage": "seal"})
     assert world(reg)["stages"] == ["seal"]
 
 
@@ -134,7 +137,7 @@ def test_surface_hash_is_domain_hash_and_tracks_the_surface() -> None:
     assert cli_surface_sha256() == domain.surface_sha256()
     assert len(cli_surface_sha256()) == 64
     assert cli_surface_sha256() == generate_domain().surface_sha256()
-    notes = {**ann.ANNOTATIONS, "jev.run": RUN}
+    notes = {**ann.ANNOTATIONS, "jev.go": RUN}
     other = generate_domain(parser=_fake_parser(), annotations=notes)
     assert other.surface_sha256() != domain.surface_sha256()
     flipped = {

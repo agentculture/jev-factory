@@ -30,6 +30,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from jev_factory.domain.model import ArgSpec
+from jev_factory.factory.pipeline import stage_names
 
 #: Ground kind names the jev-CLI domain declares (see generate.py).
 EXPLAIN_PATH = "explain_path"
@@ -77,3 +78,19 @@ ANNOTATIONS: Mapping[str, Annotation] = {
         )
     ): Annotation(read_only=True),
 }
+
+# The factory verbs. ``init`` and every ``run <stage>`` have --apply, so they are
+# mutating (dry-run by default). ``decide`` has no --apply (recording the verdict
+# is its whole job) but appends a decision record, so it is mutating too.
+# ``run`` itself only lists the stages; ``status`` reads.
+_FACTORY: dict[str, Annotation] = {
+    verb_name(("init",)): Annotation(
+        read_only=False,
+        args=(ArgSpec(name="domain", kind="str"), ArgSpec(name="work", kind="str")),
+    ),
+    verb_name(("run",)): Annotation(read_only=True),
+    verb_name(("status",)): Annotation(read_only=True, args=(ArgSpec(name="run", kind="str"),)),
+    verb_name(("decide",)): Annotation(read_only=False, args=(ArgSpec(name="run", kind="str"),)),
+    **{verb_name(("run", stage)): Annotation(read_only=False) for stage in stage_names()},
+}
+ANNOTATIONS = {**ANNOTATIONS, **_FACTORY}

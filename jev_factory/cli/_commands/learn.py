@@ -12,17 +12,24 @@ from jev_factory import __version__
 from jev_factory.cli._output import emit_result
 
 _TEXT = """\
-jev-factory — a clonable template for AgentCulture mesh agents.
+jev-factory — a factory for jev-like candidate scorers, and an AgentCulture mesh agent.
 
 Purpose
 -------
-Scaffold for a new Culture mesh agent: an agent-first CLI (cited from the teken
-`python-cli` reference), an identity (culture.yaml + CLAUDE.md), the canonical
-guildmaster skill kit under .claude/skills/, and a deploy/CI baseline. Clone it,
-rename the package, and edit culture.yaml to mint a new agent.
+Builds jev-like models: calibrated scorers that read one request plus a bounded
+set of lettered candidate actions, answer in one token, and pass a
+deterministic read-only/mutating gate. The build is a pipeline of registered
+stages (`run`), each resumable with a manifest; every between-runs decision is
+a recorded, rule-driven step (`decide`). Every write verb is dry-run by
+default: nothing changes until you pass --apply.
 
 Commands
 --------
+  jev-factory init <domain>      Scaffold a run directory and run config.
+  jev-factory run <stage>        Run one build stage (--apply commits, --detach
+                                 keeps a long stage alive past the shell).
+  jev-factory status <run>       Stage manifests, staleness, job progress.
+  jev-factory decide <run>       Apply the pre-registered rule; append a record.
   jev-factory whoami             Identity from culture.yaml.
   jev-factory learn              This self-teaching prompt.
   jev-factory explain <path>...  Markdown docs for any noun/verb path.
@@ -52,8 +59,12 @@ def _as_json_payload() -> dict[str, object]:
     return {
         "tool": "jev-factory",
         "version": __version__,
-        "purpose": "Clonable scaffold for a new AgentCulture mesh agent.",
+        "purpose": "Factory for jev-like calibrated candidate scorers (an AgentCulture mesh agent).",
         "commands": [
+            {"path": ["init"], "summary": "Scaffold a run directory (dry-run by default)."},
+            {"path": ["run", "<stage>"], "summary": "Run one build stage (dry-run by default)."},
+            {"path": ["status"], "summary": "Stage manifests, staleness and job progress."},
+            {"path": ["decide"], "summary": "Apply the pre-registered rule; record it."},
             {"path": ["whoami"], "summary": "Identity probe from culture.yaml."},
             {"path": ["learn"], "summary": "Self-teaching prompt."},
             {"path": ["explain"], "summary": "Markdown docs by path."},
