@@ -12,20 +12,31 @@ from __future__ import annotations
 _ROOT = """\
 # jev-factory
 
-A clonable template for AgentCulture mesh agents. It carries an agent-first CLI
-(cited from the teken `python-cli` reference), a mesh identity (`culture.yaml` +
-`CLAUDE.md`), the canonical guildmaster skill kit under `.claude/skills/`, and a
-buildable/deployable package baseline. Clone it, rename the package, edit
-`culture.yaml`, and you have a new agent.
+A factory for **jev-like** models: calibrated candidate scorers that read one
+request plus a bounded set of lettered candidate actions, answer with one
+token, and pass through a deterministic read-only/mutating gate. It turns the
+process behind the first Tool-Jev scorer into a staged, resumable,
+dry-run-by-default pipeline, records every between-runs decision, and is itself
+an AgentCulture mesh agent (`culture.yaml` + `CLAUDE.md`).
 
 ## Verbs
 
+- `jev-factory init <domain>` — scaffold a run directory and run config.
+- `jev-factory run <stage>` — run one build stage (one subcommand per stage).
+- `jev-factory status <run>` — stage manifests, staleness, detached-job progress.
+- `jev-factory decide <run>` — apply the pre-registered rule; append a record.
 - `jev-factory whoami` — identity probe from `culture.yaml`.
 - `jev-factory learn` — structured self-teaching prompt.
 - `jev-factory explain <path>` — markdown docs for any noun/verb.
 - `jev-factory overview` — descriptive snapshot of the agent.
 - `jev-factory doctor` — check the agent-identity invariants.
 - `jev-factory cli overview` — describe the CLI surface.
+
+## Dry-run by default
+
+Every write verb (`init`, each `run <stage>`) changes nothing without
+`--apply`. The sealed held-out set is touched once, bars are pre-registered
+before training, and publishing is private-first.
 
 ## Exit-code policy
 
@@ -36,8 +47,9 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 
 ## See also
 
-- `jev-factory explain whoami`
-- `jev-factory explain doctor`
+- `jev-factory explain run`
+- `jev-factory explain status`
+- `jev-factory explain decide`
 """
 
 _WHOAMI = """\
@@ -109,6 +121,88 @@ reported by the informational harness-prompts check and never substituted.
     jev-factory doctor --json
 """
 
+_INIT = """\
+# jev-factory init <domain>
+
+Scaffolds a run: validates the domain (a dotted module exposing `DOMAIN`, or a
+domain JSON file), then writes `run.json` (domain reference) and `run.toml`
+(every documented run-config key; required ones are commented until you set
+them) into `--work`. The work directory must be outside any git worktree, and
+an existing run is never overwritten.
+
+Dry-run by default: without `--apply` it lists the files and writes nothing.
+
+## Usage
+
+    jev-factory init <domain> --work <dir>
+    jev-factory init <domain> --work <dir> --base org/name --base-rev <sha> --apply
+    jev-factory init <domain> --work <dir> --json
+"""
+
+_RUN = """\
+# jev-factory run <stage>
+
+Runs one build stage of the pipeline. There is one subcommand per registered
+stage, so `jev-factory run --help` lists them all, in order. Each stage reads
+declared inputs, writes declared outputs and a manifest under `manifests/`; a
+fresh stage is a no-op and a stale one says why.
+
+Dry-run by default: without `--apply` a stage prints what it would read and
+write and whether it is stale, and changes no file. `--apply` runs it under the
+run lock. `--apply --detach` starts it in its own session (pid file, done
+marker, log under `jobs/`) so a long stage survives the shell; follow it with
+`jev-factory status <run>`.
+
+Run context: `--work`, `--config` and `--domain` (defaults come from the run
+scaffolded by `init`, or `$JEV_DOMAIN`); `--knob KEY=VALUE` sets a stage knob
+(unknown knobs are refused).
+
+## Stages
+
+STAGES
+
+## Usage
+
+    jev-factory run --help
+    jev-factory run split --work <dir>
+    jev-factory run split --work <dir> --apply
+    jev-factory run draft-eval --work <dir> --apply --detach
+"""
+
+_STATUS = """\
+# jev-factory status <run>
+
+Read-only view of a run's work directory: each stage's manifest status
+(`ok`, `failed`, `running`, or `-` for not run), whether a finished stage is
+stale and why, every detached job under `jobs/` with its state and
+items-done/total progress, and the number of decision records. It needs no
+domain and writes nothing.
+
+## Usage
+
+    jev-factory status <run>
+    jev-factory status <run> --json
+"""
+
+_DECIDE = """\
+# jev-factory decide <run>
+
+Applies the pre-registered, hashed selection rule to the run's evidence (every
+candidate summary `select` wrote, the teacher pilot's yields, the quantize/heal
+check) and appends one decision record to `decisions.jsonl` in the run. The
+verdict is printed with every metric it cited and the sha256 of the file each
+came from. Records are append-only; a human override is a new record, never an
+edit. It refuses a run whose pre-registration is missing or was changed.
+
+It writes that record and nothing else, and never runs a stage.
+
+## Usage
+
+    jev-factory decide <run>
+    jev-factory decide <run> --reference <summary.json> --hard-stop public_publish
+    jev-factory decide <run> --json
+"""
+
 _CLI = """\
 # jev-factory cli
 
@@ -131,6 +225,35 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("explain",): _EXPLAIN,
     ("overview",): _OVERVIEW,
     ("doctor",): _DOCTOR,
+    ("init",): _INIT,
+    ("run",): _RUN,
+    ("status",): _STATUS,
+    ("decide",): _DECIDE,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
 }
+
+
+def _stage_entries() -> dict[tuple[str, ...], str]:
+    from jev_factory.factory.pipeline import SUBSTEPS, get_stage, stage_names
+
+    out: dict[tuple[str, ...], str] = {}
+    lines = []
+    for name in stage_names():
+        st = get_stage(name)
+        lines.append(f"- `{name}` — {st.summary}")
+        out[("run", name)] = (
+            f"# jev-factory run {name}\n\n{st.summary}\n\n"
+            f"Sub-steps: {', '.join(SUBSTEPS[name])}.\n"
+            f"Upstream stages: {', '.join(st.deps) or 'none'}.\n"
+            f"Reads: {', '.join(st.inputs) or 'nothing'}.\n"
+            f"Writes: {', '.join(st.outputs) or 'nothing'}.\n\n"
+            "Dry-run by default; `--apply` runs it, `--apply --detach` runs it detached.\n\n"
+            f"## Usage\n\n    jev-factory run {name} --work <dir>\n"
+            f"    jev-factory run {name} --work <dir> --apply\n"
+        )
+    out[("run",)] = _RUN.replace("STAGES", "\n".join(lines))
+    return out
+
+
+ENTRIES.update(_stage_entries())
