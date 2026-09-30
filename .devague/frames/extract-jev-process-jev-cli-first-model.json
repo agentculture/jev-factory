@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-30T17:42:37Z",
-  "updated": "2026-09-30T18:24:16Z",
+  "updated": "2026-09-30T18:31:52Z",
   "claims": [
     {
       "id": "c1",
@@ -1709,6 +1709,17 @@
       "skipped_check": "check for uncommitted tracked state before a destructive git command",
       "refs": [
         "merge.sh"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l10",
+      "code": "assumption-for-measurement",
+      "what": "t13 task agent set the fit/selection fold fraction to 0.5 from memory instead of reading nvsh's calibration_fit.DEFAULT_FIT_FRACTION (0.7 at 9debdc6:83); caught by the main agent at merge review and sent back before merging",
+      "skipped_check": "read the upstream constant instead of recalling it",
+      "refs": [
+        "t13"
       ],
       "origin": "llm",
       "status": "proposed"
