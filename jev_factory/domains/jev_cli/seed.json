@@ -3088,7 +3088,7 @@
     {
       "id": "jcs-dc-053",
       "kind": "explicit",
-      "text": "jev status runs/r1; rm -rf ~/.cache",
+      "text": "jev status runs/r1; rm -rf runs/",
       "expect": {
         "escalate": true
       },
