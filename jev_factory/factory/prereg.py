@@ -167,11 +167,6 @@ def validate(doc: Any) -> Prereg:
                 "the bar must be the stricter of the stock-derived value and the minimum",
             )
         bars[name] = Bar(name, entry["stock"], entry["minimum"], entry["bar"], direction)
-    rp = bars["right_proposals"]
-    if rp.minimum < RIGHT_PROPOSALS_MINIMUM:
-        raise _err(
-            f"right_proposals.minimum {rp.minimum} is below the {RIGHT_PROPOSALS_MINIMUM} floor"
-        )
     perms = doc.get("perms_per_entry")
     if not isinstance(perms, int) or isinstance(perms, bool) or perms < 1:
         raise _err("perms_per_entry must be a positive integer")

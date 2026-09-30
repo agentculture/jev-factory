@@ -81,12 +81,14 @@ def test_stock_baseline_record_id_required():
         prereg.validate(doc)
 
 
-def test_minimum_below_95_rejected_and_wrong_bar_rejected():
+def test_domain_minimum_is_configurable_and_wrong_bar_rejected():
+    # 95% is the default right-proposal minimum (the jev-tool decision, c67),
+    # not a floor the generic factory imposes on every domain (c41).
     doc = _full()
-    doc["bars"]["right_proposals"]["minimum"] = 0.9
-    doc["bars"]["right_proposals"]["bar"] = 0.9
-    with pytest.raises(CliError, match="floor"):
-        prereg.validate(doc)
+    rp = doc["bars"]["right_proposals"]
+    rp["minimum"] = 0.9
+    rp["bar"] = prereg.compute_bar("right_proposals", rp["stock"], 0.9)
+    assert prereg.validate(doc).bars["right_proposals"].minimum == 0.9
     doc = _full()
     doc["bars"]["ece"]["bar"] = 0.25  # the laxer value, not the stricter
     with pytest.raises(CliError, match="stricter"):
