@@ -25,6 +25,7 @@ an AgentCulture mesh agent (`culture.yaml` + `CLAUDE.md`).
 - `jev-factory run <stage>` — run one build stage (one subcommand per stage).
 - `jev-factory status <run>` — stage manifests, staleness, detached-job progress.
 - `jev-factory decide <run>` — apply the pre-registered rule; append a record.
+- `jev-factory ask <request>` — propose one jev verb from a bundle; executes nothing.
 - `jev-factory whoami` — identity probe from `culture.yaml`.
 - `jev-factory learn` — structured self-teaching prompt.
 - `jev-factory explain <path>` — markdown docs for any noun/verb.
@@ -203,6 +204,33 @@ It writes that record and nothing else, and never runs a stage.
     jev-factory decide <run> --json
 """
 
+_ASK = """\
+# jev-factory ask <request> --bundle <dir>
+
+Proposes one jev verb for a request, using a jev-tool model bundle. It scores the
+request over the running CLI's verbs as lettered candidates (one forward pass, one
+token), applies the bundle's `calibration.json`, gates the result with its
+`gate.json` (separate read-only and mutating thresholds) and prints exactly one of
+`propose`, `explain`, `escalate` or `abstain_uncertain` with the probability.
+A proposal's arguments are grounded from the CLI catalog, never taken from the model.
+
+It executes nothing: no process is started, nothing is written, and no `--apply`
+command is ever built from model output. A mutating proposal is text for you to
+review and run yourself, dry-run first.
+
+If the bundle's recorded CLI surface hash differs from the running CLI's, the
+mismatch is reported (stderr, and `surface_mismatch` in JSON); `--strict-surface`
+makes it an error.
+
+Inference: `--server <llama-server base URL>` (with `--model` if the server names
+it differently), or in this process for a bf16 bundle (needs the `train` extra).
+
+## Usage
+
+    jev-factory ask "show the run status" --bundle <dir> --server http://127.0.0.1:8080/v1
+    jev-factory ask "explain doctor" --bundle <dir> --json
+"""
+
 _CLI = """\
 # jev-factory cli
 
@@ -229,6 +257,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("run",): _RUN,
     ("status",): _STATUS,
     ("decide",): _DECIDE,
+    ("ask",): _ASK,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
 }

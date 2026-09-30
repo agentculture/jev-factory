@@ -30,6 +30,8 @@ Commands
                                  keeps a long stage alive past the shell).
   jev-factory status <run>       Stage manifests, staleness, job progress.
   jev-factory decide <run>       Apply the pre-registered rule; append a record.
+  jev-factory ask <request>      Propose one jev verb from a bundle (--bundle);
+                                 executes nothing.
   jev-factory whoami             Identity from culture.yaml.
   jev-factory learn              This self-teaching prompt.
   jev-factory explain <path>...  Markdown docs for any noun/verb path.
