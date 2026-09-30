@@ -193,7 +193,7 @@ def readout(logprobs: Mapping[str, float], labels: Mapping[str, str]) -> Readout
 
 @dataclass
 class ReadoutTally:
-    """Complete/incomplete readout counts for a run (the run must read N complete / 0 incomplete)."""
+    """Complete/incomplete readout counts for a run (goal: N complete / 0 incomplete)."""
 
     complete: int = 0
     incomplete: int = 0
