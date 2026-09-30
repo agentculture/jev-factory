@@ -1,0 +1,22 @@
+{
+  "name": "mutating-strict-example",
+  "version": "1",
+  "description": "Example model+harness policy: temperature calibration plus a read_only margin, and a stricter mutating ThresholdSet (a mutating proposal must clear a higher floor, a wider margin and a lower entropy ceiling) -- read_only and mutating gates are configured, and reported, separately. A real run uses the bundle's own calibration.json and gate.json.",
+  "calibration": {
+    "temperature": 1.5366,
+    "vector": null
+  },
+  "gate": {
+    "escalate": null,
+    "read_only": {
+      "floor": null,
+      "margin": 0.2,
+      "max_entropy": null
+    },
+    "mutating": {
+      "floor": 0.6,
+      "margin": 0.3,
+      "max_entropy": 0.5
+    }
+  }
+}
