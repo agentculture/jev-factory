@@ -7,8 +7,13 @@ refused a second one; here a second measurement of either side without a
 recorded deviation id is refused, so the rule is enforced in code rather than
 by reading the report.
 
+The ledger is keyed by ``(side, slice)``, the slice being ``full`` or
+``missing-candidate`` (deviation d9): the final run measures each side in full
+and its missing-candidate slice, each pair once. A record written before
+slices existed has no ``slice`` and reads as ``full``.
+
 The ledger is ``<run dir>/measure/once-ledger.jsonl``, one JSON record per
-measurement of a sealed side: side, the split file's sha256 (never its
+measurement of a sealed side: side, slice, the split file's sha256 (never its
 text), label, date, status and the deviation id when there is one. It is
 append-only. A record is written only when the run **measured** something
 (some model's start-up succeeded and entries were scored). A run in which
@@ -48,6 +53,11 @@ TEST = "test"
 HELD_OUT = "held-out"
 SIDES = (TEST, HELD_OUT)
 
+#: What of a side a run scored: all of it, or its missing-candidate slice.
+FULL = "full"
+MISSING_CANDIDATE = "missing-candidate"
+SLICES = (FULL, MISSING_CANDIDATE)
+
 #: Record statuses: the run scored entries, cleanly or not.
 MEASURED = "measured"
 FAILED_MID_RUN = "failed-mid-run"
@@ -70,6 +80,7 @@ class OnceRecord:
     date: str
     status: str
     deviation: str | None = None
+    slice: str = FULL
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +90,7 @@ class OnceRecord:
             "date": self.date,
             "status": self.status,
             "deviation": self.deviation,
+            "slice": self.slice,
         }
 
 
@@ -115,18 +127,24 @@ class OnceLedger:
                 continue
         return found
 
-    def measured(self, side: str) -> list[OnceRecord]:
-        return [record for record in self.records() if record.side == side]
+    def measured(self, side: str, slice: str = FULL) -> list[OnceRecord]:  # noqa: A002
+        return [r for r in self.records() if r.side == side and r.slice == slice]
 
-    def check(self, side: str, deviation: str | None) -> int:
-        """Refuse a second measurement of *side* without *deviation*; returns earlier count."""
+    def check(self, side: str, deviation: str | None, slice: str = FULL) -> int:  # noqa: A002
+        """Refuse a second measurement of (*side*, *slice*) without *deviation*.
+
+        Returns the earlier count of that pair.
+        """
         if side not in SIDES:
             raise ValueError(f"{side!r} is not a sealed side")
-        earlier = self.measured(side)
+        if slice not in SLICES:
+            raise ValueError(f"{slice!r} is not a measured slice")
+        earlier = self.measured(side, slice)
         if earlier and deviation is None:
             first = earlier[0]
             raise OnceError(
-                f"the {side} side of this run was already measured ({len(earlier)} time(s);"
+                f"the {side} side ({slice} slice) of this run was already measured"
+                f" ({len(earlier)} time(s);"
                 f" first as {first.label!r} on {first.date}, status {first.status});"
                 " it is measured once"
             )

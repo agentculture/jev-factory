@@ -564,7 +564,16 @@ def test_measure_final_measures_once_applies_the_gate_and_reports_every_bar(depl
     test = report["sides"]["test"]
     assert set(test["bars"]) == set(ps.toy_prereg()["bars"])
     assert test["bars"]["permutation_change"]["value"] == 0.0
-    assert test["bars"]["mc_escalation"]["met"] is None  # not measured: reported, not guessed
+    assert test["mc_n"] > 0 and test["bars"]["mc_escalation"]["met"] is True
+    assert report["sides"]["held-out"]["mc_n"] > 0
+    ledger = [
+        json.loads(line)
+        for line in (deployed.workdir / "measure" / "once-ledger.jsonl").read_text().splitlines()
+    ]
+    assert sorted((r["side"], r["slice"]) for r in ledger) == sorted(
+        [(s, sl) for s in ("test", "held-out") for sl in ("full", "missing-candidate")]
+    )
+    assert all(r["deviation"] is None for r in ledger)
     assert "right_proposals_ci" in test and "ece_ci" in test
     finals = [a for m, a in deployed.runner.calls if m.endswith("measure.run") and "--final" in a]
     assert finals and all("--calibration" in a for a in finals)
@@ -578,16 +587,6 @@ def test_measure_final_with_a_deviation_measures_again(deployed):
     deployed.apply("measure-final")
     deployed.ctx.deviation_id = "d9"
     deployed.apply("measure-final", force=True)
-
-
-def test_the_final_missing_candidate_slice_needs_a_deviation(deployed):
-    knobs = {"missing_candidate": True, "bootstrap_resamples": 0}
-    assert "second measurement" in deployed.fail("measure-final", knobs)
-    assert not (deployed.workdir / "measure" / "once-ledger.jsonl").exists()
-    deployed.ctx.deviation_id = "d10"
-    deployed.apply("measure-final", knobs)
-    test = deployed.json("final/report.json")["sides"]["test"]
-    assert test["mc_n"] > 0 and test["bars"]["mc_escalation"]["met"] is True
 
 
 def _edge(run: Run, **overrides) -> None:

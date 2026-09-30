@@ -1030,6 +1030,7 @@ class Provenance:
     tier_errors_allowed: int = 0
     calibration_note: str = ""
     ctx: int = 2048
+    slice: str = SLICE_FULL
 
 
 def _serving_line(record: RunRecord) -> str:
@@ -1087,8 +1088,9 @@ def render_markdown(prov: Provenance, records: Sequence[RunRecord]) -> str:
     ]
     if prov.final or prov.acceptance:
         side = TEST if prov.final else HELD_OUT
+        slice_note = "" if prov.slice == SLICE_FULL else f" ({prov.slice} slice)"
         lines.append(
-            f"- Measurements of the {side} side in this run, including this one:"
+            f"- Measurements of the {side} side{slice_note} in this run, including this one:"
             f" {prov.sealed_before + (0 if nothing else 1)}"
         )
     if prov.deviation:
@@ -1357,7 +1359,7 @@ def run(argv: Sequence[str], seams: Seams) -> int:
     ledger = once.OnceLedger(run_dir)
     try:
         with ledger:
-            ledger.check(side, args.deviation)
+            ledger.check(side, args.deviation, args.slice)
             return _run(args, argv, raw, split_path, domain, run_dir, seams, (ledger, side))
     except once.OnceError as exc:
         raise MeasureError(
@@ -1443,7 +1445,7 @@ def _run(
             ) from exc
     sealed_before = 0
     if sealed is not None:
-        sealed_before = len(sealed[0].measured(sealed[1]))
+        sealed_before = len(sealed[0].measured(sealed[1], args.slice))
 
     records: list[RunRecord] = []
     status = once.FAILED_MID_RUN
@@ -1509,6 +1511,7 @@ def _run(
             final=args.final,
             acceptance=args.acceptance,
             sealed_before=sealed_before,
+            slice=args.slice,
             deviation=args.deviation,
             decision_mode=_mode_note(args),
             slice_note=(
@@ -1546,6 +1549,7 @@ def _run(
                     date=date,
                     status=status,
                     deviation=args.deviation,
+                    slice=args.slice,
                 )
             )
 

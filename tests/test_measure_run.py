@@ -532,6 +532,59 @@ def test_a_recorded_deviation_permits_one_more_sealed_measurement(tmp_path):
     assert "- Measurements of the test side in this run, including this one: 2" in text
 
 
+@pytest.mark.behavioral("o10")
+@pytest.mark.parametrize(
+    ("name", "flag", "side"),
+    [("test.json", "--final", "test"), ("held-out.json", "--acceptance", "held-out")],
+)
+def test_the_once_rule_is_per_side_and_slice(tmp_path, capsys, name, flag, side):
+    """d9: the full side and its missing-candidate slice are each measured once."""
+    split = _split(tmp_path, name)
+    mc = ("--slice", "missing-candidate")
+    assert measure.main(_argv(tmp_path, split, flag, label="f"), seams=Harness().seams) == 0
+    # the slice is a different pair: no deviation needed the first time
+    assert measure.main(_argv(tmp_path, split, flag, *mc, label="m1"), seams=Harness().seams) == 0
+    assert [(r["side"], r["slice"]) for r in _ledger(tmp_path)] == [
+        (side, "full"),
+        (side, "missing-candidate"),
+    ]
+    capsys.readouterr()
+    # the same pair again is refused without a deviation id
+    second = Harness()
+    code = measure.main(_argv(tmp_path, split, flag, *mc, label="m2"), seams=second.seams)
+    assert code != 0 and second.built == []
+    assert "measured once" in capsys.readouterr().err
+    code = measure.main(_argv(tmp_path, split, flag, label="f2"), seams=Harness().seams)
+    assert code != 0
+    assert len(_ledger(tmp_path)) == 2
+    # and a deviation id permits one more of that pair
+    argv = _argv(tmp_path, split, flag, *mc, "--deviation", "d9", label="m3")
+    assert measure.main(argv, seams=Harness().seams) == 0
+    assert _ledger(tmp_path)[-1]["deviation"] == "d9"
+
+
+@pytest.mark.behavioral("o10")
+def test_a_ledger_written_with_side_only_keys_reads_as_the_full_slice(tmp_path, capsys):
+    path = tmp_path / "run" / "measure" / "once-ledger.jsonl"
+    path.parent.mkdir(parents=True)
+    old = {
+        "side": "test",
+        "split_sha256": "0" * 64,
+        "label": "old",
+        "date": "2026-09-01",
+        "status": "measured",
+        "deviation": None,
+    }
+    path.write_text(json.dumps(old) + "\n")
+    ledger = once.OnceLedger(tmp_path / "run")
+    assert [r.slice for r in ledger.measured("test")] == ["full"]
+    split = _split(tmp_path, "test.json")
+    assert measure.main(_argv(tmp_path, split, "--final", label="n"), seams=Harness().seams) == 1
+    assert "measured once" in capsys.readouterr().err
+    argv = _argv(tmp_path, split, "--final", "--slice", "missing-candidate", label="n2")
+    assert measure.main(argv, seams=Harness().seams) == 0
+
+
 def test_a_deviation_must_look_like_an_id_and_apply_to_a_sealed_run(tmp_path, capsys):
     split = _split(tmp_path)
     assert measure.main(_argv(tmp_path, split, "--deviation", "a b"), seams=Harness().seams) == 1
