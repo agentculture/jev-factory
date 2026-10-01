@@ -248,5 +248,5 @@ Lapse ledger evidence:
 - Follow-up from t15 / t34 — pre-register decide's epochs confidence-hold tolerance (0.02 today) and state that candidate order is the simplicity order for ties.
 - Lapse l15 — closed by `tests/test_release_nvsh_parity.py` and the release fixes.
 - Operator confirmations — d12, l16, l17, evidence e1-e41 and deltas b1-b10 were all confirmed on 2026-10-01.
-- Live-test the evaluation path on nvsh's scorer r3b (`jetson-ai-lab/qwen3.5-0.8b-nvsh-tool-jev-scorer-v2-gguf`, deviation d13) before the first jev-tool build.
+- The live test of the evaluation path on nvsh's r3b (deviation d13) is done: see `docs/r3b-live-test.md`. It used the validation side on CPU, and the numbers match nvsh's saved r3b predictions (203/204 rows have the same top choice; the gated results are identical). The 30-minute progress standard (deviation d15) is in place for the jev-tool build.
 - SonarCloud code smells — about 530 open (mostly S9073 composite asserts in tests and S3776 complexity); they do not fail the gate. Pay down when the touched files are next edited.
