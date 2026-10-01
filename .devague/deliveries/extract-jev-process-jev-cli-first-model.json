@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-10-01T06:33:56Z",
+  "updated": "2026-10-01T07:07:16Z",
   "deviations": [
     {
       "id": "d1",
@@ -205,6 +205,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 55
+    },
+    {
+      "id": "d15",
+      "what": "long-running processes report progress on a standard cadence through the jev CLI: progress files carry started/updated timestamps; jev status --watch prints a timestamped update every interval (default 30 minutes) with items done/total, rate, ETA and changes since the last update, until nothing is running; measure and probe write progress files like the item ledgers do",
+      "task_ref": "t27",
+      "reason": "operator: 'Please provide updates every 30 min. We need that standard for long running processes, via jev cli' \u2014 jev status was a one-shot snapshot and measure/probe wrote no progress, so a multi-hour stage gave no update",
+      "affects": [
+        "t28"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 56
     }
   ],
   "evidence": [
