@@ -23,6 +23,7 @@ import ipaddress
 import json
 import re
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -90,32 +91,72 @@ def _teacher(role_models: dict[str, tuple[str, str]], alias: str) -> tuple[str, 
     return role_models[alias]
 
 
+#: How a jev-factory teacher record (``data.augment`` / ``data.targeted``: role name ->
+#: ``TeacherRole.record()``) maps onto the card's roles. Reviewer B also copyedits.
+TEACHER_RECORD_ROLES = {
+    "generator": ("GENERATOR",),
+    "reviewer_b": ("CORRECTOR", "REVIEWER_B"),
+    "reviewer_a": ("REVIEWER_A",),
+}
+
+
+def _resolve_roles(
+    entry_id: str, row: dict[str, Any], role_models: dict[str, tuple[str, str]]
+) -> dict[str, tuple[str, str]]:
+    """``{ROLE: (name, licence)}`` for one accepted variation record.
+
+    Two record shapes are accepted: nvsh's ``models`` (role -> alias in *role_models*,
+    every role required) and jev-factory's ``teachers`` (role name -> a record carrying
+    ``model_name``/``model`` and ``licence``; reviewer A only when it was asked)."""
+    models = row.get("models")
+    if models:
+        resolved = {}
+        for role, _ in ROLES:
+            if role not in models:
+                raise ValueError(f"variation {entry_id}'s accepted record names no {role} teacher")
+            resolved[role] = _teacher(role_models, models[role])
+        return resolved
+    teachers = row.get("teachers")
+    if not isinstance(teachers, dict) or not teachers:
+        raise ValueError(f"variation {entry_id} has no accepted record naming its models")
+    resolved = {}
+    for name, roles in TEACHER_RECORD_ROLES.items():
+        info = teachers.get(name)
+        if info is None:
+            if name == "reviewer_a":
+                continue
+            raise ValueError(f"variation {entry_id}'s accepted record names no {name} teacher")
+        if not isinstance(info, dict):
+            raise ValueError(f"variation {entry_id}: teacher {name!r} is not a record")
+        model = info.get("model_name") or info.get("model")
+        licence = info.get("licence")
+        if not model or not licence:
+            raise ValueError(f"variation {entry_id}: teacher {name!r} needs a model and a licence")
+        for role in roles:
+            resolved[role] = (str(model), str(licence))
+    return resolved
+
+
 def teacher_summary(
     train: list[dict[str, Any]],
     accepted_rows: dict[str, dict[str, Any]],
     role_models: dict[str, tuple[str, str]],
     *,
     apache_only: bool = False,
+    is_variation: Callable[[str], bool] | None = None,
 ) -> TeacherSummary:
-    """The teachers of every variation (an id with ``~v``) in *train*."""
+    """The teachers of every variation in *train* (by default an id with ``~v``)."""
     summary = TeacherSummary()
     role_teachers: dict[str, dict[str, str]] = collections.defaultdict(dict)
     shared: dict[str, None] = {}
     decisions: collections.Counter[str] = collections.Counter()
+    variation = is_variation or (lambda entry_id: "~v" in entry_id)
     for entry in train:
-        if "~v" not in entry["id"]:
+        if not variation(entry["id"]):
             continue
         row = accepted_rows.get(entry["id"], {})
-        models = row.get("models")
-        if not models:
-            raise ValueError(f"variation {entry['id']} has no accepted record naming its models")
         teachers: dict[str, str] = {}
-        for role, _ in ROLES:
-            if role not in models:
-                raise ValueError(
-                    f"variation {entry['id']}'s accepted record names no {role} teacher"
-                )
-            name, teacher_licence = _teacher(role_models, models[role])
+        for role, (name, teacher_licence) in _resolve_roles(entry["id"], row, role_models).items():
             if apache_only and teacher_licence != APACHE_LICENCE:
                 raise ValueError(
                     f"{entry['id']}: teacher {name!r} ({teacher_licence}) is not "
@@ -127,7 +168,9 @@ def teacher_summary(
             shared.setdefault(teachers["CORRECTOR"], None)
         decisions[decision_rule(row)] += 1
         summary.per_variation[entry["id"]] = teachers
-    summary.role_teachers = dict(role_teachers)
+    summary.role_teachers = {
+        role: dict(role_teachers[role]) for role, _ in ROLES if role in role_teachers
+    }
     summary.shared_corrector_reviewer_names = list(shared)
     summary.decisions = dict(decisions)
     return summary

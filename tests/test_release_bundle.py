@@ -366,3 +366,74 @@ def test_the_dataset_bundle_refuses_a_train_row_repeating_a_held_apart_entry(tmp
             gate=write_json(tmp_path / "g.json", {}),
             scorer_train=write_json(tmp_path / "s.json", {"entries": []}),
         )
+
+
+# ---- l15: what nvsh's release tests pinned that the rewrite dropped -----------------
+
+
+def test_the_notice_states_the_quantization_and_the_mtp_change(tmp_path):
+    inp = make_inputs(tmp_path)
+    gguf = write_gguf(tmp_path / "model-q4_k_m.gguf")
+    _build(tmp_path, inp, kind="gguf", gguf=gguf)
+    notice = (tmp_path / "out" / "NOTICE").read_text()
+    assert "Q4_K_M GGUF quantization" in notice and "llama.cpp" in notice
+    shutil.rmtree(tmp_path / "out")
+    _build(tmp_path, inp)  # bf16: the declared MTP head is zeroed in the bundle copy
+    notice = (tmp_path / "out" / "NOTICE").read_text()
+    assert "mtp_num_hidden_layers was changed from" in notice
+    assert "quantization" not in notice
+
+
+def test_the_card_names_the_logprob_window_and_a_text_only_gguf(tmp_path):
+    from jev_factory.backbones.causal_lm.readout import READOUT_TOP
+
+    inp = make_inputs(tmp_path)
+    _build(tmp_path, inp)
+    assert f"--max-logprobs {READOUT_TOP}" in (tmp_path / "out" / "README.md").read_text()
+    shutil.rmtree(tmp_path / "out")
+    _build(tmp_path, inp, kind="gguf", gguf=write_gguf(tmp_path / "model-q4_k_m.gguf"))
+    card = (tmp_path / "out" / "README.md").read_text()
+    assert "text-only" in card and "no `--mmproj`" in card and "--temp 0 --top-k 1" in card
+
+
+def test_a_dataset_bundle_refuses_a_licence_file_that_is_not_apache(tmp_path):
+    with pytest.raises(BundleError, match="Apache License 2.0"):
+        _build_dataset(tmp_path, licence_file=_write(tmp_path / "MIT", "MIT License\n"))
+    assert not (tmp_path / "ds").exists()
+
+
+def _write(path: Path, text: str) -> Path:
+    path.write_text(text)
+    return path
+
+
+def _jev_record(decided_by="reviewer_b", **teachers):
+    def role(name, licence="Apache-2.0"):
+        return {"role": name, "model": f"{name}-alias", "model_name": name, "licence": licence}
+
+    record = {
+        "generator": role("Gen Model"),
+        "reviewer_b": role("Judge Model"),
+        **{k: role(*v) if isinstance(v, tuple) else v for k, v in teachers.items()},
+    }
+    return {
+        "teachers": {k: v for k, v in record.items() if v is not None},
+        "decided_by": decided_by,
+    }
+
+
+def test_teacher_summary_reads_the_records_jev_augment_writes():
+    ds = bundle_module._dataset  # noqa: SLF001
+    rows = {"a~v1": _jev_record(), "b~v1": _jev_record("both", reviewer_a=("Second Judge",))}
+    train = [{"id": "a"}, {"id": "a~v1"}, {"id": "b~v1"}]
+    summary = ds.teacher_summary(train, rows, {}, apache_only=True)
+    assert summary.role_teachers["GENERATOR"] == {"Gen Model": "Apache-2.0"}
+    assert summary.role_teachers["CORRECTOR"] == {"Judge Model": "Apache-2.0"}
+    assert summary.role_teachers["REVIEWER_A"] == {"Second Judge": "Apache-2.0"}
+    assert summary.shared_corrector_reviewer_names == ["Judge Model"]
+    assert summary.decisions == {"reviewer_b": 1, "both": 1}
+    closed = {"a~v1": _jev_record(generator=("Closed Gen", "Proprietary"))}
+    with pytest.raises(ValueError, match="apache_only"):
+        ds.teacher_summary([{"id": "a~v1"}], closed, {}, apache_only=True)
+    with pytest.raises(ValueError, match="no generator teacher"):
+        ds.teacher_summary([{"id": "a~v1"}], {"a~v1": _jev_record(generator=None)}, {})

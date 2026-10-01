@@ -705,3 +705,32 @@ def test_augment_and_targeted_feed_assemble_through_the_teachers(tmp_path):
     freeze = run.json("data/freeze.json")["files"]
     assert summary["supplement"] == "aug/supplement.json"
     assert {"variations_0", "supplement", "protected_2"} <= set(freeze)
+
+
+def test_the_bundle_card_names_the_teachers_of_the_rows_it_trained_on(tmp_path):
+    from jev_factory.data.assemble import select_frozen
+
+    rewrite = "could you please brighten things up in there for me today"
+    run = Run(tmp_path)
+    run.ctx.services.teacher_client = _client(tmp_path, generator=lambda user: rewrite)
+    run.through(*CHAIN)
+    run.apply("augment", {"per_source": 1})
+    run.apply("targeted", {"recipes": ["missing-argument"], "per_recipe": 1})
+    run.apply("assemble")
+    frozen = select_frozen(run.workdir / "data" / "freeze.json")
+    teachers = pipeline._bundle_teachers(run.workdir, frozen.path, apache_only=True)
+    assert teachers is not None and teachers.decisions
+    assert set(teachers.role_teachers) >= {"GENERATOR", "CORRECTOR", "REVIEWER_B"}
+    trained = {str(e["id"]) for e in json.loads(frozen.path.read_text())["entries"]}
+    assert set(teachers.per_variation) <= trained
+
+
+def test_a_bundle_without_synthetic_rows_says_so(deployed):
+    deployed.through("measure-final")
+    _edge(deployed)
+    deployed.apply("edge-check")
+    deployed.apply("bundle", {"repo_suffix": "scorer"})
+    folder = deployed.workdir / deployed.json("bundle/record.json")["folder"]
+    card = (folder / "README.md").read_text()
+    assert "No synthetic variations were used" in card
+    assert "data set bundle" not in card and "`scorer-train.json` in this repository" in card

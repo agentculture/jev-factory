@@ -1798,6 +1798,40 @@ def stage_edge_check(workdir: Path, knobs: dict[str, Any]) -> None:
     )
 
 
+def _bundle_teachers(workdir: Path, scorer_train: Path, *, apache_only: bool) -> Any:
+    """Which teachers wrote the synthetic rows that the frozen training set actually holds.
+
+    Augment variations come from ``aug/accepted.jsonl``; targeted entries from the
+    supplement's ``targeted.teachers``. ``None`` when the training set holds neither, so
+    the card's "no synthetic variations" sentence is then true."""
+    from jev_factory.release import dataset_bundle as ds
+
+    rows: dict[str, dict[str, Any]] = {}
+    accepted = workdir / ACCEPTED_FILE
+    if accepted.is_file():
+        rows.update({row["id"]: row for row in ds.load_jsonl(accepted)})
+    summary = workdir / TARGETED_SUMMARY
+    supplement_rel = _read_json(summary).get("supplement") if summary.is_file() else None
+    if supplement_rel:
+        supplement = _read_json(workdir / supplement_rel)
+        meta = supplement.get("targeted", {})
+        for entry in supplement.get("entries", []):
+            rows[entry["id"]] = {
+                "teachers": meta.get("teachers", {}),
+                "decided_by": meta.get("decide_by"),
+            }
+    trained = [{"id": str(e["id"])} for e in _read_json(scorer_train).get("entries", [])]
+    used = [entry for entry in trained if entry["id"] in rows]
+    if not used:
+        return None
+    try:
+        return ds.teacher_summary(
+            used, rows, {}, apache_only=apache_only, is_variation=lambda _id: True
+        )
+    except ValueError as exc:
+        raise _err(str(exc), "every synthetic training row must name its teachers") from None
+
+
 def stage_bundle(workdir: Path, knobs: dict[str, Any]) -> None:
     """The model bundle of the deployed build: calibration.json, gate.json, scorer-train.json.
 
@@ -1819,7 +1853,10 @@ def stage_bundle(workdir: Path, knobs: dict[str, Any]) -> None:
     frozen = select_frozen(workdir / FREEZE_FILE, deviation_id=ctx.deviation_id)
     summary = knobs.get("data_summary") or (
         f"{freeze.get('counts', {}).get('entries', 'n/a')} scorer training rows frozen at"
-        f" sha256 {frozen.sha256[:16]}; the data set bundle lists the sources."
+        f" sha256 {frozen.sha256[:16]}; `scorer-train.json` in this repository is that set."
+    )
+    teachers = _bundle_teachers(
+        workdir, frozen.path, apache_only=rb.licence_of(ctx.domain, ctx.config) == rb.APACHE_LICENCE
     )
     reports = sorted((workdir / "final").glob("*/final-*.md"))
     edge = workdir / "edge" / "report.md"
@@ -1842,6 +1879,7 @@ def stage_bundle(workdir: Path, knobs: dict[str, Any]) -> None:
             scorer_train=frozen.path,
             kind="gguf",
             gguf=workdir / build["gguf"],
+            teachers=teachers,
         )
     except rb.BundleError as exc:
         raise _err(str(exc)) from None

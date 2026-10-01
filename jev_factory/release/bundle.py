@@ -31,6 +31,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from jev_factory.backbones.causal_lm.readout import READOUT_TOP
 from jev_factory.domain.model import Domain
 from jev_factory.factory.config import RunConfig
 from jev_factory.release import dataset_bundle as _dataset
@@ -243,8 +244,12 @@ def surface_mismatch(folder: Path, current_sha256: str | None = None) -> str | N
     )
 
 
-def _licence(domain: Domain, config: RunConfig) -> str:
+def licence_of(domain: Domain, config: RunConfig) -> str:
+    """The licence a bundle ships under: the run config's, else the Domain's, else Apache."""
     return str(config.get("licence") or domain.licence or APACHE_LICENCE)
+
+
+_licence = licence_of
 
 
 def _hub_prefix(domain: Domain, config: RunConfig) -> str:
@@ -393,7 +398,34 @@ def _check_licence_file(licence_file: Path, licence: str) -> None:
             raise BundleError(f"{licence_file} does not appear to be the Apache License 2.0")
 
 
-def notice(base_repo: str, base_revision: str, repo: str, *, licence: str, domain: Domain) -> str:
+def notice(
+    base_repo: str,
+    base_revision: str,
+    repo: str,
+    *,
+    licence: str,
+    domain: Domain,
+    kind: str = "bf16",
+    mtp_from: int | None = None,
+) -> str:
+    """The NOTICE: a prominent statement that the files were modified, and how (every
+    modification, including the quantization and any ``config.json`` change)."""
+    extra = ""
+    if kind == "gguf":
+        extra += (
+            "\nThis upload is a Q4_K_M GGUF quantization of that fine-tune, made with\n"
+            "llama.cpp; the tokenizer files are the fine-tune's.\n"
+        )
+    elif kind == "awq":
+        extra += (
+            "\nThis upload is an INT4 AWQ quantization of that fine-tune in the\n"
+            "compressed-tensors format, made with llm-compressor.\n"
+        )
+    if mtp_from is not None:
+        extra += (
+            f"\nconfig.json: mtp_num_hidden_layers was changed from {mtp_from} to 0, as the\n"
+            "weights hold no multi-token-prediction (mtp.*) tensor.\n"
+        )
     return (
         f"{repo}\n\n"
         f"This model is a derivative work based on {base_repo} (revision {base_revision}),\n"
@@ -401,6 +433,7 @@ def notice(base_repo: str, base_revision: str, repo: str, *, licence: str, domai
         "Modifications: the weights were changed by LoRA fine-tuning, then merged, to teach the\n"
         f"model to score the candidate actions of the {domain.name} domain with one next-token\n"
         "read over their labels. The tokenizer and chat template are unchanged.\n"
+        f"{extra}"
     )
 
 
@@ -448,8 +481,9 @@ def model_card(
             f"`{gguf_sha256}`), plus the fine-tune's tokenizer files and chat template.\n"
         )
         use = (
-            "Serve the GGUF with llama.cpp's `llama-server`; `--jinja` applies the chat template\n"
-            "the GGUF carries and `--temp 0 --top-k 1` pins greedy decoding:\n\n"
+            "Serve the GGUF with llama.cpp's `llama-server`. It is **text-only**: there is no\n"
+            "vision projector, so pass no `--mmproj`. `--jinja` applies the chat template the\n"
+            "GGUF carries and `--temp 0 --top-k 1` pins greedy decoding:\n\n"
             f"```bash\nllama-server --model {gguf_name} --jinja --temp 0 --top-k 1 \\\n"
             "  --host 127.0.0.1 --port 8080\n```\n"
         )
@@ -458,10 +492,13 @@ def model_card(
         args = shlex.join(awq_serve_args)
         use = (
             "Serve the compressed-tensors folder with vLLM "
-            f"(`{args}`), with `--max-logprobs` set high enough to read the label scores.\n"
+            f"(`{args}`), with `--max-logprobs {READOUT_TOP}` so the label scores can be read.\n"
         )
     else:
-        use = "Serve with vLLM and read the next-token log-probabilities over the labels.\n"
+        use = (
+            f"Serve with vLLM with `--max-logprobs {READOUT_TOP}` and read the next-token\n"
+            "log-probabilities over the labels.\n"
+        )
     if quantized_from:
         build_note += f"The bf16 fine-tune it was quantized from is `{quantized_from}`.\n"
     if mtp_from is not None:
@@ -621,7 +658,15 @@ def build_model_bundle(
         mtp_from = drop_undeclared_mtp(out) if kind != "gguf" else None
         shutil.copyfile(licence_file, out / "LICENSE")
         (out / "NOTICE").write_text(
-            notice(base_repo, base_revision, repo, licence=licence, domain=domain),
+            notice(
+                base_repo,
+                base_revision,
+                repo,
+                licence=licence,
+                domain=domain,
+                kind=kind,
+                mtp_from=mtp_from,
+            ),
             encoding="utf-8",
         )
         for source, name in (
@@ -689,6 +734,7 @@ def build_dataset_bundle(
     checked with :func:`check_bundle`; a failure removes the folder."""
     _require_sources(calibration=calibration, gate=gate, **{"scorer-train": scorer_train})
     licence = _licence(domain, config)
+    _check_licence_file(licence_file, licence)
     if out.exists() and any(out.iterdir()):
         raise BundleError(f"{out} is not empty")
     try:
