@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-10-01T05:26:02Z",
+  "updated": "2026-10-01T05:36:27Z",
   "deviations": [
     {
       "id": "d1",
@@ -163,6 +163,21 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 11
+    },
+    {
+      "id": "d12",
+      "what": "Portability lint waives devague records and planning prose by prefix (.devague/, docs/specs/, docs/plans/, docs/deliveries/): the CI lint step drops them from its diff and harness-smoke's steward-doctor check waives findings there; the test canary in tests/test_teachers.py is built at runtime",
+      "task_ref": "t30",
+      "reason": "PR #5 CI failed portability lint on evidence/claim text that quotes the lint's own patterns (a pytest param id holding a home path; dotfile wording in claims); confirmed devague records are never edited in place; nvsh's harness-smoke waives the same prefixes (issue #4); GitGuardian flagged the test canary, which the operator marked as a test credential",
+      "affects": [
+        "c21",
+        "h15",
+        "c22"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 53
     }
   ],
   "evidence": [

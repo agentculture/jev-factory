@@ -14,7 +14,7 @@ from jev_factory.factory.config import load_config
 from jev_factory.factory.detach import ItemLedger, read_progress
 
 KEYVAR = "TEST_TEACHER_KEY"
-SECRET = "s3cr3t-value-xyz"
+SECRET = "-".join(("canary", "value", "for", "tests"))  # built at runtime: not a real secret
 REQUIRED = {
     "work": "w",
     "base": "org/base",

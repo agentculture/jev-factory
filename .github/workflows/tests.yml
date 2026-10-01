@@ -62,6 +62,11 @@ jobs:
           elif git rev-parse --verify -q HEAD~1 >/dev/null; then
             git reset --soft HEAD~1
           fi
+          # Devague records and planning prose quote the lint's own patterns and
+          # are never edited in place; drop them from this diff (same waiver as
+          # scripts/harness-smoke.py STEWARD_WAIVED_PORTABILITY_PREFIXES).
+          git restore --source=HEAD --staged --worktree -- \
+            .devague docs/specs docs/plans docs/deliveries 2>/dev/null || true
           bash .claude/skills/cicd/scripts/portability-lint.sh
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
