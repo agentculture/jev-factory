@@ -621,6 +621,8 @@ class RunPlan:
     port: int | None = None
     settings: serve.ServeSettings | None = None
     ctx: int = 2048
+    #: A :class:`~jev_factory.factory.detach.Progress` advanced once per scored entry.
+    progress: Any = None
 
 
 @dataclass
@@ -685,6 +687,8 @@ def scorer_predictions(
                 call_error=call_error,
             )
         )
+        if plan.progress is not None:
+            plan.progress.advance()
     return lines, notes, tuple(watched.tops)
 
 
@@ -1164,6 +1168,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--revision", action="append", default=[], help="one per --model")
     parser.add_argument("--label", default="measure", help="results file name part")
     parser.add_argument(
+        "--progress-dir",
+        default=None,
+        help="write <dir>/measure-<label>.progress.json after every entry (jev status reads it)",
+    )
+    parser.add_argument(
         "--scorer", required=True, choices=(SCORER_SERVED, SCORER_IN_PROCESS), help="scorer"
     )
     parser.add_argument("--base-url", default=None, help="served: attach to this localhost URL")
@@ -1436,6 +1445,7 @@ def _run(
         settings=settings,
         ctx=ctx,
     )
+
     cpu_served = bool(
         args.serve
         and settings is not None
@@ -1453,6 +1463,17 @@ def _run(
     if sealed is not None:
         sealed_before = len(sealed[0].measured(sealed[1], args.slice))
 
+    if args.progress_dir:
+        from jev_factory.factory.detach import Progress
+
+        plan = replace(
+            plan,
+            progress=Progress(
+                Path(args.progress_dir),
+                "measure-" + args.label.replace(".", "_"),
+                len(loaded.entries) * len(args.model),
+            ),
+        )
     records: list[RunRecord] = []
     status = once.FAILED_MID_RUN
     try:

@@ -37,7 +37,7 @@ checks prevent, and the test behind each, are in `docs/lessons-encoded.md`.
 
 - `jev-factory init <domain>` — scaffold a run directory and run config.
 - `jev-factory run <stage>` — run one build stage (one subcommand per stage).
-- `jev-factory status <run>` — stage manifests, staleness, detached-job progress.
+- `jev-factory status <run>` — stage manifests, staleness, job progress; `--watch` every 30m.
 - `jev-factory decide <run>` — apply the pre-registered rule; append a record.
 - `jev-factory ask <request>` — propose one jev verb from a bundle; executes nothing.
 - `jev-factory whoami` — identity probe from `culture.yaml`.
@@ -190,14 +190,24 @@ _STATUS = """\
 
 Read-only view of a run's work directory: each stage's manifest status
 (`ok`, `failed`, `running`, or `-` for not run), whether a finished stage is
-stale and why, every detached job under `jobs/` with its state and
-items-done/total progress, and the number of decision records. It needs no
-domain and writes nothing.
+stale and why, every job under `jobs/` (detached jobs, item ledgers,
+measurements and probes) with its state, items done/total, rate and ETA, and
+the number of decision records. It needs no domain and writes nothing.
+
+## Watching long-running work
+
+`--watch` is the standard progress cadence: it prints a timestamped update
+now and every `--every` (default `30m`; also `1h`, `90s`, ...) with each job's
+progress, rate and ETA and what changed since the last update, and stops with
+a final update once nothing is running. With `--json`, each update is one
+JSON line.
 
 ## Usage
 
     jev-factory status <run>
     jev-factory status <run> --json
+    jev-factory status <run> --watch
+    jev-factory status <run> --watch --every 10m --json
 """
 
 _DECIDE = """\

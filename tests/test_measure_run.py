@@ -989,3 +989,17 @@ def test_reports_write_the_home_directory_as_home(tmp_path, monkeypatch):
     text = _page(tmp_path).read_text()
     assert str(tmp_path) + "/" not in text
     assert "$HOME/" in text
+
+
+def test_a_measurement_reports_its_progress_for_jev_status(tmp_path):
+    from jev_factory.factory import detach
+
+    split = _split(tmp_path)
+    jobs = tmp_path / "jobs"
+    argv = _argv(tmp_path, split, "--progress-dir", str(jobs), label="val-r1.q4")
+    assert measure.main(argv, seams=Harness().seams) == 0
+    progress = detach.read_progress(jobs, "measure-val-r1_q4")
+    n = len(json.loads(split.read_text())["entries"])
+    assert (progress["done"], progress["total"]) == (n, n)
+    assert progress["updated"] >= progress["started"] and progress["start_done"] == 0
+    assert detach.job_status(jobs, "measure-val-r1_q4")["state"] == "complete"

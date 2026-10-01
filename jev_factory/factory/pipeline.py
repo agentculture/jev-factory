@@ -560,6 +560,7 @@ def measure(
     argv = ["--domain", ctx.domain_ref, "--run-dir", str(workdir), "--split", str(split_file)]
     argv += ["--model", model, "--revision", revision, "--label", label]
     argv += ["--predictions", str(out_dir), "--out", str(out_dir / f"{label}.md")]
+    argv += ["--progress-dir", str(workdir / JOBS_DIR)]
     argv += ["--ground-snapshot", str(workdir / SNAPSHOT_FILE), *scorer]
     if missing_candidate:
         argv += ["--slice", "missing-candidate"]
@@ -612,11 +613,14 @@ def probe(
     per_entry: int,
     scorer: Sequence[str] = ("--scorer", "in-process"),
     final: bool = False,
+    progress_dir: Path | None = None,
 ) -> dict:
     """The permutation probe over *split_file*; its report (with ``pooled_change_rate``)."""
     ctx = _ctx()
     argv = ["--domain", ctx.domain_ref, "--split", str(split_file), "--out", str(out)]
     argv += ["--per-entry", str(per_entry), "--model", model, "--revision", revision, *scorer]
+    if progress_dir is not None:
+        argv += ["--progress-dir", str(progress_dir)]
     if final:
         argv.append("--final")
     Path(out).parent.mkdir(parents=True, exist_ok=True)
@@ -1084,6 +1088,7 @@ def stage_baseline(workdir: Path, knobs: dict[str, Any]) -> None:
             model=str(stock),
             revision=revision,
             per_entry=10,
+            progress_dir=workdir / JOBS_DIR,
         )
         values["permutation_change"] = metrics_rate(report)
     body = {
@@ -1393,6 +1398,7 @@ def stage_select(workdir: Path, knobs: dict[str, Any]) -> None:
             model=str(run_dir / "merged"),
             revision=revision,
             per_entry=registered.perms_per_entry,
+            progress_dir=workdir / JOBS_DIR,
         )
         classes: dict[str, int] = {}
         entry_class = {
@@ -1804,6 +1810,7 @@ def stage_measure_final(workdir: Path, knobs: dict[str, Any]) -> None:
                 per_entry=registered.perms_per_entry,
                 scorer=["--scorer", "served", "--base-url", base_url, "--tokenizer", str(merged)],
                 final=True,
+                progress_dir=workdir / JOBS_DIR,
             )
         change = metrics_rate(probe_report)
         test = report["sides"]["test"]

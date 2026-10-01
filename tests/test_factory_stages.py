@@ -16,6 +16,11 @@ from jev_factory.factory import detach, stages
 from jev_factory.factory.stages import Registry, Stage
 
 
+def _counts(progress):
+    """The items done/total of a progress record (it also carries timing)."""
+    return {k: progress[k] for k in ("done", "total")}
+
+
 def _registry(calls: list[str]) -> Registry:
     def make(name: str, src: str, dst: str):
         def fn(workdir: Path, knobs: dict) -> None:
@@ -207,7 +212,7 @@ def test_killed_item_run_resumes_with_zero_resends_and_progress(tmp_path):
     led = detach.ItemLedger(tmp_path, "draft", total=len(items))
     with pytest.raises(Killed):
         led.run(items, fn)
-    assert detach.read_progress(tmp_path, "draft") == {"done": 3, "total": 6}
+    assert _counts(detach.read_progress(tmp_path, "draft")) == {"done": 3, "total": 6}
     # torn trailing journal line from the kill must not break resume
     with (tmp_path / "draft.items.jsonl").open("a") as fh:
         fh.write('{"id": "i3", "res')
@@ -215,5 +220,5 @@ def test_killed_item_run_resumes_with_zero_resends_and_progress(tmp_path):
     led2 = detach.ItemLedger(tmp_path, "draft", total=len(items))
     led2.run(items, fn)
     assert sent == ["i3", "i4", "i5"]  # 0 re-sends of i0..i2, resumes at next item
-    assert detach.read_progress(tmp_path, "draft") == {"done": 6, "total": 6}
-    assert detach.job_status(tmp_path, "draft")["progress"] == {"done": 6, "total": 6}
+    assert _counts(detach.read_progress(tmp_path, "draft")) == {"done": 6, "total": 6}
+    assert _counts(detach.job_status(tmp_path, "draft")["progress"]) == {"done": 6, "total": 6}

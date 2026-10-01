@@ -23,6 +23,11 @@ BASE = ["--base", "example-org/toy-base", "--base-rev", "0" * 40]
 BASE += ["--hub-prefix", "example-org/toy-lamps-jev-", "--licence", "Apache-2.0", "--seed", "7"]
 
 
+def _counts(progress):
+    """The items done/total of a progress record (it also carries timing)."""
+    return {k: progress[k] for k in ("done", "total")}
+
+
 def tree(root: Path) -> dict[str, bytes]:
     return {
         p.relative_to(root).as_posix(): p.read_bytes()
@@ -180,7 +185,7 @@ def test_status_reads_manifests_and_shows_items_done_of_total(scaffold, capsys):
     assert stages["split"]["status"] == "not-run"
     aug = stages["augment"]
     assert aug["status"] == "running"
-    assert aug["jobs"][0]["progress"] == {"done": 3, "total": 10}
+    assert _counts(aug["jobs"][0]["progress"]) == {"done": 3, "total": 10}
     rc, text, _ = run_cli(capsys, "status", str(scaffold))
     assert "augment" in text and "3/10 items" in text and "decision records: 0" in text
 

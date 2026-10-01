@@ -492,3 +492,21 @@ def test_cli_runs_end_to_end_with_an_injected_scorer(tmp_path):
     assert {k["kind"] for k in report["kinds"]} == set(probe.KINDS)  # domain paraphrases
     assert md.read_text().startswith("# Permutation probe")
     assert closed == [True]
+
+
+def test_the_probe_reports_its_progress_for_jev_status(tmp_path):
+    from jev_factory.factory import detach
+    from jev_factory.measure.run import ScorerHandle
+
+    path = _split_file(tmp_path, "val.json")
+
+    def build(_args):
+        return ScorerHandle(top_k=identity("lamp_status"), render=_render, close=lambda: None)
+
+    out = tmp_path / "final" / "probe.json"
+    out.parent.mkdir()
+    argv = [*DOMAIN_ARG, "--split", str(path), "--model", "m", "--per-entry", "2"]
+    argv += ["--out", str(out), "--progress-dir", str(tmp_path / "jobs")]
+    assert probe.main(argv, build_scorer=build) == 0
+    progress = detach.read_progress(tmp_path / "jobs", "probe-final-probe")
+    assert progress["done"] == progress["total"] > 0

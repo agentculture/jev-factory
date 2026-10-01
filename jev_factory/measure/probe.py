@@ -48,7 +48,7 @@ import random
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from jev_factory.backbones.causal_lm import readout as ro
 from jev_factory.backbones.causal_lm import scorer as sc
@@ -403,25 +403,30 @@ def run_probe(
     paraphrases: Mapping[str, Sequence[str]] | None = None,
     bootstrap_seed: int = metrics.DEFAULT_BOOTSTRAP_SEED,
     reasons: bool = False,
+    progress: Any = None,
 ) -> dict:
-    """The full probe report: every kind's aggregate over *entries*."""
+    """The full probe report: every kind's aggregate over *entries*. *progress* (a
+    :class:`~jev_factory.factory.detach.Progress`) is advanced once per entry."""
     resolved_pool = tuple(sc.candidate_pool(domain, reasons) if pool is None else pool)
     if len(resolved_pool) > len(ro.LABEL_ALPHABET):
         raise ProbeError(f"{len(resolved_pool)} candidates but only 52 letters")
-    outcomes = [
-        probe_entry(
-            domain,
-            top_k,
-            render,
-            entry,
-            pool=resolved_pool,
-            per_entry=per_entry,
-            seed=seed,
-            paraphrases=paraphrases,
-            reasons=reasons,
+    outcomes = []
+    for entry in entries:
+        outcomes.append(
+            probe_entry(
+                domain,
+                top_k,
+                render,
+                entry,
+                pool=resolved_pool,
+                per_entry=per_entry,
+                seed=seed,
+                paraphrases=paraphrases,
+                reasons=reasons,
+            )
         )
-        for entry in entries
-    ]
+        if progress is not None:
+            progress.advance()
     kinds_report = [
         report
         for kind in KINDS
@@ -529,6 +534,11 @@ def main(
     parser.add_argument("--final", action="store_true", help="allow a test/held-out split")
     parser.add_argument("--out", default=None, help="JSON report path (default: stdout)")
     parser.add_argument("--markdown", default=None, help="markdown table path")
+    parser.add_argument(
+        "--progress-dir",
+        default=None,
+        help="write <dir>/probe-<out stem>.progress.json after every entry (jev status reads it)",
+    )
     parser.add_argument("--model", default=None, help="model path, or the served model name")
     parser.add_argument("--revision", default="main")
     parser.add_argument("--tokenizer", default=None)
@@ -572,6 +582,15 @@ def main(
     if args.scorer == "served" and not args.base_url:
         print("error: --scorer served needs --base-url", file=sys.stderr)
         return 1
+    progress = None
+    if args.progress_dir:
+        from jev_factory.factory.detach import Progress
+
+        where = Path(args.out) if args.out else Path(args.split)
+        stem = f"{where.parent.name}-{where.stem}" if where.parent.name else where.stem
+        progress = Progress(
+            Path(args.progress_dir), "probe-" + stem.replace(".", "_"), len(loaded.entries)
+        )
     handle = build_scorer(args)
     try:
         report = run_probe(
@@ -584,6 +603,7 @@ def main(
             paraphrases=paraphrases,
             bootstrap_seed=args.bootstrap_seed,
             reasons=args.reasons,
+            progress=progress,
         )
     finally:
         handle.close()  # type: ignore[attr-defined]

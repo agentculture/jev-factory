@@ -39,6 +39,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   only (`--device none`), and such a run needs no free GPU.
 - The release gate accepts `val`/`val-mc` case sets, and its report shows the
   missing-candidate rows' escalation rate beside their share of rows.
+- The progress standard for long-running work (deviation d15): progress files
+  carry `started`/`updated`/`pid`, so `jev status` shows each job's rate and
+  ETA and the state of in-process jobs. `jev status <run> --watch [--every 30m]`
+  prints a timestamped update every interval (default 30 minutes) until nothing
+  is running. `measure` and `probe` write progress files (`--progress-dir`, set
+  by the pipeline to the run's `jobs/`).
 - Spec, plan, gate-2 split, and the delivery summary
   (`docs/deliveries/2026-09-30-extract-jev-process-jev-cli-first-model.md`).
 

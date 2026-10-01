@@ -24,6 +24,11 @@ REQUIRED = {
 }
 
 
+def _counts(progress):
+    """The items done/total of a progress record (it also carries timing)."""
+    return {k: progress[k] for k in ("done", "total")}
+
+
 class Gateway:
     """A local fake OpenAI-compatible gateway; ``replies`` is consumed in order."""
 
@@ -315,10 +320,10 @@ def test_killed_run_resumes_at_next_item_and_resends_nothing_cached(tmp_path, ga
     with pytest.raises(Killed):
         ItemLedger(jobdir, "review", len(items)).run(items, work(c1, kill_at="item3"))
     assert len(g.requests) == 4
-    assert read_progress(jobdir, "review") == {"done": 3, "total": 6}
+    assert _counts(read_progress(jobdir, "review")) == {"done": 3, "total": 6}
 
     c2 = _client(tmp_path, g.url)
     done = ItemLedger(jobdir, "review", len(items)).run(items, work(c2))
     assert len(g.requests) == 6  # only item4 and item5 were new
     assert c2.sent == 2 and len(done) == 6  # item3 was served from the cache
-    assert read_progress(jobdir, "review") == {"done": 6, "total": 6}
+    assert _counts(read_progress(jobdir, "review")) == {"done": 6, "total": 6}
