@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-10-01T05:25:37Z",
+  "updated": "2026-10-01T05:26:02Z",
   "deviations": [
     {
       "id": "d1",
@@ -1029,7 +1029,7 @@
       ],
       "origin": "llm",
       "status": "proposed",
-      "superseded": false
+      "superseded": true
     },
     {
       "id": "b7",
@@ -1068,7 +1068,27 @@
       "origin": "llm",
       "status": "proposed",
       "superseded": false
+    },
+    {
+      "id": "b10",
+      "kind": "removed",
+      "behavior_text": "The ported release gate has no OpenAI Responses or Anthropic provider adapters and no gate-side permutation module (result.json reports permutation not_run); providers are openrouter, nvidia and local",
+      "caused_by": [
+        "d7"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
     }
   ],
-  "supersessions": []
+  "supersessions": [
+    {
+      "id": "s1",
+      "action": "supersede",
+      "target_ref": "b6",
+      "replacement_ref": "b10",
+      "origin": "user"
+    }
+  ]
 }
