@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-10-01T05:36:27Z",
+  "updated": "2026-10-01T06:22:40Z",
   "deviations": [
     {
       "id": "d1",
@@ -178,6 +178,19 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 53
+    },
+    {
+      "id": "d13",
+      "what": "nvsh's scorer-r3b may be used as a live test subject for the evaluation path (serving, measure, permutation probe, release gate) before the jev-tool model exists; r3b stays reference context, never an acceptance gate or a parity target, and the failure-gated r3b_replay diagnostic (o13) is unchanged",
+      "task_ref": "t37",
+      "reason": "operator: 'for live-testing evaluations, we can evaluate r3b' \u2014 the evaluation stages can be exercised end to end on a real, already-measured scorer instead of waiting for the first jev-tool build",
+      "affects": [
+        "c42"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 54
     }
   ],
   "evidence": [
