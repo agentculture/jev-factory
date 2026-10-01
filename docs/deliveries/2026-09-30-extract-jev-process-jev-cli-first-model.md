@@ -110,6 +110,15 @@ After the PR opened (PR #5 CI), recorded here so the reviewer sees what changed 
 - The portability lint and harness-smoke's steward-doctor check failed on paths quoted in devague records and planning prose. Both now waive findings under `.devague/`, `docs/specs/`, `docs/plans/` and `docs/deliveries/` by prefix (commit `33435cc`, `d12`). Code, tests and the harness prompt files are still linted.
 - SonarCloud's quality gate failed on 9 reliability bugs and 81 vulnerabilities. The 9 bugs were fixed in commit `0daa181`: float equality replaced by `math.isclose` in `gen_config`, `train_scorer` and `calibration`; a NaN check in `scorer`; regex grouping in `data/common.py` and `data/teachers.py`; and two composite determinism assertions split. Behaviour is unchanged and the suite still passes.
 - The operator chose to **accept** the 81 vulnerability findings with a per-issue rationale instead of changing code: they are S8707/S2083 path-injection findings on operator-supplied CLI paths (the operator is the only user, and the work root is already guarded to sit outside any git worktree) and S2245 on the seeded PRNG used for reproducible splits and letter shuffles (not a security use). The gate then passed. The roughly 530 remaining code smells (mostly S9073 composite asserts and S3776 complexity) do not fail the gate and are left as follow-up.
+- The l15 audit (nvsh's release, dataset and scan bundle tests read against ours) found real regressions in the absorbed release path, fixed in commit `9698bb5`. `stage_bundle` never passed the teachers, and `teacher_summary` read only nvsh's `models` record shape, not the `teachers` records jev's augment and targeted stages write. So every bundle card would have said no synthetic variations were used. The NOTICE also omitted the Q4_K_M quantization and the `config.json` MTP change (Apache-2.0 §4(b)). The card gave no concrete `--max-logprobs` value and dropped the text-only, no `--mmproj` GGUF note. The dataset bundle never checked its LICENSE text, and the data summary pointed at a dataset bundle that no stage builds. Lapse `l16` (proposed) records the missing end-to-end check.
+- `tests/test_release_nvsh_parity.py` (commit `13be3e7`) ports the rest of nvsh's coverage as 69 tests; 38 single-line mutations of the release modules are each caught. This closes l15. Not ported, by design: LFM licence mode, Track-A and issue-specific card prose, and the argparse `main()` tests.
+- A `/code-review` of PR #5 found four pipeline defects, fixed with red/green tests in commit `13be3e7`:
+  - `train` reused a finished run after its hyperparameters changed. It now reuses a run only when the whole training request matches.
+  - `quantize --knob candidate=<winner>` bypassed a non-ship verdict. Without a deviation id, only a `ship_candidate` winner is quantized.
+  - `measure-final` lost the sealed numbers when the probe's server failed. A partial report now lets a retry resume without a second sealed measurement.
+  - `--apply` skipped a stage whose upstream stage's last run had failed. It now refuses, as the dry run already reported.
+  Lapse `l17` (proposed) records that the per-task TDD gate missed all four.
+- r13 was verified: in nvsh, the bug is real but latent. nvsh's `evals/tool_jev` reference path keys distributions as `explain`/`escalate`, but its metrics and gate expect `(explain)`/`(escalate)`. It only fires for a logprob-capable reference, and nvsh's shipped manifest has none. jev-factory's copy maps the keys through `Domain.calibration_label`. An nvsh issue is drafted and waits for the operator's approval to post.
 
 - `d1` — t27 does not cover c58 (the pipeline.sh-replacement assumption); it covers c55 and h44 (the toy domain end to end), which its third acceptance criterion delivers — c58 is an assumption, not a coverage target (the CLI refused it), and c55/h44 had no covering task; changed after the tasks were drafted, before the operator confirmed the plan
 - `d2` — t3 (nvsh#62 comment) depends on t8 (domain-module contract) — its instruction links the domain-module schema, which exists only after t8 merges; changed before plan confirmation
@@ -154,6 +163,7 @@ After the PR opened (PR #5 CI), recorded here so the reviewer sees what changed 
 - PRs / issues: agentculture/jev-factory#1, #3, #4; agentculture/nvsh#62 (comment), #58 (lock fix ported), #71 (rev-parse guard)
 - evidence e27 shows a stale marker in `devague summary`: delta b6 wrongly cited it and was superseded by b10; the gate-smoke tests behind e27 still pass
 - CI on PR #5 at `0daa181`: lint, harness-smoke, version-check, both test jobs, test-publish, GitGuardian and SonarCloud all pass; the Sonar quality gate is OK with 91.5% coverage on new code, 0.1% duplication, 0 security hotspots, 81 accepted issues and 534 open code smells
+- tests after the post-PR fixes (`13be3e7`): `NVSH_ROOT=../nvsh uv run pytest -n auto -q` — 1667 passed, 14 skipped; black, isort, flake8, bandit, scan-secrets and `teken cli doctor --strict` clean. The 10 new regression tests (6 release, 4 code review) were each run against the old code first and failed.
 
 ## Delivery Claims
 
@@ -229,9 +239,9 @@ Lapse ledger evidence:
 - Risk r11 — the real PEFT/transformers merge path (`train.merge_adapter`) has never run; the first t36 training run is its first test.
 - Risk r5 / park v2 — choose the hub prefix before t38's upload `--apply`.
 - Risk r9 — the `train` extra and `evals` group need separate venvs.
-- Risk r13 — verify, then report to nvsh, the possible reference-distribution keying bug found while porting evals.
+- Risk r13 — verified (a latent bug in nvsh, not in jev-factory). Post the drafted nvsh issue once the operator approves, then resolve r13.
 - Follow-up from t31 — when a final evaluation fails, t37 must append a decision record with `details.evaluation = {domain: "jev-tool", outcome: "failed"}` so the r3b diagnostic can run.
 - Follow-up from t15 / t34 — pre-register decide's epochs confidence-hold tolerance (0.02 today) and state that candidate order is the simplicity order for ties.
-- Lapse l15 — map nvsh's release_bundle / dataset_bundle / scan_bundle tests onto the rewritten release tests.
-- Operator confirmation pending — deviation `d12` (proposed), evidence e1-e41 and deltas b1-b10 are proposed.
+- Lapse l15 — closed by `tests/test_release_nvsh_parity.py` and the release fixes. Open question for the operator: should the factory gain a `dataset-bundle` stage? `build_dataset_bundle` exists and is tested, but no stage calls it.
+- Operator confirmation pending — deviation `d12`, lapses `l16` and `l17`, evidence e1-e41 and deltas b1-b10 are proposed.
 - SonarCloud code smells — about 530 open (mostly S9073 composite asserts in tests and S3776 complexity); they do not fail the gate. Pay down when the touched files are next edited.

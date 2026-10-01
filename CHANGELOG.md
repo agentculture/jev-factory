@@ -52,6 +52,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   devague records and planning prose (`.devague/`, `docs/specs/`,
   `docs/plans/`, `docs/deliveries/`), and the teacher test canary is built at
   runtime so no credential-shaped literal is committed.
+- Release bundles: the model card now lists the teachers of the synthetic
+  rows actually trained on (it claimed none were used), the NOTICE states the
+  Q4_K_M quantization and any `config.json` MTP change, the card gives the
+  `--max-logprobs` value and the text-only GGUF note, and a dataset bundle's
+  LICENSE must be the Apache 2.0 text.
+- Pipeline: a changed training recipe retrains instead of reusing the old run;
+  naming the rule's winner no longer bypasses a non-ship verdict at
+  `quantize`; `measure-final` keeps the sealed numbers when the probe fails, so
+  a retry needs no second sealed measurement; `--apply` refuses a stage whose
+  upstream stage's last run failed.
 
 ## [0.9.1] - 2026-09-26
 
