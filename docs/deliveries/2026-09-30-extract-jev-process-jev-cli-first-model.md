@@ -104,6 +104,13 @@ Decisions not covered by a deviation record:
 - Task t15 and t18 started before their wave's predecessors finished, since their own dependencies were merged (scheduling only, no contract change).
 - The measure-once rule treats a sealed run that died mid-run as the one measurement (stricter than nvsh; delta b2).
 
+After the PR opened (PR #5 CI), recorded here so the reviewer sees what changed after this summary was first written:
+
+- GitGuardian flagged the hard-coded canary string in `tests/test_teachers.py`. The operator marked it as a test credential in GitGuardian, and the canary is now built at runtime so the literal is gone (commit `33435cc`, part of `d12` below).
+- The portability lint and harness-smoke's steward-doctor check failed on paths quoted in devague records and planning prose. Both now waive findings under `.devague/`, `docs/specs/`, `docs/plans/` and `docs/deliveries/` by prefix (commit `33435cc`, `d12`). Code, tests and the harness prompt files are still linted.
+- SonarCloud's quality gate failed on 9 reliability bugs and 81 vulnerabilities. The 9 bugs were fixed in commit `0daa181`: float equality replaced by `math.isclose` in `gen_config`, `train_scorer` and `calibration`; a NaN check in `scorer`; regex grouping in `data/common.py` and `data/teachers.py`; and two composite determinism assertions split. Behaviour is unchanged and the suite still passes.
+- The operator chose to **accept** the 81 vulnerability findings with a per-issue rationale instead of changing code: they are S8707/S2083 path-injection findings on operator-supplied CLI paths (the operator is the only user, and the work root is already guarded to sit outside any git worktree) and S2245 on the seeded PRNG used for reproducible splits and letter shuffles (not a security use). The gate then passed. The roughly 530 remaining code smells (mostly S9073 composite asserts and S3776 complexity) do not fail the gate and are left as follow-up.
+
 - `d1` — t27 does not cover c58 (the pipeline.sh-replacement assumption); it covers c55 and h44 (the toy domain end to end), which its third acceptance criterion delivers — c58 is an assumption, not a coverage target (the CLI refused it), and c55/h44 had no covering task; changed after the tasks were drafted, before the operator confirmed the plan
 - `d2` — t3 (nvsh#62 comment) depends on t8 (domain-module contract) — its instruction links the domain-module schema, which exists only after t8 merges; changed before plan confirmation
 - `d3` — t1 also creates the empty package skeleton, and t4-t11 depend on t1 — without it, five wave-0 tasks would each create `jev_factory`/factory/`__init__.py` and collide at merge; changed before plan confirmation
@@ -115,6 +122,7 @@ Decisions not covered by a deviation record:
 - `d9` — Add a fix task (t24-fix): key measure/once.py's measure-once ledger by (side, slice) instead of side only, and let pipeline measure-final run the missing-candidate slice once per side without a deviation id; until then t27 reports the final MC-escalation bar as unmeasured — merged t24 code refuses the MC slice after the full side as a second measurement, contradicting t37 ('measure-final on test (full and MC slice) ... exactly once') and leaving c52's MC-escalation bar unmeasurable
 - `d10` — jev decide writes its append-only decision record without --apply (no dry-run gate); it is annotated mutating (`read_only`=False) in the jev-CLI domain — t28's acceptance criterion says '`jev decide <run>` writes a decision record'; c23/h17 say every write verb is dry-run by default. The record is append-only, cites its inputs and never changes model or data state, so decide is treated as a recording verb, not a write verb
 - `d11` — t33 drafting (answer policy, reasons, prose fields, seed corpus) is done by an opus subagent in a worktree instead of by the main agent; the main agent reviews it and the operator approves the policy and a seed sample before any teacher call, as planned — the gate-2 split assigned t33 to 'main agent + operator'; drafting a few-hundred-entry seed in parallel with t32 is faster in a worktree, and nothing about the approval gate changes
+- `d12` (proposed, awaiting operator confirmation) — portability lint waives devague records and planning prose by prefix (`.devague/`, `docs/specs/`, `docs/plans/`, `docs/deliveries/`): the CI lint step drops them from its diff and harness-smoke's steward-doctor check waives findings there; the test canary in `tests/test_teachers.py` is built at runtime
 
 ## Drift From Plan
 
@@ -133,6 +141,7 @@ Decisions not covered by a deviation record:
 | `t33` (`d11`) | the gate-2 split assigned t33 to 'main agent + operator'; drafting a few-hundred-entry seed in parallel with t32 is faster in a worktree, and nothing about the approval gate changes | `acceptable` |
 | `t34`-`t38` | not executed in this run: the jev-tool model build needs the GPU, the teacher lobes, Orin access and operator gates at each step; the operator chose one code PR first and a separate results PR | needs-follow-up |
 | `t10` | the merged code enforced a 95% floor on every domain; the main agent changed it to a default to match the acceptance criterion and c41 | acceptable |
+| `t30` (`d12`, proposed) | CI's portability lint and harness-smoke flagged machine paths quoted in devague records and planning prose, and GitGuardian flagged the test canary; waiving those prose prefixes and building the canary at runtime keeps code and prompt files linted | `acceptable` (pending operator confirmation) |
 
 ## Evidence
 
@@ -144,6 +153,7 @@ Decisions not covered by a deviation record:
 - merge gate: every task merged with `git merge --no-ff` only after the full suite passed before and after; two merges were reverted by the gate and re-merged after fixes (t5, t33)
 - PRs / issues: agentculture/jev-factory#1, #3, #4; agentculture/nvsh#62 (comment), #58 (lock fix ported), #71 (rev-parse guard)
 - evidence e27 shows a stale marker in `devague summary`: delta b6 wrongly cited it and was superseded by b10; the gate-smoke tests behind e27 still pass
+- CI on PR #5 at `0daa181`: lint, harness-smoke, version-check, both test jobs, test-publish, GitGuardian and SonarCloud all pass; the Sonar quality gate is OK with 91.5% coverage on new code, 0.1% duplication, 0 security hotspots, 81 accepted issues and 534 open code smells
 
 ## Delivery Claims
 
@@ -223,5 +233,5 @@ Lapse ledger evidence:
 - Follow-up from t31 — when a final evaluation fails, t37 must append a decision record with `details.evaluation = {domain: "jev-tool", outcome: "failed"}` so the r3b diagnostic can run.
 - Follow-up from t15 / t34 — pre-register decide's epochs confidence-hold tolerance (0.02 today) and state that candidate order is the simplicity order for ties.
 - Lapse l15 — map nvsh's release_bundle / dataset_bundle / scan_bundle tests onto the rewritten release tests.
-- Operator confirmation pending — evidence e1-e41 and deltas b1-b10 are proposed.
-- Version bump + CHANGELOG entry before the PR (CI version-check).
+- Operator confirmation pending — deviation `d12` (proposed), evidence e1-e41 and deltas b1-b10 are proposed.
+- SonarCloud code smells — about 530 open (mostly S9073 composite asserts in tests and S3776 complexity); they do not fail the gate. Pay down when the touched files are next edited.

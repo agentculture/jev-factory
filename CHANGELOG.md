@@ -42,6 +42,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - nvsh#58's stop/start race in measurement serving, a teacher-cache
   temp-file race, and the release gate's worktree guard (now uses
   `git rev-parse`, nvsh#71).
+- SonarCloud reliability findings: float equality replaced by
+  `math.isclose` in `gen_config`, `train_scorer` and `calibration`, a NaN
+  check in the scorer, and regex grouping in the teacher and data helpers.
+  The 81 path-injection and seeded-PRNG findings were accepted with a
+  rationale (operator-supplied CLI paths; reproducible, non-security
+  randomness).
+- CI portability lint and harness-smoke waive machine paths quoted in
+  devague records and planning prose (`.devague/`, `docs/specs/`,
+  `docs/plans/`, `docs/deliveries/`), and the teacher test canary is built at
+  runtime so no credential-shaped literal is committed.
 
 ## [0.9.1] - 2026-09-26
 
