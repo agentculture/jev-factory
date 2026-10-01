@@ -97,6 +97,29 @@ def test_knob_change_is_stale_and_failure_recorded(tmp_path):
     assert stages.staleness(wd, "d", registry=reg) == "last run failed"
 
 
+def test_a_stage_never_skips_or_builds_on_an_upstream_whose_last_run_failed(tmp_path):
+    wd, calls, reg = _setup(tmp_path)
+    _run_all(wd, reg)
+    failing = Registry()
+    for name in reg.names():
+        stage = reg.get(name)
+        if name == "a":
+
+            def broken(workdir: Path, knobs: dict) -> None:
+                raise RuntimeError("teacher gateway down")
+
+            stage = Stage("a", broken, stage.inputs, stage.outputs, stage.deps)
+        failing.register(stage)
+    assert stages.run_stage(wd, "a", {"retry": 1}, registry=failing)["status"] == "failed"
+    assert (wd / "a.out").is_file()  # the old output is still there
+    for name in ("b", "c"):  # fresh by their own inputs, but their producer failed
+        assert stages.staleness(wd, name, registry=failing) is not None
+        man = stages.run_stage(wd, name, registry=failing)
+        assert not man.get("skipped") and man["status"] == "failed"
+        assert "upstream stage a's last run failed" in man["error"]
+    assert calls == ["a", "b", "c"]  # nothing ran on the failed producer's leftovers
+
+
 def test_missing_input_fails_without_running(tmp_path):
     wd, calls, reg = _setup(tmp_path)
     man = stages.run_stage(wd, "b", registry=reg)

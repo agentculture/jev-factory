@@ -210,6 +210,7 @@ TARGETED_SUMMARY = "aug/targeted.json"
 SUPPLEMENT_FILE = "aug/supplement.json"
 DATA_DIR = "data"
 FREEZE_FILE = "data/freeze.json"
+TRAIN_REQUEST = "train-request.json"
 RUNS_DIR = "runs"
 CANDIDATES_DIR = "candidates"
 TRAIN_SUMMARY = "train/summary.json"
@@ -222,6 +223,7 @@ DEPLOYED_CALIBRATION = "deployed/calibration.json"
 DEPLOYED_GATE = "deployed/gate.json"
 DEPLOYED_BUILD = "deployed/build.json"
 FINAL_REPORT = "final/report.json"
+FINAL_PARTIAL = "final/report.partial.json"
 EDGE_RESULTS = "edge/operator-results.json"
 EDGE_RECORD = "edge/edge-check.json"
 BUNDLE_RECORD = "bundle/record.json"
@@ -1188,26 +1190,46 @@ def _train_one(workdir: Path, name: str, hyper: Mapping[str, Any]) -> dict[str, 
     cfg = ctx.config
     run_dir = workdir / RUNS_DIR / name
     frozen = select_frozen(workdir / FREEZE_FILE, deviation_id=ctx.deviation_id)
+    plan = trainer.plan_train(
+        run_dir=run_dir,
+        domain=ctx.domain_ref,
+        prereg_path=workdir / PREREG_FILE,
+        lock_dir=workdir,
+        freeze=workdir / FREEZE_FILE,
+        base=str(cfg.require("base")),
+        revision=cfg.get("base_rev"),
+        python=_python(ctx),
+        val=workdir / VAL_SPLIT,
+        deviation_id=ctx.deviation_id,
+        **dict(hyper),
+    )
+    # A finished run is reused only for the same request: training data, base, revision
+    # and every hyperparameter. A changed recipe (e.g. more epochs) retrains from clean.
+    request = json.loads(
+        json.dumps(
+            {
+                "data_sha256": plan.data_sha256,
+                "base": plan.base,
+                "revision": plan.revision,
+                "hyperparameters": plan.hyperparameters,
+            },
+            sort_keys=True,
+            default=str,
+        )
+    )
+    request_path = run_dir / TRAIN_REQUEST
     log_path = run_dir / "train-log.json"
     trained = (
         (run_dir / trainer.MERGE_REPORT).is_file()
         and log_path.is_file()
         and _read_json(log_path).get("train_sha256") == frozen.sha256
+        and request_path.is_file()
+        and _read_json(request_path) == request
     )
     if not trained:
-        plan = trainer.plan_train(
-            run_dir=run_dir,
-            domain=ctx.domain_ref,
-            prereg_path=workdir / PREREG_FILE,
-            lock_dir=workdir,
-            freeze=workdir / FREEZE_FILE,
-            base=str(cfg.require("base")),
-            revision=cfg.get("base_rev"),
-            python=_python(ctx),
-            val=workdir / VAL_SPLIT,
-            deviation_id=ctx.deviation_id,
-            **dict(hyper),
-        )
+        for stale in (*trainer.RUN_OUTPUTS, TRAIN_REQUEST):
+            (run_dir / stale).unlink(missing_ok=True)
+        shutil.rmtree(run_dir / "merged", ignore_errors=True)
         trainer.run_plan(
             plan,
             apply=True,
@@ -1219,6 +1241,7 @@ def _train_one(workdir: Path, name: str, hyper: Mapping[str, Any]) -> dict[str, 
             env=ctx.env(),
             runner=ctx.services.train_runner,
         )
+        _write_json(request_path, request)
     merged = run_dir / "merged"
     revision = stage_cache.revision_of(merged)
     if cfg.get("hf_cache"):
@@ -1514,20 +1537,24 @@ def _heal_check(
 def stage_quantize(workdir: Path, knobs: dict[str, Any]) -> None:
     """Q4_K_M the chosen candidate, measure it on val, and evaluate the heal trigger."""
     ctx = _ctx()
-    name = knobs.get("candidate")
     selection = _read_json(workdir / SELECTION_FILE)
-    if name is None:
-        if selection.get("verdict") != "ship_candidate" or not selection.get("winner"):
+    winner = selection.get("winner")
+    name = knobs.get("candidate") or winner
+    # Naming the winner explicitly is no way around the verdict: without a deviation id,
+    # only a ship_candidate verdict's winner is quantized.
+    if not ctx.deviation_id:
+        if selection.get("verdict") != "ship_candidate" or not winner:
             raise _err(
                 f"select's verdict is {selection.get('verdict')!r}, not ship_candidate",
-                "run `jev decide` and follow its verdict before quantizing",
+                "run `jev decide` and follow its verdict, or record a deviation and pass its id",
             )
-        name = selection["winner"]
-    elif name != selection.get("winner") and not ctx.deviation_id:
-        raise _err(
-            f"quantizing {name!r}, not the rule's winner {selection.get('winner')!r}",
-            "a choice against the rule is a recorded deviation: pass its id",
-        )
+        if name != winner:
+            raise _err(
+                f"quantizing {name!r}, not the rule's winner {winner!r}",
+                "a choice against the rule is a recorded deviation: pass its id",
+            )
+    if not name:
+        raise _err("no candidate to quantize", "pass candidate=<name> with the deviation id")
     name = _candidate_name(str(name))
     build = _quantize_run(workdir, name, workdir / RUNS_DIR / name, awq=bool(knobs["awq"]))
     cand = workdir / CANDIDATES_DIR / name
@@ -1702,6 +1729,20 @@ def stage_measure_final(workdir: Path, knobs: dict[str, Any]) -> None:
     if knobs.get("heldout", True) and (workdir / HELDOUT_FILE).is_file():
         sides.append(("held-out", workdir / HELDOUT_FILE, {"acceptance": True}))
     report: dict[str, Any] = {"build": build, "prereg_sha256": prereg_sha, "sides": {}}
+    # The sealed sides are measured once. When a run died after measuring them (the probe's
+    # server failed, say), the partial report carries their numbers and a retry without a
+    # deviation resumes from it instead of asking for a second sealed measurement.
+    partial_path = workdir / FINAL_PARTIAL
+    partial = _read_json(partial_path) if partial_path.is_file() else None
+    if (
+        partial is not None
+        and not ctx.deviation_id
+        and partial.get("build") == build
+        and partial.get("prereg_sha256") == prereg_sha
+        and set(partial.get("sides", {})) == {side for side, _, _ in sides}
+    ):
+        report = partial
+        sides = []
     for side, path, flag in sides:
         full = measure(
             workdir,
@@ -1744,6 +1785,8 @@ def stage_measure_final(workdir: Path, knobs: dict[str, Any]) -> None:
             "mc_n": len(gated_mc),
         }
         report["sides"][side] = {**values, "bars": _bars(registered, values)}
+    if sides:
+        _write_json(partial_path, report)
     if knobs.get("probe", True):
         with ctx.services.serve(ctx, gguf, model, workdir / "final" / "serve") as base_url:
             probe_report = probe(
@@ -1760,6 +1803,7 @@ def stage_measure_final(workdir: Path, knobs: dict[str, Any]) -> None:
         test["permutation_change"] = change
         test["bars"] = _bars(registered, test)
     _write_json(workdir / FINAL_REPORT, report)
+    partial_path.unlink(missing_ok=True)
 
 
 EDGE_REQUIRED = ("device", "build_sha256", "decisions", "latency_ms", "operator_approval")

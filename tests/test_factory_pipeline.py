@@ -475,6 +475,17 @@ def test_quantize_refuses_unless_select_chose_a_candidate(toy):
     assert "not ship_candidate" in toy.fail("quantize")
 
 
+def test_naming_the_winner_does_not_bypass_a_non_ship_verdict(toy):
+    toy.through("train")
+    (toy.workdir / "select").mkdir()
+    (toy.workdir / "select" / "selection.json").write_text(
+        json.dumps({"winner": "r1", "verdict": "recalibrate"})
+    )
+    assert "not ship_candidate" in toy.fail("quantize", {"candidate": "r1", "awq": False})
+    toy.ctx.deviation_id = "d7"  # an operator choice against the verdict is a deviation
+    toy.apply("quantize", {"candidate": "r1", "awq": False})
+
+
 def test_quantize_refuses_a_candidate_that_was_never_trained(selected):
     import shutil
 
@@ -581,6 +592,31 @@ def test_measure_final_measures_once_applies_the_gate_and_reports_every_bar(depl
     # a second final measurement is a recorded deviation
     error = deployed.fail("measure-final", force=True)
     assert "measure final-test exited 1" in error
+
+
+def test_a_probe_failure_keeps_the_sealed_numbers_and_the_retry_resumes(deployed):
+    import contextlib
+
+    @contextlib.contextmanager
+    def broken_serve(ctx, model, name, run_dir):
+        raise RuntimeError("llama-server did not start")
+        yield  # pragma: no cover
+
+    def sealed_runs():
+        return [a for m, a in deployed.runner.calls if m.endswith("measure.run") and "--final" in a]
+
+    working = deployed.ctx.services.serve
+    deployed.ctx.services.serve = broken_serve
+    assert "llama-server did not start" in deployed.fail("measure-final")
+    measured = len(sealed_runs())
+    assert measured and (deployed.workdir / "final" / "report.partial.json").is_file()
+    deployed.ctx.services.serve = working
+    deployed.apply("measure-final")  # no deviation id: resumes, never re-measures
+    assert len(sealed_runs()) == measured
+    report = deployed.json("final/report.json")
+    assert set(report["sides"]) == {"test", "held-out"}
+    assert report["sides"]["test"]["permutation_change"] == 0.0
+    assert not (deployed.workdir / "final" / "report.partial.json").exists()
 
 
 def test_measure_final_with_a_deviation_measures_again(deployed):
@@ -734,3 +770,17 @@ def test_a_bundle_without_synthetic_rows_says_so(deployed):
     card = (folder / "README.md").read_text()
     assert "No synthetic variations were used" in card
     assert "data set bundle" not in card and "`scorer-train.json` in this repository" in card
+
+
+def _epochs_trained(run: Run) -> list[str]:
+    return [cmd[cmd.index("--epochs") + 1] for _, cmd, _ in run.trainer.calls if "--epochs" in cmd]
+
+
+def test_a_changed_recipe_retrains_and_an_unchanged_one_reuses_the_run(toy):
+    toy.through("train")
+    first = len(toy.trainer.calls)
+    toy.apply("train", force=True)  # same request: every finished run is reused
+    assert len(toy.trainer.calls) == first
+    toy.apply("train", {"candidates": {"r2": {"epochs": 4}}})  # more epochs: retrain r2
+    assert _epochs_trained(toy)[-1] == "4"
+    assert toy.json("runs/r2/train-request.json")["hyperparameters"]["epochs"] == 4

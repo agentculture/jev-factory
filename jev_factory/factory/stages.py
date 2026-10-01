@@ -193,6 +193,32 @@ def stale_stages(
     return [n for n in reg.names() if n in stale]
 
 
+def _ancestors(reg: Registry, name: str) -> list[str]:
+    seen: list[str] = []
+    todo = list(reg.get(name).deps)
+    while todo:
+        d = todo.pop(0)
+        if d not in seen:
+            seen.append(d)
+            todo.extend(reg.get(d).deps)
+    return [n for n in reg.names() if n in seen]
+
+
+def _failed_ancestor(reg: Registry, workdir: Path, name: str) -> str | None:
+    """Which upstream stage's last run failed, else None.
+
+    A failed producer may have left its previous outputs in place; building on them
+    would look fresh while the producer no longer stands behind them. (Changed inputs or
+    outputs upstream are left to each stage's own checks: the frozen sha256, the
+    pre-registration hash, the deployed build's hash; some stages, like heal, rewrite an
+    upstream file on purpose.)"""
+    for d in _ancestors(reg, name):
+        man = read_manifest(workdir, d)
+        if man is not None and man.get("status") != COMPLETE:
+            return f"upstream stage {d}'s last run {man.get('status')}"
+    return None
+
+
 def run_stage(
     workdir: Path,
     name: str,
@@ -209,13 +235,16 @@ def run_stage(
     workdir = Path(workdir)
     stage = reg.get(name)
     knobs = dict(knobs or {})
-    if not force and _own_staleness(reg, workdir, name, knobs) is None:
+    upstream = _failed_ancestor(reg, workdir, name)
+    if not force and upstream is None and _own_staleness(reg, workdir, name, knobs) is None:
         return {**(read_manifest(workdir, name) or {}), "skipped": True}
     inputs = _hashes(workdir, stage.inputs)
     missing = [r for r, h in inputs.items() if h is None]
     started = time.time()
     status, rc, error = COMPLETE, 0, None
-    if missing:
+    if upstream is not None:
+        status, rc, error = FAILED, 2, f"{upstream}; run it first"
+    elif missing:
         status, rc, error = FAILED, 2, f"missing inputs: {', '.join(missing)}"
     else:
         try:
