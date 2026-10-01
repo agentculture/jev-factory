@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-10-01T06:32:40Z",
+  "updated": "2026-10-01T06:33:56Z",
   "deviations": [
     {
       "id": "d1",
@@ -191,6 +191,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 54
+    },
+    {
+      "id": "d14",
+      "what": "add a dataset-bundle stage after bundle: builds the private dataset bundle (validation/test sides, the train set actually used with teacher provenance, rejected counts, scorer-train.json, calibration.json, gate.json, LICENSE) with release.build_dataset_bundle and scans it; upload ships it privately beside the model bundle",
+      "task_ref": "t27",
+      "reason": "operator: 'add dataset-bundle stage' \u2014 the dataset builder was absorbed and tested (t25) but no stage called it, so a run could not publish the data its model card describes",
+      "affects": [
+        "t25",
+        "t38"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 55
     }
   ],
   "evidence": [
