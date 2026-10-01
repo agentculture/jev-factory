@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-10-01T06:22:40Z",
+  "updated": "2026-10-01T06:32:40Z",
   "deviations": [
     {
       "id": "d1",
@@ -175,7 +175,7 @@
         "c22"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 53
     },
@@ -209,7 +209,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 12
     },
@@ -228,7 +228,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 13
     },
@@ -247,7 +247,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 14
     },
@@ -266,7 +266,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 15
     },
@@ -285,7 +285,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 16
     },
@@ -304,7 +304,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 17
     },
@@ -323,7 +323,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 18
     },
@@ -342,7 +342,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 19
     },
@@ -361,7 +361,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 20
     },
@@ -380,7 +380,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 21
     },
@@ -399,7 +399,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 22
     },
@@ -418,7 +418,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 23
     },
@@ -437,7 +437,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 24
     },
@@ -456,7 +456,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 25
     },
@@ -475,7 +475,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 26
     },
@@ -494,7 +494,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 27
     },
@@ -513,7 +513,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 28
     },
@@ -532,7 +532,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 29
     },
@@ -551,7 +551,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 30
     },
@@ -570,7 +570,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 31
     },
@@ -589,7 +589,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 32
     },
@@ -608,7 +608,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 33
     },
@@ -627,7 +627,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 34
     },
@@ -646,7 +646,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 35
     },
@@ -665,7 +665,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 36
     },
@@ -684,7 +684,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 37
     },
@@ -703,7 +703,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 38
     },
@@ -722,7 +722,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 39
     },
@@ -741,7 +741,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 40
     },
@@ -760,7 +760,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 41
     },
@@ -779,7 +779,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 42
     },
@@ -798,7 +798,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 43
     },
@@ -817,7 +817,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 44
     },
@@ -836,7 +836,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 45
     },
@@ -855,7 +855,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 46
     },
@@ -874,7 +874,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 47
     },
@@ -893,7 +893,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 48
     },
@@ -912,7 +912,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 49
     },
@@ -931,7 +931,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 50
     },
@@ -950,7 +950,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 51
     },
@@ -969,7 +969,7 @@
         "commit": "42ba18e9e15e09b44b38e4c5fd0463f55c5e217e"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 52
     }
@@ -986,7 +986,7 @@
         "e8"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1000,7 +1000,7 @@
         "e6"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1014,7 +1014,7 @@
         "e22"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1028,7 +1028,7 @@
         "e6"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1042,7 +1042,7 @@
         "e17"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1056,7 +1056,7 @@
         "e27"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": true
     },
     {
@@ -1068,7 +1068,7 @@
       ],
       "evidence_refs": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1082,7 +1082,7 @@
         "e16"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1094,7 +1094,7 @@
       ],
       "evidence_refs": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1106,7 +1106,7 @@
       ],
       "evidence_refs": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     }
   ],

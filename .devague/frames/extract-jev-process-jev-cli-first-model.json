@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-30T17:42:37Z",
-  "updated": "2026-10-01T06:10:57Z",
+  "updated": "2026-10-01T06:32:34Z",
   "claims": [
     {
       "id": "c1",
@@ -1800,7 +1800,7 @@
         "t25"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l17",
@@ -1811,7 +1811,7 @@
         "t27"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": [
