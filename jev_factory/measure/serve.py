@@ -482,6 +482,15 @@ def llama_argv(binary: str, model: Path, port: int, settings: ServeSettings, nam
     ]
 
 
+def llama_env(settings: ServeSettings, environ: Mapping[str, str] | None = None) -> dict:
+    """llama-server's environment: with ``gpu_layers`` 0 the GPUs are hidden as well, so
+    a CUDA build opens no CUDA context (``--device none`` alone still took ~170 MiB)."""
+    env = dict(os.environ if environ is None else environ)
+    if settings.gpu_layers == 0:
+        env["CUDA_VISIBLE_DEVICES"] = ""
+    return env
+
+
 def _stop_launched(pid: int, launched: str | None, settings: ServeSettings) -> None:
     """Stop the child a failed start just launched, each signal only while it is still it."""
     if launched is None or proc_starttime(pid) != launched:
@@ -561,6 +570,7 @@ def start_llama(model: Path, port: int, settings: ServeSettings, record: Path | 
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
                 close_fds=True,
+                env=llama_env(settings),
             )
         _CHILDREN[child.pid] = child
         launched = proc_starttime(child.pid)

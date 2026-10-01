@@ -400,3 +400,10 @@ def test_gpu_layers_zero_serves_the_gguf_on_the_cpu_only(tmp_path):
     assert serve.ServeSettings.from_config({}, tmp_path).gpu_layers == 999
     with pytest.raises(serve.ServeError):
         serve.llama_argv("llama-server", gguf, 1, serve.ServeSettings(gpu_layers=-1), "m")
+
+
+def test_a_cpu_served_gguf_hides_the_gpus_from_llama_server():
+    cpu = serve.llama_env(serve.ServeSettings(gpu_layers=0), {"PATH": "/bin"})
+    assert cpu == {"PATH": "/bin", "CUDA_VISIBLE_DEVICES": ""}
+    gpu = serve.llama_env(serve.ServeSettings(), {"PATH": "/bin", "CUDA_VISIBLE_DEVICES": "0"})
+    assert gpu["CUDA_VISIBLE_DEVICES"] == "0"
