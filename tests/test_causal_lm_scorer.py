@@ -533,3 +533,21 @@ def test_in_process_refuses_a_tokenizer_missing_a_label_token() -> None:
 
     with pytest.raises(ValueError, match="no token"):
         sc.InProcessTopK(Short(), lambda p: [])
+
+
+def test_a_domain_can_carry_the_control_text_its_model_was_trained_on():
+    from jev_factory.domain.model import Domain
+    from jev_factory.domain.validate import problems
+
+    nvsh_explain = "Answer the operator in plain words, with no command."
+    own = replace(DOMAIN, control_descriptions={"explain": nvsh_explain})
+    system = sc.prompt_messages(own, "is the lamp on?")[0]["content"]
+    assert nvsh_explain in system
+    assert sc.CONTROL_DESCRIPTIONS["escalate"] in system  # the other control keeps its default
+    assert sc.CONTROL_DESCRIPTIONS["explain"] not in system
+    assert sc.CONTROL_DESCRIPTIONS["explain"] in sc.prompt_messages(DOMAIN, "x")[0]["content"]
+    assert own.surface_sha256() != DOMAIN.surface_sha256()  # a different prompt surface
+    assert Domain.from_dict(own.to_dict()).control_descriptions == own.control_descriptions
+    bad = replace(DOMAIN, control_descriptions={"answer": "x", "escalate": " "})
+    found = " ".join(str(p) for p in problems(bad))
+    assert "'answer', not a control" in found and "'escalate' is empty" in found

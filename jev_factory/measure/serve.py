@@ -157,6 +157,8 @@ class ServeSettings:
     gpu_fraction: float = 0.08
     max_logprobs: int = READOUT_TOP
     gpu_args: tuple[str, ...] = ("--gpus", "all")
+    #: llama-server ``--n-gpu-layers``; 0 serves a GGUF on the CPU only (``--device none``).
+    gpu_layers: int = 999
     llama_server: str | None = None
     model_name: str | None = None
     start_seconds: float = 10.0
@@ -176,6 +178,9 @@ class ServeSettings:
             "tool_call_parser": cfg.get("tool_call_parser"),
             "gpu_fraction": float(cfg.get("measure_gpu_fraction") or 0.08),
             "max_logprobs": int(cfg.get("measure_max_logprobs") or READOUT_TOP),
+            "gpu_layers": int(
+                999 if cfg.get("measure_gpu_layers") is None else cfg.get("measure_gpu_layers")
+            ),
             "llama_server": cfg.get("llama_server"),
         }
         values.update({k: v for k, v in overrides.items() if v is not None})
@@ -203,6 +208,7 @@ class ServeSettings:
             tool_call_parser=env.get("JEV_TOOL_CALL_PARSER") or None,
             gpu_fraction=get("JEV_MEASURE_GPU_FRACTION", float, 0.08),
             max_logprobs=get("JEV_MEASURE_MAX_LOGPROBS", int, READOUT_TOP),
+            gpu_layers=get("JEV_MEASURE_GPU_LAYERS", int, 999),
             gpu_args=tuple(gpu_args.split()) if gpu_args is not None else ("--gpus", "all"),
             llama_server=env.get("JEV_LLAMA_SERVER") or None,
             model_name=env.get("JEV_MEASURE_MODEL_NAME") or None,
@@ -450,6 +456,9 @@ def greedy_problem(model_dir: Path) -> str | None:
 
 
 def llama_argv(binary: str, model: Path, port: int, settings: ServeSettings, name: str) -> list:
+    if settings.gpu_layers < 0:
+        raise ServeError(f"gpu_layers must be 0 or more, not {settings.gpu_layers}")
+    cpu_only = ["--device", "none"] if settings.gpu_layers == 0 else []
     return [
         binary,
         "--model",
@@ -462,7 +471,8 @@ def llama_argv(binary: str, model: Path, port: int, settings: ServeSettings, nam
         str(settings.ctx),
         "--jinja",
         "--n-gpu-layers",
-        "999",
+        str(settings.gpu_layers),
+        *cpu_only,
         "--temp",
         "0",
         "--top-k",

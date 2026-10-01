@@ -32,6 +32,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   teachers, plus `scorer-train.json`, the calibration and gate files and the
   base LICENSE. The sealed held-out set is never published. `upload` ships it
   privately beside the model bundle and needs the operator to name both repos.
+- `Domain.control_descriptions`: a domain can carry the exact explain/escalate
+  prompt text its model was trained on (part of the surface hash), so a model
+  trained elsewhere is measured on its own prompt.
+- `measure_gpu_layers` / `JEV_MEASURE_GPU_LAYERS`: `0` serves a GGUF on the CPU
+  only (`--device none`), and such a run needs no free GPU.
+- The release gate accepts `val`/`val-mc` case sets, and its report shows the
+  missing-candidate rows' escalation rate beside their share of rows.
 - Spec, plan, gate-2 split, and the delivery summary
   (`docs/deliveries/2026-09-30-extract-jev-process-jev-cli-first-model.md`).
 

@@ -386,3 +386,17 @@ def test_a_stub_process_dies_on_sigterm(tmp_path):
     finally:
         if child.poll() is None:
             child.kill()
+
+
+def test_gpu_layers_zero_serves_the_gguf_on_the_cpu_only(tmp_path):
+    gguf = Path("model-q4_k_m.gguf")
+    default = serve.llama_argv("llama-server", gguf, 18061, serve.ServeSettings(), "m")
+    assert default[default.index("--n-gpu-layers") + 1] == "999" and "--device" not in default
+    cpu = serve.ServeSettings.from_env({"JEV_MEASURE_GPU_LAYERS": "0"})
+    argv = serve.llama_argv("llama-server", gguf, 18061, cpu, "m")
+    assert argv[argv.index("--n-gpu-layers") + 1] == "0"
+    assert argv[argv.index("--device") + 1] == "none"
+    assert serve.ServeSettings.from_config({"measure_gpu_layers": 0}, tmp_path).gpu_layers == 0
+    assert serve.ServeSettings.from_config({}, tmp_path).gpu_layers == 999
+    with pytest.raises(serve.ServeError):
+        serve.llama_argv("llama-server", gguf, 1, serve.ServeSettings(gpu_layers=-1), "m")

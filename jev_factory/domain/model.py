@@ -283,7 +283,10 @@ class Domain:
     ``operations`` are in candidate order (it fixes each one's letter).
     ``paraphrases`` pairs an operation name with alternative descriptions
     for the permutation probe. ``seed_corpus`` is the path of a
-    ``{header, world, entries}`` JSON file (train-only).
+    ``{header, world, entries}`` JSON file (train-only). ``control_descriptions``
+    overrides the prompt text of the ``explain``/``escalate`` controls (a model trained
+    elsewhere is measured with the exact text it was trained on); unset, the backbone's
+    default control text is used.
     """
 
     name: str
@@ -303,6 +306,7 @@ class Domain:
     hub_prefix: str = ""
     card_text: str = ""
     licence: str = "Apache-2.0"
+    control_descriptions: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         for name in (
@@ -315,6 +319,9 @@ class Domain:
         ):
             _set(self, name, _tuple(getattr(self, name)))
         _set(self, "paraphrases", _paraphrases(self.paraphrases))
+        controls = self.control_descriptions
+        pairs = controls.items() if isinstance(controls, Mapping) else _tuple(controls)
+        _set(self, "control_descriptions", tuple((str(k), str(v)) for k, v in pairs))
         if self.seed_corpus is not None and not isinstance(self.seed_corpus, Path):
             _set(self, "seed_corpus", Path(self.seed_corpus))
 
@@ -409,6 +416,10 @@ class Domain:
 
     def decline_labels(self) -> tuple[str, ...]:
         return tuple(r.decline_label for r in self.reasons)
+
+    def control_description(self, name: str) -> str | None:
+        """The domain's own prompt text for control *name*, or ``None`` for the default."""
+        return dict(self.control_descriptions).get(name)
 
     def reason_descriptions(self) -> dict[str, str]:
         """``escalate:<r>`` -> prompt description (nvsh's data/reasons.json shape)."""
@@ -581,6 +592,7 @@ class Domain:
             "hub_prefix": self.hub_prefix,
             "card_text": self.card_text,
             "licence": self.licence,
+            "control_descriptions": dict(self.control_descriptions),
         }
 
     @classmethod
@@ -615,6 +627,7 @@ class Domain:
                 {k: g[k] for k in ("name", "world_field", "suffixes")} for g in data["ground_kinds"]
             ],
             "instruction": self.instruction,
+            "control_descriptions": dict(self.control_descriptions),
         }
 
     def surface_sha256(self) -> str:

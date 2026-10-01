@@ -228,7 +228,7 @@ def description(domain: Domain, name: str, descriptions: Mapping[str, str] | Non
         if reason_text is not None:
             return reason_text
     if name in CONTROL_DESCRIPTIONS:
-        return CONTROL_DESCRIPTIONS[name]
+        return domain.control_description(name) or CONTROL_DESCRIPTIONS[name]
     raise ValueError(f"{name!r} is not a candidate of domain {domain.name!r}")
 
 

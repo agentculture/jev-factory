@@ -90,6 +90,7 @@ KEYS: tuple[Key, ...] = (
     _k("measure_ctx", "int", 2048, "context length the measured model is served at"),
     _k("measure_gpu_fraction", "float", 0.08, "GPU memory fraction for the measure server"),
     _k("measure_max_logprobs", "int", 20000, "serving --max-logprobs (readout top-k)"),
+    _k("measure_gpu_layers", "int", 999, "llama-server --n-gpu-layers; 0 serves on the CPU"),
     _k("tool_call_parser", "str", None, "serving tool-call parser for the base, if any"),
     _k(
         "enable_thinking",

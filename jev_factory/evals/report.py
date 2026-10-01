@@ -511,7 +511,7 @@ def _render_harness_policy(harness_policy: str | None, kind: str) -> str:
 def _render_main_table(rows: Sequence[Mapping[str, Any]]) -> list[str]:
     lines = [
         "| Variant | Harness policy | Right | Top-1 | ECE | Brier | Coverage "
-        "| Abstain P/R | Missing-candidate | Wrong mutations |",
+        "| Abstain P/R | MC share / escalated | Wrong mutations |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in rows:
@@ -522,7 +522,8 @@ def _render_main_table(rows: Sequence[Mapping[str, Any]]) -> list[str]:
         brier = _fmt_measurable(row["brier"], row["measurable"])
         coverage = _fmt_rate(row["coverage"]["rate"])
         abstain_pr = f"{_fmt_rate(row['abstain_precision'])} / {_fmt_rate(row['abstain_recall'])}"
-        missing = _fmt_rate(row["missing_candidate"].get("rate"))
+        mc = row["missing_candidate"]
+        missing = f"{_fmt_rate(mc.get('rate'))} / {_fmt_rate(mc.get('escalation_rate'))}"
         wrong = str(row["wrong_mutations"])
         right = _fmt_count(row.get("right"))
         lines.append(

@@ -45,8 +45,10 @@ NVSH_PROVENANCE = {
     "licence": "Apache-2.0",
 }
 
-#: Split tags a Case may carry.
-SPLIT_TAGS = ("test", "test-mc", "heldout", "heldout-mc")
+#: Split tags a Case may carry. ``val``/``val-mc`` let a gate run on the validation side
+#: (a dry run before the final measurement, or a reference model's own validation set)
+#: without relabelling it as test.
+SPLIT_TAGS = ("val", "val-mc", "test", "test-mc", "heldout", "heldout-mc")
 
 #: Split tags whose request text is never returned by the loader, whatever the
 #: caller passes: the sealed held-out sets stay unread as text.

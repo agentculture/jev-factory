@@ -31,6 +31,7 @@ measure_port = 18060
 measure_ctx = 2048
 measure_gpu_fraction = 0.08
 measure_max_logprobs = 20000
+measure_gpu_layers = 999        # llama-server --n-gpu-layers; 0 serves the GGUF on the CPU
 enable_thinking = false
 # tool_call_parser = "<parser>"
 # ground_snapshot = "/path/to/ground-snapshot.json"

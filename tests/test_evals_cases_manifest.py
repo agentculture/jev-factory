@@ -221,3 +221,12 @@ def test_split_file_shape_matches_the_core_split(tmp_path):
     path = write_json(tmp_path / "s.json", {"header": "h", "entries": CASES[:1]})
     (case,) = cases_mod.load_case_set({"test": str(path)}, "test", domain=DOMAIN)
     assert json.loads(path.read_text())["entries"][0]["id"] == case.id
+
+
+def test_a_validation_side_is_evaluated_under_its_own_tag(tmp_path):
+    val = write_json(tmp_path / "val.json", {"header": "h", "entries": CASES})
+    loaded = cases_mod.load_case_set({"val": str(val)}, "val", domain=DOMAIN)
+    assert loaded and {c.split for c in loaded} == {"val"}
+    assert all(c.text for c in loaded)  # validation text is readable, unlike held-out
+    with pytest.raises(ValueError):
+        cases_mod.Case("x", "train", "t", None, {"escalate": True}, None)

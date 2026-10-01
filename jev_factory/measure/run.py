@@ -1436,7 +1436,13 @@ def _run(
         settings=settings,
         ctx=ctx,
     )
-    if args.scorer == SCORER_IN_PROCESS or args.serve:
+    cpu_served = bool(
+        args.serve
+        and settings is not None
+        and settings.gpu_layers == 0
+        and str(args.serve).endswith(".gguf")
+    )
+    if args.scorer == SCORER_IN_PROCESS or (args.serve and not cpu_served):
         try:
             seams.gpu_guard("measure", allow_foreign=args.allow_foreign_gpu)
         except Exception as exc:  # noqa: BLE001 -- GpuBusyError / GpuQueryError

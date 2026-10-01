@@ -184,9 +184,19 @@ def mean_log_loss(predictions: Sequence[Prediction]) -> dict:
 
 
 def missing_candidate_summary(predictions: Sequence[Prediction]) -> dict:
-    """Missing-candidate rate over every row (``metrics.is_missing_candidate``)."""
-    n = sum(1 for p in predictions if metrics_mod.is_missing_candidate(p))
-    return {"n": n, "N": len(predictions), "rate": metrics_mod._ratio(n, len(predictions))}
+    """Missing-candidate rows: their share of every row (``rate``, nvsh's figure) and how
+    many of them escalated (``escalated``/``escalation_rate``: the >= 80% bar's figure;
+    a confidence-gate ``abstain_uncertain`` counts as escalating, as in the bar)."""
+    rows = [p for p in predictions if metrics_mod.is_missing_candidate(p)]
+    n = len(rows)
+    escalated = sum(1 for p in rows if p.outcome in ("escalate", "abstain_uncertain"))
+    return {
+        "n": n,
+        "N": len(predictions),
+        "rate": metrics_mod._ratio(n, len(predictions)),
+        "escalated": escalated,
+        "escalation_rate": metrics_mod._ratio(escalated, n),
+    }
 
 
 def compute(

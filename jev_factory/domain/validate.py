@@ -305,6 +305,13 @@ def _text_problems(domain: Domain) -> list[DomainError]:
     for what in ("explain_topics", "phrasing_styles"):
         if any(_blank(t) for t in getattr(domain, what)):
             found.append(EmptyText(f"domain {domain.name!r} has an empty entry in {what}"))
+    for control, text in domain.control_descriptions:
+        if control not in CONTROLS:
+            found.append(
+                UnknownOperationRef(f"control_descriptions names {control!r}, not a control")
+            )
+        if _blank(text):
+            found.append(EmptyText(f"control_descriptions for {control!r} is empty"))
     names = set(domain.names())
     for op_name, texts in domain.paraphrases:
         if op_name not in names:

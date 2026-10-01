@@ -316,3 +316,32 @@ def test_report_manifest_is_validated(tmp_path):
     )
     with pytest.raises(report.ReportError):
         report.load_manifest(tmp_path)
+
+
+def test_missing_candidate_rows_report_their_escalation_rate_beside_their_share():
+    def row(rid, outcome, offered):
+        proposed = outcome == "propose"
+        return Prediction.from_dict(
+            {
+                "id": rid,
+                "expected": {"operation": "lamp_on", "args": {}},
+                "outcome": outcome,
+                "operation": "lamp_on" if proposed else None,
+                "arguments": {} if proposed else None,
+                "candidates": {label: 1.0 / len(offered) for label in offered},
+                "tokens": 1,
+                "ttfd_ms": 1.0,
+                "latency_ms": 1.0,
+            }
+        )
+
+    gone = ["lamp_status", "(explain)", "(escalate)"]  # lamp_on is not offered
+    rows = [
+        row("a-nocand", "escalate", gone),
+        row("b-nocand", "abstain_uncertain", gone),
+        row("c-nocand", "explain", gone),
+        row("d", "propose", ["lamp_on", "(explain)", "(escalate)"]),
+    ]
+    out = metrics_bridge.missing_candidate_summary(rows)
+    assert (out["n"], out["N"], out["escalated"]) == (3, 4, 2)
+    assert out["rate"] == 0.75 and abs(out["escalation_rate"] - 2 / 3) < 1e-9

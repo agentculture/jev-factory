@@ -163,3 +163,51 @@ def test_a_q4_k_m_build_is_measured_through_llama_server_without_nvsh(tmp_path):
     assert not (measure_dir / "serve" / f"jev-measure-{port}.json").exists()
     ledger = (measure_dir / "once-ledger.jsonl").read_text().splitlines()
     assert [json.loads(line)["status"] for line in ledger] == ["measured"]
+
+
+def test_a_cpu_served_gguf_needs_no_free_gpu_and_a_gpu_served_one_does(tmp_path):
+    stubs = stub_bin(tmp_path / "bin")
+    gguf = tmp_path / "quant" / "toy-jev.Q4_K_M.gguf"
+    gguf.parent.mkdir()
+    gguf.write_bytes(b"GGUF stub weights")
+    split = _split(tmp_path)
+
+    def measure(label: str, **extra: str) -> subprocess.CompletedProcess:
+        env = {
+            **os.environ,
+            "PATH": path_with(stubs),
+            "STUB_GPU_APPS": "4242, python3",  # another job holds the GPU
+            "STUB_LLAMA_LOG": str(tmp_path / f"{label}.jsonl"),
+            "STUB_LLAMA_PICKS": json.dumps({"kitchen": "lamp_on"}),
+            "JEV_MEASURE_POLL_SECONDS": "0.05",
+            "JEV_MEASURE_WAIT_SECONDS": "30",
+            "PYTHONPATH": str(ROOT),
+            **extra,
+        }
+        argv = [
+            "--domain", "tests.fixtures.toy_domain",
+            "--run-dir", str(tmp_path / label),
+            "--split", str(split),
+            "--final",
+            "--scorer", "served",
+            "--serve", str(gguf),
+            "--port", str(free_port()),
+            "--llama-server", str(stubs / "llama-server"),
+            "--tokenizer", str(tmp_path / "merged"),
+            "--model", "toy-jev.Q4_K_M",
+            "--revision", "build-1",
+            "--label", label,
+        ]  # fmt: skip
+        return subprocess.run(
+            [sys.executable, "-c", CHILD, *argv],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+    gpu = measure("gpu")
+    assert gpu.returncode == 2 and "4242" in gpu.stderr
+    cpu = measure("cpu", JEV_MEASURE_GPU_LAYERS="0")
+    assert cpu.returncode == 0, cpu.stdout + cpu.stderr
