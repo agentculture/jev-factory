@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-30T17:42:37Z",
-  "updated": "2026-10-01T05:25:37Z",
+  "updated": "2026-10-01T06:10:57Z",
   "claims": [
     {
       "id": "c1",
@@ -1790,6 +1790,28 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l16",
+      "code": "control-absent",
+      "what": "the release path was merged without an end-to-end check from augment/targeted output to the model card: augment and targeted write per-role 'teachers' records but release teacher_summary only read nvsh's 'models' alias map, and stage_bundle never passed teachers, so every bundle card would have said no synthetic variations were used; NOTICE also omitted the Q4_K_M quantization. Found by the l15 audit, fixed in 9698bb5",
+      "skipped_check": "an augment -> assemble -> bundle test asserting the card's teacher table",
+      "refs": [
+        "t25"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l17",
+      "code": "control-absent",
+      "what": "four pipeline defects passed the per-task TDD gate and were found only by the PR #5 code review: train reused a run after its hyperparameters changed, quantize let an explicit candidate bypass a non-ship verdict, measure-final lost the sealed numbers when the probe failed, and --apply skipped a stage whose upstream last run failed. Fixed in 13be3e7",
+      "skipped_check": "tests for a re-run with changed knobs, an explicit candidate against the verdict, a failure after a sealed measurement, and a failed upstream under --apply",
+      "refs": [
+        "t27"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [
