@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-10-01T07:07:16Z",
+  "updated": "2026-10-01T07:56:47Z",
   "deviations": [
     {
       "id": "d1",
@@ -218,6 +218,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 56
+    },
+    {
+      "id": "d16",
+      "what": "add a jev review <domain> verb: a local stdlib HTTP server (no new runtime dependency) serving a React + React Flow page; nodes are the domain's verb tree (jev -> run -> stages ...) with each verb's seed entries attached; per entry the operator approves, rejects, edits or proposes a new one; decisions go to an append-only review file, and jev review --apply writes the approved changes into the seed (dry-run by default)",
+      "task_ref": "t33",
+      "reason": "operator: reading seed.json by hand is a poor way to review seed entries ('I'd prefer a local site with react-flows to present it and edit/propose/mark each entry'); chose the jev CLI verb and the verb tree plus review file design",
+      "affects": [
+        "t32"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 57
     }
   ],
   "evidence": [
