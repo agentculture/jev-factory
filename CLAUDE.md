@@ -46,7 +46,7 @@ it before designing anything). The intended flow is `/scope` → `/think` →
 ## Current state: the factory exists; the jev-tool model is not yet trained
 
 The factory code is built and tested: the domain-module contract
-(`jev_factory/domain/model.py`, example `tests/fixtures/toy_domain`), the 22
+(`jev_factory/domain/model.py`, example `tests/fixtures/toy_domain`), the 23
 `jev run <stage>` stages with per-stage manifests, `jev status`, `jev decide`
 (pre-registered rule, append-only records), `jev ask`, the jev-CLI domain
 (`jev_factory/domains/jev_cli`) and the release gate. **No jev-tool model has
@@ -238,8 +238,10 @@ behind the score seam.
   12. Run **one** final measurement.
   13. Bundle, which must carry `calibration.json` and `gate.json`
       (nvsh copies them by hand) and the training set actually used
-      (`scorer-train.json`).
-  14. Upload privately, then fetch back and verify the hash.
+      (`scorer-train.json`), plus a dataset bundle of the data the model
+      actually trained on, with each synthetic row's teachers (deviation
+      d14). The sealed held-out set is never published.
+  14. Upload both privately, then fetch back and verify the hashes.
   15. Run the release gate.
 - **CLI verbs:** `jev init <domain>`, `jev run <stage>`, `jev status`,
   `jev decide <run> [--model <bundle>]`, and later `jev ask`, which loads a

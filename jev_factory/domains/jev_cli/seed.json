@@ -37,6 +37,7 @@
       "run measure-final",
       "run edge-check",
       "run bundle",
+      "run dataset-bundle",
       "run upload",
       "run release-gate"
     ],
@@ -61,6 +62,7 @@
       "measure-final",
       "edge-check",
       "bundle",
+      "dataset-bundle",
       "upload",
       "release-gate"
     ]
@@ -3234,6 +3236,61 @@
       },
       "class": "decline:over_time",
       "source": "agent-draft-2026-09-30"
+    },
+    {
+      "id": "jcs-op-181",
+      "kind": "explicit",
+      "text": "Build the dataset bundle for this run.",
+      "expect": {
+        "operation": "jev.run.dataset-bundle",
+        "args": {}
+      },
+      "class": "imperative",
+      "source": "agent-draft-2026-10-01"
+    },
+    {
+      "id": "jcs-op-182",
+      "kind": "explicit",
+      "text": "Could you package the training data we actually used, with its teachers, for the hub?",
+      "expect": {
+        "operation": "jev.run.dataset-bundle",
+        "args": {}
+      },
+      "class": "question",
+      "source": "agent-draft-2026-10-01"
+    },
+    {
+      "id": "jcs-op-183",
+      "kind": "explicit",
+      "text": "dataset-bundle, dry run",
+      "expect": {
+        "operation": "jev.run.dataset-bundle",
+        "args": {}
+      },
+      "class": "terse",
+      "source": "agent-draft-2026-10-01"
+    },
+    {
+      "id": "jcs-op-184",
+      "kind": "explicit",
+      "text": "train-set-used plus dataset card and scan, held-out stays out, --apply",
+      "expect": {
+        "operation": "jev.run.dataset-bundle",
+        "args": {}
+      },
+      "class": "jargon",
+      "source": "agent-draft-2026-10-01"
+    },
+    {
+      "id": "jcs-op-185",
+      "kind": "explicit",
+      "text": "the model bundle is done but there's no dataset folder to publish beside it",
+      "expect": {
+        "operation": "jev.run.dataset-bundle",
+        "args": {}
+      },
+      "class": "symptom",
+      "source": "agent-draft-2026-10-01"
     }
   ]
 }

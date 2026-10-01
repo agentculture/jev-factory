@@ -612,7 +612,7 @@ From `scripts/lfm-finetune/pipeline.sh` at `9debdc6` (Apache-2.0).
 - its guards (die-if-missing sequencing, FINAL=1 before upload, stock-copy and greedy decoding before a measure, never-quantized builds, the frozen training set) become stage checks re-expressed from tests/test_lfm_finetune_pipeline.py
 - train-scorer's mtime choice of the training file (line 648) is replaced by the frozen sha256 (data.assemble.select_frozen)
 - Track A stages (skills, augment-skills, measure-skills, train) are dropped; the hard-coded hub prefix (lines 500, 508) comes from the run config/Domain
-- added stages the script never had: preregister, teachers-pilot, draft-heldout, draft-eval, snapshot, select, recalibrate, edge-check, release-gate
+- added stages the script never had: preregister, teachers-pilot, draft-heldout, draft-eval, snapshot, select, recalibrate, edge-check, dataset-bundle (d14), release-gate
 ```
 
 ### `jev_factory/factory/secrets.py`

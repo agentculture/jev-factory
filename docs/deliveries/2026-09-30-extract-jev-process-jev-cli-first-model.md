@@ -131,7 +131,9 @@ After the PR opened (PR #5 CI), recorded here so the reviewer sees what changed 
 - `d9` — Add a fix task (t24-fix): key measure/once.py's measure-once ledger by (side, slice) instead of side only, and let pipeline measure-final run the missing-candidate slice once per side without a deviation id; until then t27 reports the final MC-escalation bar as unmeasured — merged t24 code refuses the MC slice after the full side as a second measurement, contradicting t37 ('measure-final on test (full and MC slice) ... exactly once') and leaving c52's MC-escalation bar unmeasurable
 - `d10` — jev decide writes its append-only decision record without --apply (no dry-run gate); it is annotated mutating (`read_only`=False) in the jev-CLI domain — t28's acceptance criterion says '`jev decide <run>` writes a decision record'; c23/h17 say every write verb is dry-run by default. The record is append-only, cites its inputs and never changes model or data state, so decide is treated as a recording verb, not a write verb
 - `d11` — t33 drafting (answer policy, reasons, prose fields, seed corpus) is done by an opus subagent in a worktree instead of by the main agent; the main agent reviews it and the operator approves the policy and a seed sample before any teacher call, as planned — the gate-2 split assigned t33 to 'main agent + operator'; drafting a few-hundred-entry seed in parallel with t32 is faster in a worktree, and nothing about the approval gate changes
-- `d12` (proposed, awaiting operator confirmation) — portability lint waives devague records and planning prose by prefix (`.devague/`, `docs/specs/`, `docs/plans/`, `docs/deliveries/`): the CI lint step drops them from its diff and harness-smoke's steward-doctor check waives findings there; the test canary in `tests/test_teachers.py` is built at runtime
+- `d12` (approved 2026-10-01) — portability lint waives devague records and planning prose by prefix (`.devague/`, `docs/specs/`, `docs/plans/`, `docs/deliveries/`): the CI lint step drops them from its diff and harness-smoke's steward-doctor check waives findings there; the test canary in `tests/test_teachers.py` is built at runtime
+- `d13` — nvsh's scorer-r3b may live-test the evaluation path (serving, measure, probe, release gate) before a jev-tool model exists. It stays reference context and is never an acceptance or parity gate, and the failure-gated `r3b_replay` diagnostic is unchanged. Operator decision.
+- `d14` — a `dataset-bundle` stage after `bundle` builds the private dataset bundle of the data actually trained on, and `upload` ships it beside the model bundle. Operator decision: the builder was absorbed and tested (t25) but no stage called it. Five jev-CLI seed entries (`jcs-op-181`…`185`) and two paraphrases cover the new `jev run dataset-bundle` verb; they are agent-drafted and await operator review, like the t33 seed.
 
 ## Drift From Plan
 
@@ -150,7 +152,9 @@ After the PR opened (PR #5 CI), recorded here so the reviewer sees what changed 
 | `t33` (`d11`) | the gate-2 split assigned t33 to 'main agent + operator'; drafting a few-hundred-entry seed in parallel with t32 is faster in a worktree, and nothing about the approval gate changes | `acceptable` |
 | `t34`-`t38` | not executed in this run: the jev-tool model build needs the GPU, the teacher lobes, Orin access and operator gates at each step; the operator chose one code PR first and a separate results PR | needs-follow-up |
 | `t10` | the merged code enforced a 95% floor on every domain; the main agent changed it to a default to match the acceptance criterion and c41 | acceptable |
-| `t30` (`d12`, proposed) | CI's portability lint and harness-smoke flagged machine paths quoted in devague records and planning prose, and GitGuardian flagged the test canary; waiving those prose prefixes and building the canary at runtime keeps code and prompt files linted | `acceptable` (pending operator confirmation) |
+| `t30` (`d12`) | CI's portability lint and harness-smoke flagged machine paths quoted in devague records and planning prose, and GitGuardian flagged the test canary; waiving those prose prefixes and building the canary at runtime keeps code and prompt files linted | `acceptable` |
+| `t37` (`d13`) | the operator allowed nvsh's scorer-r3b to live-test the evaluation path before the first jev-tool build; r3b stays reference-only | `acceptable` |
+| `t27` (`d14`) | the dataset builder was absorbed and tested but no stage called it, so a run could not publish the data its card describes | `acceptable` |
 
 ## Evidence
 
@@ -239,9 +243,10 @@ Lapse ledger evidence:
 - Risk r11 — the real PEFT/transformers merge path (`train.merge_adapter`) has never run; the first t36 training run is its first test.
 - Risk r5 / park v2 — choose the hub prefix before t38's upload `--apply`.
 - Risk r9 — the `train` extra and `evals` group need separate venvs.
-- Risk r13 — verified (a latent bug in nvsh, not in jev-factory). Post the drafted nvsh issue once the operator approves, then resolve r13.
+- Risk r13 — resolved: reported as agentculture/nvsh#74, with the operator's approval.
 - Follow-up from t31 — when a final evaluation fails, t37 must append a decision record with `details.evaluation = {domain: "jev-tool", outcome: "failed"}` so the r3b diagnostic can run.
 - Follow-up from t15 / t34 — pre-register decide's epochs confidence-hold tolerance (0.02 today) and state that candidate order is the simplicity order for ties.
-- Lapse l15 — closed by `tests/test_release_nvsh_parity.py` and the release fixes. Open question for the operator: should the factory gain a `dataset-bundle` stage? `build_dataset_bundle` exists and is tested, but no stage calls it.
-- Operator confirmation pending — deviation `d12`, lapses `l16` and `l17`, evidence e1-e41 and deltas b1-b10 are proposed.
+- Lapse l15 — closed by `tests/test_release_nvsh_parity.py` and the release fixes.
+- Operator confirmations — d12, l16, l17, evidence e1-e41 and deltas b1-b10 were all confirmed on 2026-10-01.
+- Live-test the evaluation path on nvsh's scorer r3b (`jetson-ai-lab/qwen3.5-0.8b-nvsh-tool-jev-scorer-v2-gguf`, deviation d13) before the first jev-tool build.
 - SonarCloud code smells — about 530 open (mostly S9073 composite asserts in tests and S3776 complexity); they do not fail the gate. Pay down when the touched files are next edited.

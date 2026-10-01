@@ -437,3 +437,22 @@ def test_teacher_summary_reads_the_records_jev_augment_writes():
         ds.teacher_summary([{"id": "a~v1"}], closed, {}, apache_only=True)
     with pytest.raises(ValueError, match="no generator teacher"):
         ds.teacher_summary([{"id": "a~v1"}], {"a~v1": _jev_record(generator=None)}, {})
+
+
+def test_targeted_rows_are_published_as_supplement_with_their_teachers(tmp_path):
+    def entry(eid, text, source, **extra):
+        expect = {"operation": "lamp_status", "args": {}}
+        return {"id": eid, "text": text, "expect": expect, "source": source, **extra}
+
+    train = [
+        entry("a1", "turn on the lamp at 192.168.1.50", "seed"),
+        entry("a1~v1", "switch the lamp on", "seed", source_id="a1"),
+        entry("tgt-missing-argument-0001", "dim it", "tgt-missing-argument"),
+    ]
+    plus = write_json(tmp_path / "train-plus.json", {"entries": train})
+    drafted = {"tgt-missing-argument-0001": _jev_record()}
+    _build_dataset(tmp_path, train_augmented=plus, supplement_teachers=drafted)
+    manifest = json.loads((tmp_path / "ds" / "manifest.json").read_text())
+    row = next(r for r in manifest if r["id"] == "tgt-missing-argument-0001")
+    assert row["origin"] == "supplement" and row["transformed"] is False
+    assert row["teachers"]["GENERATOR"] == "Gen Model"

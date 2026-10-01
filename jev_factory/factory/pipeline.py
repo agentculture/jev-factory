@@ -1,6 +1,6 @@
 """The build pipeline: every step of a jev-like scorer build as a registered stage.
 
-This replaces nvsh's ``scripts/lfm-finetune/pipeline.sh``: its 22 shell stages
+This replaces nvsh's ``scripts/lfm-finetune/pipeline.sh``: its shell stages
 with no stage state become ordered, pure-Python stages on the stage engine
 (:mod:`jev_factory.factory.stages`), each with declared inputs and outputs, a
 manifest per run and staleness. The shell script's guards ("die if the prior
@@ -14,7 +14,7 @@ Stages, in order (:data:`STAGE_ORDER`); each one's documented sub-steps are in
     config, preregister, seed, teachers-pilot, draft-heldout, draft-eval, split,
     snapshot, baseline, augment, targeted, assemble, train,
     select (calibrate -> gate fit -> probe -> rule), quantize, heal, recalibrate,
-    measure-final, edge-check, bundle, upload, release-gate
+    measure-final, edge-check, bundle, dataset-bundle, upload, release-gate
 
 Running a stage
 ---------------
@@ -111,7 +111,8 @@ NVSH_PROVENANCE = {
         "Track A stages (skills, augment-skills, measure-skills, train) are dropped;"
         " the hard-coded hub prefix (lines 500, 508) comes from the run config/Domain",
         "added stages the script never had: preregister, teachers-pilot, draft-heldout,"
-        " draft-eval, snapshot, select, recalibrate, edge-check, release-gate",
+        " draft-eval, snapshot, select, recalibrate, edge-check, dataset-bundle (d14),"
+        " release-gate",
     ],
     "licence": "Apache-2.0",
 }
@@ -141,6 +142,7 @@ STAGE_ORDER: tuple[str, ...] = (
     "measure-final",
     "edge-check",
     "bundle",
+    "dataset-bundle",
     "upload",
     "release-gate",
 )
@@ -181,6 +183,7 @@ SUBSTEPS: dict[str, tuple[str, ...]] = {
     ),
     "edge-check": ("record-operator-results",),
     "bundle": ("model-bundle", "scan"),
+    "dataset-bundle": ("train-set-used", "dataset-bundle", "scan"),
     "upload": ("private-upload", "fetch-back-verify"),
     "release-gate": ("evals-run",),
 }
@@ -227,6 +230,8 @@ FINAL_PARTIAL = "final/report.partial.json"
 EDGE_RESULTS = "edge/operator-results.json"
 EDGE_RECORD = "edge/edge-check.json"
 BUNDLE_RECORD = "bundle/record.json"
+DATASET_RECORD = "dataset/record.json"
+DATASET_TRAIN = "dataset/train-used.json"
 UPLOAD_RECORD = "upload/upload.json"
 RELEASE_GATE_RESULT = "release-gate/result.json"
 DECISIONS_FILE = records.DEFAULT_NAME
@@ -296,7 +301,8 @@ DEFAULT_KNOBS: dict[str, dict[str, Any]] = {
     },
     "edge-check": {},
     "bundle": {"repo_suffix": None, "data_summary": None},
-    "upload": {"repo_suffix": None, "repo_type": "model"},
+    "dataset-bundle": {"repo_suffix": None},
+    "upload": {"repo_suffix": None, "repo_type": "model", "dataset_repo_suffix": None},
     "release-gate": {"manifest": None, "no_deepeval": False},
 }
 
@@ -315,6 +321,7 @@ STAGE_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
     "quantize": ("measure_ctx",),
     "measure-final": ("measure_ctx",),
     "bundle": ("hub_prefix", "licence"),
+    "dataset-bundle": ("hub_prefix", "licence", "issue_refs"),
     "upload": ("hub_prefix",),
 }
 
@@ -1842,6 +1849,31 @@ def stage_edge_check(workdir: Path, knobs: dict[str, Any]) -> None:
     )
 
 
+def _drafted_supplement(workdir: Path) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """The targeted supplement's entries keyed by id with the teachers that drafted them
+    (``teachers``/``decided_by``), and its rejected review rows."""
+    summary = workdir / TARGETED_SUMMARY
+    supplement_rel = _read_json(summary).get("supplement") if summary.is_file() else None
+    if not supplement_rel:
+        return {}, []
+    supplement = _read_json(workdir / supplement_rel)
+    meta = supplement.get("targeted", {})
+    rows = {
+        str(entry["id"]): {
+            "teachers": meta.get("teachers", {}),
+            "decided_by": meta.get("decide_by"),
+        }
+        for entry in supplement.get("entries", [])
+    }
+    review = workdir / "aug" / "targeted-review.jsonl"
+    rejected = []
+    if review.is_file():
+        from jev_factory.release import dataset_bundle as ds
+
+        rejected = [row for row in ds.load_jsonl(review) if not row.get("accepted")]
+    return rows, rejected
+
+
 def _bundle_teachers(workdir: Path, scorer_train: Path, *, apache_only: bool) -> Any:
     """Which teachers wrote the synthetic rows that the frozen training set actually holds.
 
@@ -1854,16 +1886,7 @@ def _bundle_teachers(workdir: Path, scorer_train: Path, *, apache_only: bool) ->
     accepted = workdir / ACCEPTED_FILE
     if accepted.is_file():
         rows.update({row["id"]: row for row in ds.load_jsonl(accepted)})
-    summary = workdir / TARGETED_SUMMARY
-    supplement_rel = _read_json(summary).get("supplement") if summary.is_file() else None
-    if supplement_rel:
-        supplement = _read_json(workdir / supplement_rel)
-        meta = supplement.get("targeted", {})
-        for entry in supplement.get("entries", []):
-            rows[entry["id"]] = {
-                "teachers": meta.get("teachers", {}),
-                "decided_by": meta.get("decide_by"),
-            }
+    rows.update(_drafted_supplement(workdir)[0])
     trained = [{"id": str(e["id"])} for e in _read_json(scorer_train).get("entries", [])]
     used = [entry for entry in trained if entry["id"] in rows]
     if not used:
@@ -1934,6 +1957,105 @@ def stage_bundle(workdir: Path, knobs: dict[str, Any]) -> None:
     )
 
 
+def _train_set_used(workdir: Path, frozen_path: Path) -> Path:
+    """The train-side entries the frozen scorer set was built from, as one split file.
+
+    The merge is re-derived from the files the freeze recorded (split, variations,
+    supplement, excluded sides) and kept to the ids the frozen rows hold, so the dataset
+    publishes exactly the entries the model trained on (derived ``-nocand`` rows are
+    the same entries with their candidate removed)."""
+    from jev_factory.data.assemble import merged_entries
+    from jev_factory.release.dataset_bundle import load_jsonl
+
+    freeze = _read_json(workdir / FREEZE_FILE)
+    files = freeze.get("files", {})
+
+    def frozen_file(key: str) -> Path:
+        path = Path(files[key]["path"])
+        path = path if path.is_absolute() else workdir / path
+        if _sha(path) != files[key]["sha256"]:
+            raise _err(
+                f"{path} changed since the freeze", "re-run assemble before the dataset bundle"
+            )
+        return path
+
+    variations = [
+        row
+        for key in sorted(k for k in files if k.startswith("variations_"))
+        for row in load_jsonl(frozen_file(key))
+    ]
+    supplement = _read_json(frozen_file("supplement")) if "supplement" in files else None
+    merged, _ = merged_entries(
+        _read_json(frozen_file("split")),
+        variations,
+        supplement,
+        [_read_json(workdir / VAL_SPLIT), _read_json(workdir / TEST_SPLIT)],
+    )
+    trained = {str(e["id"]) for e in _read_json(frozen_path).get("entries", [])}
+    entries = [e for e in merged["entries"] if str(e["id"]) in trained]
+    out = workdir / DATASET_TRAIN
+    _write_json(out, {"header": merged.get("header", ""), "entries": entries})
+    return out
+
+
+def stage_dataset_bundle(workdir: Path, knobs: dict[str, Any]) -> None:
+    """The dataset bundle of the run: the validation and test sides, the train set actually
+    used (with each synthetic row's teachers), rejected counts, ``scorer-train.json``, the
+    deployed ``calibration.json`` and ``gate.json`` and the base model's LICENSE (deviation
+    d14). The sealed held-out set is never published. The finished folder is scanned."""
+    from jev_factory.data.assemble import select_frozen
+    from jev_factory.release import bundle as rb
+    from jev_factory.release import scan
+    from jev_factory.release.hub import effective_prefix
+
+    ctx = _ctx()
+    suffix = knobs.get("repo_suffix")
+    if not suffix:
+        raise _err("dataset-bundle needs repo_suffix", "the operator names the dataset repository")
+    repo = f"{effective_prefix(ctx.config, ctx.domain)}{suffix}"
+    model = _read_json(workdir / BUNDLE_RECORD)
+    frozen = select_frozen(workdir / FREEZE_FILE, deviation_id=ctx.deviation_id)
+    train = _train_set_used(workdir, frozen.path)
+    drafted, rejected_review = _drafted_supplement(workdir)
+    rejected = [workdir / REJECTED_FILE] if (workdir / REJECTED_FILE).is_file() else []
+    if rejected_review:
+        review = workdir / "dataset" / "targeted-rejected.jsonl"
+        review.write_text(
+            "".join(json.dumps(row, sort_keys=True) + "\n" for row in rejected_review),
+            encoding="utf-8",
+        )
+        rejected.append(review)
+    out = workdir / "dataset" / str(suffix)
+    if out.exists():
+        shutil.rmtree(out)
+    try:
+        counts = rb.build_dataset_bundle(
+            domain=ctx.domain,
+            config=ctx.config,
+            splits=workdir / "splits",
+            train_augmented=train,
+            accepted=workdir / ACCEPTED_FILE,
+            rejected=rejected,
+            licence_file=base_snapshot(ctx.config) / "LICENSE",
+            role_models={},
+            out=out,
+            calibration=workdir / DEPLOYED_CALIBRATION,
+            gate=workdir / DEPLOYED_GATE,
+            scorer_train=frozen.path,
+            repo=repo,
+            run=str(_read_json(workdir / DEPLOYED_BUILD)["candidate"]),
+            model_repos=[model["repo"]],
+            supplement_teachers=drafted,
+        )
+    except (rb.BundleError, ValueError) as exc:
+        raise _err(str(exc)) from None
+    scanned = scan.write_scan(out)
+    _write_json(
+        workdir / DATASET_RECORD,
+        {"repo": repo, "folder": _rel(workdir, out), "counts": counts, "scan": scanned},
+    )
+
+
 def stage_upload(workdir: Path, knobs: dict[str, Any]) -> None:
     """Upload the bundle **privately**, fetch it back and compare every sha256.
 
@@ -1950,20 +2072,35 @@ def stage_upload(workdir: Path, knobs: dict[str, Any]) -> None:
     repo = f"{hub.effective_prefix(ctx.config, ctx.domain)}{suffix}"
     if repo != record["repo"]:
         raise _err(f"the bundle was built for {record['repo']}, not {repo}")
-    try:
-        result = hub.upload(
-            bundle=workdir / record["folder"],
-            repo=repo,
-            repo_type=str(knobs["repo_type"]),
-            config=ctx.config,
-            domain=ctx.domain,
-            apply=True,
-            hub=ctx.services.hub,
-            environ=ctx.services.environ,
+    dataset = _read_json(workdir / DATASET_RECORD)
+    data_suffix = knobs.get("dataset_repo_suffix")
+    if not data_suffix:
+        raise _err(
+            "upload needs dataset_repo_suffix",
+            "the operator names the dataset repository to upload to",
         )
-    except hub.UploadError as exc:
-        raise _err(str(exc)) from None
-    _write_json(workdir / UPLOAD_RECORD, result)
+    data_repo = f"{hub.effective_prefix(ctx.config, ctx.domain)}{data_suffix}"
+    if data_repo != dataset["repo"]:
+        raise _err(f"the dataset bundle was built for {dataset['repo']}, not {data_repo}")
+    results = {}
+    for name, folder, target, repo_type in (
+        ("model", record["folder"], repo, str(knobs["repo_type"])),
+        ("dataset", dataset["folder"], data_repo, "dataset"),
+    ):
+        try:
+            results[name] = hub.upload(
+                bundle=workdir / folder,
+                repo=target,
+                repo_type=repo_type,
+                config=ctx.config,
+                domain=ctx.domain,
+                apply=True,
+                hub=ctx.services.hub,
+                environ=ctx.services.environ,
+            )
+        except hub.UploadError as exc:
+            raise _err(str(exc)) from None
+    _write_json(workdir / UPLOAD_RECORD, {**results["model"], "dataset": results["dataset"]})
 
 
 def stage_release_gate(workdir: Path, knobs: dict[str, Any]) -> None:
@@ -2116,7 +2253,27 @@ def _stages() -> list[Stage]:
             (BUNDLE_RECORD,),
             ("measure-final", "edge-check"),
         ),
-        s("upload", stage_upload, (BUNDLE_RECORD,), (UPLOAD_RECORD,), ("bundle",)),
+        s(
+            "dataset-bundle",
+            stage_dataset_bundle,
+            (
+                BUNDLE_RECORD,
+                FREEZE_FILE,
+                VAL_SPLIT,
+                TEST_SPLIT,
+                DEPLOYED_CALIBRATION,
+                DEPLOYED_GATE,
+            ),
+            (DATASET_RECORD,),
+            ("bundle",),
+        ),
+        s(
+            "upload",
+            stage_upload,
+            (BUNDLE_RECORD, DATASET_RECORD),
+            (UPLOAD_RECORD,),
+            ("bundle", "dataset-bundle"),
+        ),
         s(
             "release-gate",
             stage_release_gate,

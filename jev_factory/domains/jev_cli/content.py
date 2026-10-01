@@ -267,6 +267,10 @@ PARAPHRASES: Mapping[str, tuple[str, ...]] = {
         "Package the deployed build with its calibration, gate and training set.",
         "Make the model bundle and scan it.",
     ),
+    "jev.run.dataset-bundle": (
+        "Package the data the model trained on, with its teachers, as a dataset bundle.",
+        "Make the dataset bundle beside the model bundle and scan it.",
+    ),
     "jev.run.upload": (
         "Upload the bundle privately and verify it by fetching it back.",
         "Push the bundle to a private hub repo and check every hash.",

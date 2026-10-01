@@ -108,7 +108,11 @@ def write_pool(workdir: Path) -> Path:
     doc = {
         "header": {"tool": "tests.pipeline_support", "pool": "eval"},
         "world": WORLD,
-        "entries": synth_entries("pool", 0, per_op=12, per_reason=4, explain=12),
+        # like data.draft's pool entries, each names its source
+        "entries": [
+            {"source": "draft-eval", **e}
+            for e in synth_entries("pool", 0, per_op=12, per_reason=4, explain=12)
+        ],
     }
     path = workdir / "pool" / "draft.json"
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -39,7 +39,7 @@ the first and only acceptance target is a **jev-tool** model (a scorer whose
 candidates are the `jev` CLI's own verbs), and nvsh `scorer-r3b` parity is
 not a gate.
 
-**Current state.** The factory code exists: `jev init`, the 22 `jev run`
+**Current state.** The factory code exists: `jev init`, the 23 `jev run`
 stages, `jev status`, `jev decide`, `jev ask` and domain modules are built
 and tested. The jev-tool model itself is not yet trained, so report no bundle
 as shipped. `docs/lessons-encoded.md` lists the failures the checks prevent.

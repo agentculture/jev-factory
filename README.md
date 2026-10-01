@@ -7,7 +7,7 @@ It then fine-tunes its own jev-like model to make those decisions
 (self-hosting).
 
 > **Status: the factory exists; the first model is not yet trained.** The
-> domain-module contract, the 22 `jev run` stages, `jev status`, `jev decide`
+> domain-module contract, the 23 `jev run` stages, `jev status`, `jev decide`
 > and `jev ask` are built and tested. The first product, a **jev-tool**
 > scorer whose candidates are this CLI's own verbs, is not yet trained. The
 > build brief is

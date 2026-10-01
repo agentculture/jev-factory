@@ -55,6 +55,7 @@ EXPECTED_ORDER = [
     "measure-final",
     "edge-check",
     "bundle",
+    "dataset-bundle",
     "upload",
     "release-gate",
 ]
@@ -666,11 +667,31 @@ def test_bundle_upload_and_release_gate(deployed, tmp_path):
     assert (folder / "gate.json").read_bytes() == (
         deployed.workdir / "deployed/gate.json"
     ).read_bytes()
-    assert "repo_suffix" in deployed.fail("upload")
-    assert "built for" in deployed.fail("upload", {"repo_suffix": "other"})
-    deployed.apply("upload", {"repo_suffix": "scorer"})
+    assert "repo_suffix" in deployed.fail("dataset-bundle")
+    deployed.apply("dataset-bundle", {"repo_suffix": "scorer-data"})
+    data = deployed.json("dataset/record.json")
+    assert data["repo"] == "example-org/toy-lamps-jev-scorer-data" and data["scan"]["clean"]
+    data_dir = deployed.workdir / data["folder"]
+    for name in ("calibration.json", "gate.json", "scorer-train.json", "LICENSE", "manifest.json"):
+        assert (data_dir / name).is_file()
+    assert {p.name for p in (data_dir / "data").iterdir()} == {
+        "train.jsonl",
+        "validation.jsonl",
+        "test.jsonl",
+    }
+    upload = {"repo_suffix": "scorer", "repo_type": "model", "dataset_repo_suffix": "scorer-data"}
+    assert "repo_suffix" in deployed.fail("upload", {"dataset_repo_suffix": "scorer-data"})
+    assert "built for" in deployed.fail("upload", {**upload, "repo_suffix": "other"})
+    assert "dataset_repo_suffix" in deployed.fail("upload", {**upload, "dataset_repo_suffix": None})
+    assert "dataset bundle was built for" in deployed.fail(
+        "upload", {**upload, "dataset_repo_suffix": "other"}
+    )
+    deployed.apply("upload", upload)
     calls = [c[0] for c in deployed.hub.calls]
     assert "create_repo" in calls and "snapshot_download" in calls
+    created = {c[1] for c in deployed.hub.calls if c[0] == "create_repo"}
+    assert any("scorer-data" in str(c) for c in created)
+    assert deployed.json("upload/upload.json")["dataset"]["private"] is True
     creates = [c for c in deployed.hub.calls if c[0] == "create_repo"]
     assert all(c[2]["private"] is True for c in creates)
     assert all(
@@ -759,6 +780,13 @@ def test_the_bundle_card_names_the_teachers_of_the_rows_it_trained_on(tmp_path):
     assert set(teachers.role_teachers) >= {"GENERATOR", "CORRECTOR", "REVIEWER_B"}
     trained = {str(e["id"]) for e in json.loads(frozen.path.read_text())["entries"]}
     assert set(teachers.per_variation) <= trained
+    # the dataset bundle publishes exactly the train entries the frozen rows came from
+    used = json.loads(pipeline._train_set_used(run.workdir, frozen.path).read_text())["entries"]
+    used_ids = {str(e["id"]) for e in used}
+    assert used_ids == {i for i in trained if not i.endswith("-nocand")}
+    assert any("~v" in i for i in used_ids) and any(i.startswith("tgt-") for i in used_ids)
+    drafted, _ = pipeline._drafted_supplement(run.workdir)
+    assert {i for i in used_ids if i.startswith("tgt-")} <= set(drafted)
 
 
 def test_a_bundle_without_synthetic_rows_says_so(deployed):

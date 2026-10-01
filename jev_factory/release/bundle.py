@@ -726,6 +726,7 @@ def build_dataset_bundle(
     run: str = "",
     model_repos: list[str] | None = None,
     default_source: str | None = None,
+    supplement_teachers: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Write a dataset bundle to *out*; return the counts shown in the card.
 
@@ -752,6 +753,7 @@ def build_dataset_bundle(
             issue_refs=str(config.get("issue_refs") or ""),
             model_repos=model_repos,
             default_source=default_source,
+            supplement_teachers=supplement_teachers,
         )
         for source, name in ((calibration, "calibration.json"), (gate, "gate.json")):
             shutil.copyfile(source, out / name)

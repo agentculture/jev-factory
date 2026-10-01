@@ -62,6 +62,8 @@ _SEED_RE = re.compile(r"\(seed=(\d+)\)")
 
 DRAFT_SOURCE_PREFIX = "draft-"
 TARGETED_SOURCE_PREFIX = "t15-"
+#: jev_factory.data.targeted writes ``tgt-<recipe>`` sources (nvsh wrote ``t15-``).
+JEV_TARGETED_SOURCE_PREFIX = "tgt-"
 
 
 class TeacherSummary:
@@ -296,7 +298,7 @@ def _origin(entry: dict[str, Any]) -> str:
         return "variation"
     if source.startswith(DRAFT_SOURCE_PREFIX):
         return "draft"
-    if source.startswith(("supplement", TARGETED_SOURCE_PREFIX)):
+    if source.startswith(("supplement", TARGETED_SOURCE_PREFIX, JEV_TARGETED_SOURCE_PREFIX)):
         return "supplement"
     return "corpus"
 
@@ -339,6 +341,7 @@ def build(
     model_repos: list[str] | None = None,
     default_source: str | None = None,
     source_files: dict[str, str] | None = None,
+    supplement_teachers: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Write the dataset folder to *out*; return the counts shown in the card.
 
@@ -347,6 +350,9 @@ def build(
     address redaction as every published record. *source_files* maps an origin
     (``corpus``, ``supplement``, ``draft``) to the file recorded as its source;
     by default the domain's seed corpus name is used for ``corpus``.
+    *supplement_teachers* maps a teacher-drafted supplement entry's id to a record
+    naming its teachers (the ``teachers``/``decided_by`` shape), so those rows carry
+    their teachers too; they are not counted as reviewed variations.
     """
     files = {
         "corpus": domain.seed_corpus.name if domain.seed_corpus else "seed corpus",
@@ -376,7 +382,14 @@ def build(
     manifest: list[dict[str, Any]] = []
     rows: dict[str, list[dict[str, Any]]] = {"train": [], "validation": [], "test": []}
     origins: collections.Counter[str] = collections.Counter()
-    summary = teacher_summary(train, accepted_rows, role_models, apache_only=apache_only)
+    drafted = supplement_teachers or {}
+    summary = teacher_summary(
+        train,
+        {**accepted_rows, **drafted},
+        role_models,
+        apache_only=apache_only,
+        is_variation=lambda entry_id: "~v" in entry_id or entry_id in drafted,
+    )
     for entry in train:
         if entry.get("side", "train") != "train":
             raise ValueError(f"{entry['id']} in {train_augmented} is not a train-side entry")

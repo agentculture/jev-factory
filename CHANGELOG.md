@@ -11,7 +11,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **The jev-like model factory** (issue #4, under #1): nvsh's scorer
   (Tool-Jev) fine-tune pipeline is absorbed as the `jev run <stage>` stage
-  engine with 22 stages, from run config and pre-registration through
+  engine with 23 stages, from run config and pre-registration through
   teachers, sealed held-out, augmentation, assemble and freeze, training with
   merge verification, selection, quantize with a one-round heal,
   recalibration, one final measurement, edge check, bundle, private upload
@@ -27,6 +27,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   diagnostic.
 - Provenance headers on every imported module, with a generated
   `docs/nvsh-import-provenance.md` (nvsh `9debdc6`, Apache-2.0).
+- A `dataset-bundle` stage (deviation d14): it publishes the validation and
+  test sides and the train set actually used, with each synthetic row's
+  teachers, plus `scorer-train.json`, the calibration and gate files and the
+  base LICENSE. The sealed held-out set is never published. `upload` ships it
+  privately beside the model bundle and needs the operator to name both repos.
 - Spec, plan, gate-2 split, and the delivery summary
   (`docs/deliveries/2026-09-30-extract-jev-process-jev-cli-first-model.md`).
 
@@ -57,6 +62,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Q4_K_M quantization and any `config.json` MTP change, the card gives the
   `--max-logprobs` value and the text-only GGUF note, and a dataset bundle's
   LICENSE must be the Apache 2.0 text.
+- Dataset provenance: rows from jev's targeted stage (`tgt-` sources) are
+  published as teacher-drafted supplement rows naming their teachers, not as
+  hand-written corpus rows.
 - Pipeline: a changed training recipe retrains instead of reusing the old run;
   naming the rule's winner no longer bypasses a non-ship verdict at
   `quantize`; `measure-final` keeps the sealed numbers when the probe fails, so
