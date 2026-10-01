@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-10-01
+
+### Added
+
+- **The jev-like model factory** (issue #4, under #1): nvsh's scorer
+  (Tool-Jev) fine-tune pipeline is absorbed as the `jev run <stage>` stage
+  engine with 22 stages, from run config and pre-registration through
+  teachers, sealed held-out, augmentation, assemble and freeze, training with
+  merge verification, selection, quantize with a one-round heal,
+  recalibration, one final measurement, edge check, bundle, private upload
+  and the release gate. Each stage writes a manifest.
+- A declarative, validated **domain-module contract** (`jev_factory.domain`),
+  a toy domain, and the **jev-CLI domain** generated from argparse with an
+  operator-approved answer policy and a 287-entry train-only seed.
+- CLI verbs **`jev init`, `jev run`, `jev status`, `jev decide`, `jev ask`**.
+  Write stages are dry-run by default (`--apply` commits), and `ask` only
+  prints a proposal.
+- Machine-readable pre-registration (bars = stricter of stock Qwen3.5-0.8B
+  and minimums), append-only decision records, and the gated r3b failure
+  diagnostic.
+- Provenance headers on every imported module, with a generated
+  `docs/nvsh-import-provenance.md` (nvsh `9debdc6`, Apache-2.0).
+- Spec, plan, gate-2 split, and the delivery summary
+  (`docs/deliveries/2026-09-30-extract-jev-process-jev-cli-first-model.md`).
+
+### Changed
+
+- The harness prompt files, README, and `jev learn`/`jev explain` describe
+  the factory, not a template.
+- CI lint now runs `portability-lint.sh`, and pytest disables the deepeval
+  plugin.
+
+### Fixed
+
+- nvsh#58's stop/start race in measurement serving, a teacher-cache
+  temp-file race, and the release gate's worktree guard (now uses
+  `git rev-parse`, nvsh#71).
+
 ## [0.9.1] - 2026-09-26
 
 ### Changed
