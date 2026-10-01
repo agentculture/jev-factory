@@ -460,7 +460,9 @@ def label_loss(logits, mask, targets, *, label_smoothing: float = 0.0, brier_wei
         raise ValueError(f"label smoothing must be in [0, 1), not {label_smoothing}")
     if brier_weight < 0.0:
         raise ValueError(f"brier weight must be at least 0, not {brier_weight}")
-    if label_smoothing == 0.0 and brier_weight == 0.0:
+    if math.isclose(label_smoothing, 0.0, abs_tol=1e-12) and math.isclose(
+        brier_weight, 0.0, abs_tol=1e-12
+    ):
         return torch.nn.functional.cross_entropy(logits, targets)
     log_p = torch.log_softmax(logits, dim=-1)
     offered_log_p = torch.where(mask, log_p, torch.zeros_like(log_p))

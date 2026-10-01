@@ -44,7 +44,8 @@ def answer(text="D"):
 
 
 def test_keys_are_canonical_and_parameter_sensitive():
-    assert ledger_key(spec()) == ledger_key(spec())
+    first, second = ledger_key(spec()), ledger_key(spec())
+    assert first == second
     assert ledger_key(spec(max_output_tokens=1)) != ledger_key(spec(max_output_tokens=2))
     assert canonical_json({"b": 1, "a": 2}) == '{"a":2,"b":1}'
     with pytest.raises(ValueError):

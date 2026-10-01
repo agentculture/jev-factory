@@ -241,7 +241,7 @@ def _post(role: RoleConfig, system: str, user: str) -> str:
 # verdicts: JSON against a schema
 # --------------------------------------------------------------------------
 
-_FENCE = re.compile(r"^```[A-Za-z]*\s*|\s*```$")
+_FENCE = re.compile(r"(?:^```[A-Za-z]*\s*)|(?:\s*```$)")
 
 
 def _first_object(text: str) -> str | None:

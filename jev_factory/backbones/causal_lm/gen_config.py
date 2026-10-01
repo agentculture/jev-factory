@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 import sys
 from pathlib import Path
@@ -123,6 +124,11 @@ def write(model_dir: Path, temperature: float = 0.0) -> dict:
     return payload
 
 
+def _is_zero(value: object) -> bool:
+    """True for a numeric 0 (int, float or bool), compared without float ``==``."""
+    return isinstance(value, (int, float)) and math.isclose(value, 0.0, rel_tol=0.0, abs_tol=0.0)
+
+
 def check(model_dir: Path) -> str | None:
     """``None`` when *model_dir* has a valid greedy-decoding generation_config.json,
     else a one-line reason."""
@@ -130,7 +136,8 @@ def check(model_dir: Path) -> str | None:
     if not gen_path.is_file():
         return f"no {GEN_CONFIG_FILE} in {model_dir}"
     payload = json.loads(gen_path.read_text(encoding="utf-8"))
-    if payload.get("temperature") != 0 and payload.get("temperature") != 0.0:
+    temperature = payload.get("temperature")
+    if not _is_zero(temperature):
         return f"temperature is {payload.get('temperature')!r}, not 0"
     if payload.get("do_sample") is not False:
         return f"do_sample is {payload.get('do_sample')!r}, not false"

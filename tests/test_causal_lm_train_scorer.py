@@ -627,7 +627,8 @@ def test_training_loss_decreases_and_is_reproducible_under_one_seed() -> None:
 
     long = run(46, epochs=30)
     assert long[-1] < 0.5 * long[0]
-    assert run(46) == run(46)
+    first, second = run(46), run(46)
+    assert first == second
     assert run(46) != run(47)
 
 

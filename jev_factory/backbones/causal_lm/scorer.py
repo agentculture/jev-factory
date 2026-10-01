@@ -42,6 +42,7 @@ Heavy imports (torch) happen only inside :func:`transformers_logprobs`.
 from __future__ import annotations
 
 import json
+import math
 import random
 import re
 import urllib.request
@@ -591,7 +592,7 @@ def _valid(value: object) -> bool:
     return (
         isinstance(value, (int, float))
         and not isinstance(value, bool)
-        and value == value  # not NaN
+        and not math.isnan(value)
         and value <= 0
     )
 

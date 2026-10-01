@@ -194,7 +194,11 @@ def apply_scaling(
     vector: Mapping[str, float] | None = None,
 ) -> dict[str, float]:
     """Temperature scaling, then vector scaling (if given), over one line's candidates."""
-    scaled = temperature_scale(candidates, temperature) if temperature != 1.0 else dict(candidates)
+    scaled = (
+        temperature_scale(candidates, temperature)
+        if not math.isclose(temperature, 1.0, rel_tol=0.0, abs_tol=1e-12)
+        else dict(candidates)
+    )
     if vector:
         scaled = vector_scale(scaled, vector)
     return scaled
