@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-09-30T20:03:35Z",
+  "updated": "2026-10-01T05:25:37Z",
   "deviations": [
     {
       "id": "d1",
@@ -76,7 +76,7 @@
         "c32"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 5
     },
@@ -89,7 +89,7 @@
         "t18"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 6
     },
@@ -103,7 +103,7 @@
         "c14"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 7
     },
@@ -119,7 +119,7 @@
         "t26"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 8
     },
@@ -135,7 +135,7 @@
         "c5"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "needs-follow-up",
       "seq": 9
     },
@@ -149,7 +149,7 @@
         "h17"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 10
     },
@@ -160,7 +160,7 @@
       "reason": "the gate-2 split assigned t33 to 'main agent + operator'; drafting a few-hundred-entry seed in parallel with t32 is faster in a worktree, and nothing about the approval gate changes",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 11
     }
@@ -985,6 +985,86 @@
       "evidence_refs": [
         "e22"
       ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "added",
+      "behavior_text": "The measure-once ledger is keyed by (side, slice): measure-final measures the full test and held-out sides and each side's missing-candidate slice once each; a repeat of any pair needs a deviation id",
+      "caused_by": [
+        "d9"
+      ],
+      "evidence_refs": [
+        "e6"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "amended",
+      "behavior_text": "jev decide appends its decision record without --apply (no dry-run gate) and is annotated mutating in the jev-CLI domain",
+      "caused_by": [
+        "d10"
+      ],
+      "evidence_refs": [
+        "e17"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "removed",
+      "behavior_text": "The ported release gate has no OpenAI Responses or Anthropic provider adapters and no gate-side permutation module (result.json reports permutation not_run); providers are openrouter, nvidia and local",
+      "caused_by": [
+        "d7"
+      ],
+      "evidence_refs": [
+        "e27"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "amended",
+      "behavior_text": "Drafting derives effect labels from Domain.read_only() and escalate examples from each reason's definition, instead of dedicated Domain fields",
+      "caused_by": [
+        "d5"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b8",
+      "kind": "added",
+      "behavior_text": "The teacher response cache writes a per-writer temp file (pid + thread id), so concurrent workers caching the same key no longer race in os.replace",
+      "caused_by": [
+        "d6"
+      ],
+      "evidence_refs": [
+        "e16"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b9",
+      "kind": "amended",
+      "behavior_text": "Drafting, augmentation and targeted recipes share helpers from jev_factory/data/common.py, and measure/serve.py's greedy check delegates to gen_config (behaviour unchanged except draft.expect_words tolerating unknown operation names and reworded JSON-list parse errors)",
+      "caused_by": [
+        "d8"
+      ],
+      "evidence_refs": [],
       "origin": "llm",
       "status": "proposed",
       "superseded": false

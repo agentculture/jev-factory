@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-09-30T17:42:37Z",
-  "updated": "2026-09-30T18:38:49Z",
+  "updated": "2026-10-01T05:25:37Z",
   "claims": [
     {
       "id": "c1",
@@ -1321,6 +1321,18 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c70",
+      "kind": "decision",
+      "text": "The operator approved the t33 jev-tool answer policy, the 8 decline reasons and the agent-drafted 287-entry train-only seed corpus (jev_factory/domains/jev_cli/seed.json, content.py) as drafted on 2026-10-01, after reviewing the sample packet; teacher runs may start",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -1678,7 +1690,7 @@
         "brief.py"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l7",
@@ -1689,7 +1701,7 @@
         "t7"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l8",
@@ -1700,7 +1712,7 @@
         "t9"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l9",
@@ -1711,7 +1723,7 @@
         "merge.sh"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l10",
@@ -1722,7 +1734,7 @@
         "t13"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l11",
@@ -1733,7 +1745,7 @@
         "t15"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l12",
@@ -1744,7 +1756,7 @@
         "t17"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l13",
@@ -1755,7 +1767,7 @@
         "t21"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l14",
@@ -1766,7 +1778,7 @@
         "t19"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l15",
@@ -1777,7 +1789,7 @@
         "t25"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": [
