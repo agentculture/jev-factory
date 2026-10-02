@@ -71,7 +71,7 @@ class ReviewApp:
                 {
                     "entry": entry,
                     "node": core.attach(entry, self.domain),
-                    "status": _status(record),
+                    "status": core.status(record),
                     "decision": _public(record),
                 }
             )
@@ -97,6 +97,7 @@ class ReviewApp:
             "kinds": sorted({str(e.get("kind")) for e in raw.get("entries", []) if "kind" in e}),
             "sources": sorted(
                 {str(e.get("source")) for e in raw.get("entries", []) if "source" in e}
+                | {str(e.get("source")) for e in proposed.values() if e.get("source")}
             ),
             "next_ids": core.next_ids(raw, self.domain, taken=proposed),
             "pending_changes": len(plan.changes),
@@ -115,14 +116,6 @@ class ReviewApp:
             record = core.make_record(raw, self.domain, payload, proposals=core.proposals(records))
             core.append_record(self.review_file, record)
         return {"recorded": True, "action": record["action"]}
-
-
-def _status(record: Mapping[str, Any] | None) -> str:
-    if record is None:
-        return core.STATUS_PENDING
-    return {"approve": "approved", "reject": "rejected", "edit": "edited"}.get(
-        str(record["action"]), "proposed"
-    )
 
 
 def _public(record: Mapping[str, Any] | None) -> dict[str, Any] | None:

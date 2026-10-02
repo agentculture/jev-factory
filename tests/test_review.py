@@ -123,8 +123,9 @@ def test_an_edit_must_change_something_and_validate_against_the_domain(toy):
     with pytest.raises(core.ReviewError, match="changes nothing"):
         core.make_record(_raw(toy), toy, {"action": "edit", "entry_id": "toy-01", "after": same})
     bad = dict(same, expect={"operation": "no_such_op", "args": {}})
-    with pytest.raises(core.ReviewError, match="toy-01"):
+    with pytest.raises(core.ReviewError, match="toy-01") as raised:
         core.make_record(_raw(toy), toy, {"action": "edit", "entry_id": "toy-01", "after": bad})
+    assert str(raised.value).count("toy-01") == 1  # named once, not "toy-01: toy-01: ..."
     other_id = dict(same, id="toy-77", text="x")
     with pytest.raises(core.ReviewError, match="is not 'toy-01'"):
         core.make_record(
@@ -147,7 +148,9 @@ def test_a_proposal_gets_an_operator_source_and_can_be_revised_or_withdrawn(toy)
     _decide(toy, {"action": "propose", "entry_id": "toy-90", "after": revised})
     assert _plan(toy).changes[0]["after"]["text"] == "is the hall lamp on right now"
     _decide(toy, {"action": "reject", "entry_id": "toy-90"})
-    assert _plan(toy).changes == []
+    plan = _plan(toy)
+    assert plan.changes == [] and plan.counts.get("withdrawn") == 1
+    assert "rejected" not in plan.counts
 
 
 def test_a_malformed_review_file_is_refused_with_its_line(tmp_path):
@@ -414,3 +417,16 @@ def test_serve_flushes_the_url_before_it_blocks(cli_toy, monkeypatch):
     monkeypatch.setattr(sys, "stdout", Out())
     assert cli_main(["review", "toy", "--serve", "--json"]) == 0
     assert json.loads(sys.stdout.getvalue())["url"] == "http://127.0.0.1:4321/"
+
+
+def test_the_state_offers_the_sources_of_proposals_too(site):
+    app, port = site
+    after = {
+        "kind": "explicit",
+        "text": "is the hall lamp on",
+        "expect": {"operation": "lamp_status"},
+    }
+    body = {"action": "propose", "entry_id": "toy-90", "after": after}
+    assert _call(port, "POST", "/api/decision", body, token=app.token)[0] == 200
+    state = json.loads(_call(port, "GET", "/api/state", token=app.token)[2])
+    assert any(s.startswith(core.OPERATOR_SOURCE_PREFIX) for s in state["sources"])

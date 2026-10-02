@@ -107,7 +107,7 @@ def _render(result: dict[str, Any], *, applied: bool) -> str:
         "decisions: "
         + ", ".join(
             f"{counts.get(k, 0)} {k}"
-            for k in ("pending", "approved", "rejected", "edited", "proposed")
+            for k in ("pending", "approved", "rejected", "edited", "proposed", "withdrawn")
         ),
     ]
     verb = "changed" if applied else "would change"

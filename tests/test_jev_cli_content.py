@@ -19,6 +19,7 @@ from jev_factory.domain.validate import problems
 from jev_factory.domains.jev_cli import content
 from jev_factory.domains.jev_cli.generate import generate_domain, world
 from jev_factory.measure.corpus import load_raw
+from jev_factory.review.core import OPERATOR_SOURCE_PREFIX
 
 DECLINE_CLASSES = (
     "outside_table",
@@ -144,7 +145,8 @@ def test_seed_texts_are_unique(corpus) -> None:
 def test_seed_entries_carry_kind_class_and_source(corpus) -> None:
     for entry in corpus.entries:
         assert entry["kind"] == "explicit"
-        assert entry["source"].startswith("agent-draft")
+        # Agent drafts, or entries the operator proposed in `jev review`.
+        assert entry["source"].startswith(("agent-draft", OPERATOR_SOURCE_PREFIX)), entry["id"]
         kind = _kind(entry)
         if kind == "operation":
             assert entry["class"] in PHRASING_CLASSES, entry["id"]

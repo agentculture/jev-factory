@@ -279,7 +279,8 @@ def _checked_entry(
     problems = check_entry(entry, domain)
     if not problems:
         return entry
-    raise ReviewError(f"{entry_id}: " + "; ".join(problems))
+    named = [p if p.startswith(f"{entry_id}:") else f"{entry_id}: {p}" for p in problems]
+    raise ReviewError("; ".join(named))
 
 
 # -- the change plan ---------------------------------------------------------------
@@ -315,7 +316,7 @@ def plan_changes(
     plan.seed["entries"] = new_entries
     plan.problems.extend(_seed_problems(plan.seed, domain))
     decided = latest(records)
-    plan.counts = dict(Counter(_STATUS_OF_ACTION[str(r["action"])] for r in decided.values()))
+    plan.counts = dict(Counter(status(r) for r in decided.values()))
     plan.counts[STATUS_PENDING] = sum(1 for i in index if i not in decided)
     return plan
 
@@ -365,6 +366,15 @@ def _plan_one(
         return
     added.append(dict(after))  # type: ignore[arg-type]
     plan.changes.append({"action": "add", "entry_id": entry_id, "after": after})
+
+
+def status(record: Mapping[str, Any] | None) -> str:
+    """An entry's review status from its latest record; a rejected proposal is ``withdrawn``."""
+    if record is None:
+        return STATUS_PENDING
+    if record["action"] == "reject" and record.get("before") is None:
+        return "withdrawn"
+    return _STATUS_OF_ACTION[str(record["action"])]
 
 
 def _seed_problems(seed: Mapping[str, Any], domain: Domain) -> list[str]:

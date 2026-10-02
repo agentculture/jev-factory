@@ -229,7 +229,8 @@ label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
       return state.entries.filter(it => {
         if (filter === "pending" && it.status !== "pending") return false;
         if (filter.startsWith("status:") && it.status !== filter.slice(7)) return false;
-        if (filter.startsWith("source:") && it.entry.source !== filter.slice(7)) return false;
+        // A source filter never hides proposals: they are the operator's own new entries.
+        if (filter.startsWith("source:") && it.status !== "proposed" && it.entry.source !== filter.slice(7)) return false;
         return !q || (it.entry.text + " " + it.entry.id).toLowerCase().includes(q);
       });
     }, [state, filter, query]);
@@ -296,7 +297,8 @@ label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
       h("div", { className: "bar" },
         h("h1", null, "jev review · " + state.domain),
         h("div", { className: "counts" }, STATUSES.map(k =>
-          h("span", { key: k }, h("span", { className: "chip st-" + k }, k), " " + (c[k] || 0)))),
+          h("span", { key: k }, h("span", { className: "chip st-" + k }, k), " " + (c[k] || 0))),
+          c.withdrawn ? h("span", { className: "muted" }, "withdrawn " + c.withdrawn) : null),
         h("select", { value: filter, onChange: e => setFilter(e.target.value) },
           h("option", { value: "all" }, "all entries"),
           h("option", { value: "pending" }, "pending only"),
