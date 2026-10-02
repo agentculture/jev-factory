@@ -48,7 +48,7 @@ CLI's own verbs); nvsh `scorer-r3b` parity is not a gate.
 
 **Current state.** The factory code exists (command `jev`, package
 `jev_factory`): `jev init`, the 23 `jev run` stages, `jev status`,
-`jev decide`, `jev ask` and the domain-module contract in
+`jev decide`, `jev ask`, `jev review` and the domain-module contract in
 `jev_factory/domain/model.py`. The jev-tool model is not yet trained. Check a
 verb with `uv run jev --help` before calling it implemented.
 

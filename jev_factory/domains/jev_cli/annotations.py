@@ -96,6 +96,9 @@ _FACTORY: dict[str, Annotation] = {
         read_only=True,
         args=(ArgSpec(name="request", kind="str"), ArgSpec(name="bundle", kind="str")),
     ),
+    # ``review`` serves the seed review site (appending decisions to the review file)
+    # and writes the seed with --apply, so it is mutating.
+    verb_name(("review",)): Annotation(read_only=False, args=(ArgSpec(name="domain", kind="str"),)),
     **{verb_name(("run", stage)): Annotation(read_only=False) for stage in stage_names()},
 }
 ANNOTATIONS = {**ANNOTATIONS, **_FACTORY}

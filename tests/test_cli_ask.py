@@ -215,6 +215,7 @@ def test_ask_with_a_mutating_proposal_only_prints(tmp_path, monkeypatch, capsys)
 APPLY_ALLOWED = {
     "cli/_commands/run.py": "declares --apply; --detach re-runs the stage the OPERATOR named",
     "cli/_commands/init.py": "declares --apply",
+    "cli/_commands/review.py": "declares --apply (writes the reviewed seed)",
     "backbones/causal_lm/quantize.py": "declares --apply on its own argparse",
     "domains/jev_cli/generate.py": "detects an --apply option on a parser",
 }

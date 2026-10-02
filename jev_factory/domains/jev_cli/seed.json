@@ -39,7 +39,8 @@
       "run bundle",
       "run dataset-bundle",
       "run upload",
-      "run release-gate"
+      "run release-gate",
+      "review"
     ],
     "stages": [
       "config",
@@ -3291,6 +3292,71 @@
       },
       "class": "symptom",
       "source": "agent-draft-2026-10-01"
+    },
+    {
+      "id": "jcs-op-186",
+      "kind": "explicit",
+      "text": "Review the seed corpus of jev_factory.domains.jev_cli.",
+      "expect": {
+        "operation": "jev.review",
+        "args": {
+          "domain": "jev_factory.domains.jev_cli"
+        }
+      },
+      "class": "imperative",
+      "source": "agent-draft-2026-10-02"
+    },
+    {
+      "id": "jcs-op-187",
+      "kind": "explicit",
+      "text": "Can I go through the toy domain's seed entries and approve or reject them? It's tests.fixtures.toy_domain.",
+      "expect": {
+        "operation": "jev.review",
+        "args": {
+          "domain": "tests.fixtures.toy_domain"
+        }
+      },
+      "class": "question",
+      "source": "agent-draft-2026-10-02"
+    },
+    {
+      "id": "jcs-op-188",
+      "kind": "explicit",
+      "text": "review lamps.json --serve",
+      "expect": {
+        "operation": "jev.review",
+        "args": {
+          "domain": "lamps.json"
+        }
+      },
+      "class": "terse",
+      "source": "agent-draft-2026-10-02"
+    },
+    {
+      "id": "jcs-op-189",
+      "kind": "explicit",
+      "text": "dry-run the seed review plan for jev_factory.domains.jev_cli, then --apply the approved edits",
+      "expect": {
+        "operation": "jev.review",
+        "args": {
+          "domain": "jev_factory.domains.jev_cli"
+        }
+      },
+      "class": "jargon",
+      "source": "agent-draft-2026-10-02"
+    },
+    {
+      "id": "jcs-op-190",
+      "kind": "explicit",
+      "text": "five drafted seed rows in jev_factory.domains.jev_cli are still waiting on my sign-off",
+      "expect": {
+        "operation": "jev.review",
+        "args": {
+          "domain": "jev_factory.domains.jev_cli"
+        }
+      },
+      "class": "symptom",
+      "source": "agent-draft-2026-10-02"
     }
   ]
 }

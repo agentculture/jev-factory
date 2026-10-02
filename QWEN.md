@@ -30,7 +30,7 @@ override it where they differ, are in
 The first and only acceptance target is a **jev-tool** model (a scorer whose
 candidates are the `jev` CLI's own verbs); nvsh `scorer-r3b` parity is not a
 gate. The factory code now exists (`jev init`, the `jev run` stages,
-`jev status`, `jev decide`, `jev ask`, domain modules), but the jev-tool model
+`jev status`, `jev decide`, `jev ask`, `jev review`, domain modules), but the jev-tool model
 is not yet trained, so do not describe a bundle as shipped.
 
 A **jev-like** model is a candidate scorer, not a generative tool caller:

@@ -291,4 +291,8 @@ PARAPHRASES: Mapping[str, tuple[str, ...]] = {
         "Have a jev-tool bundle propose one jev verb for a request, running nothing.",
         "Ask a trained bundle which jev command fits a request.",
     ),
+    "jev.review": (
+        "Open the local site where an operator approves, rejects or edits a domain's seed entries.",
+        "Review a domain's seed corpus and write the approved changes (a dry run unless applied).",
+    ),
 }

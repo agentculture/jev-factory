@@ -210,6 +210,38 @@ JSON line.
     jev-factory status <run> --watch --every 10m --json
 """
 
+_REVIEW = """\
+# jev-factory review <domain>
+
+Operator review of a domain's seed corpus. Every decision (approve, reject,
+edit, or propose a new entry) is appended to the review file,
+`<seed stem>.review.jsonl` beside the seed unless `--review-file` names
+another. The file is append-only, and an entry's latest record is its
+decision. The seed itself changes only with `--apply`.
+
+- Default (dry run): lists what the recorded decisions would change in the
+  seed (removals, edits, additions), with any conflicts (the seed entry changed
+  since the decision) and problems (the result fails the domain's checks).
+  Nothing is written.
+- `--serve`: starts the local review site on 127.0.0.1 (`--port`, default
+  18765). It shows the domain's verb tree in React Flow, each verb's seed
+  entries attached to it, with filters for status and source. The site needs
+  the per-run token it was served with and only appends to the review file.
+- `--apply`: writes the reviewed seed. It refuses if there is any conflict or
+  problem, and writes nothing in that case.
+
+Approving changes nothing in the seed; the review file is the record.
+Rejecting removes the entry. An edit replaces the entry. A proposal adds a
+new entry, whose source defaults to `operator-review-<date>`.
+
+## Usage
+
+    jev-factory review <domain>
+    jev-factory review <domain> --serve
+    jev-factory review <domain> --serve --port 0 --json
+    jev-factory review <domain> --apply
+"""
+
 _DECIDE = """\
 # jev-factory decide <run>
 
@@ -317,6 +349,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("status",): _STATUS,
     ("decide",): _DECIDE,
     ("ask",): _ASK,
+    ("review",): _REVIEW,
     ("domain",): _DOMAIN,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,

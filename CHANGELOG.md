@@ -18,8 +18,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the release gate. Each stage writes a manifest.
 - A declarative, validated **domain-module contract** (`jev_factory.domain`),
   a toy domain, and the **jev-CLI domain** generated from argparse with an
-  operator-approved answer policy and a 287-entry train-only seed.
-- CLI verbs **`jev init`, `jev run`, `jev status`, `jev decide`, `jev ask`**.
+  operator-approved answer policy and a train-only seed (287 entries approved
+  as drafted, plus 10 agent-drafted entries for `dataset-bundle` and `review`
+  awaiting the operator in `jev review`).
+- CLI verbs **`jev init`, `jev run`, `jev status`, `jev decide`, `jev ask`,
+  `jev review`**.
   Write stages are dry-run by default (`--apply` commits), and `ask` only
   prints a proposal.
 - Machine-readable pre-registration (bars = stricter of stock Qwen3.5-0.8B
@@ -45,6 +48,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   prints a timestamped update every interval (default 30 minutes) until nothing
   is running. `measure` and `probe` write progress files (`--progress-dir`, set
   by the pipeline to the run's `jobs/`).
+- `jev review <domain>` (deviation d16): operator review of a domain's seed
+  corpus. `--serve` starts a local site (127.0.0.1, per-run key, Host check)
+  where the domain's verb tree is drawn with React Flow and each verb's seed
+  entries hang off it. The operator approves, rejects or edits each entry, or
+  proposes a new one, and every decision is appended to
+  `<seed stem>.review.jsonl`. The default run is a dry run of the seed changes,
+  and `--apply` writes them; it refuses on a conflict or a validation problem.
+  It works for any domain with a seed. Five agent-drafted `jev.review` seed
+  entries (`jcs-op-186`…`190`) await the operator's review.
 - Spec, plan, gate-2 split, and the delivery summary
   (`docs/deliveries/2026-09-30-extract-jev-process-jev-cli-first-model.md`).
 

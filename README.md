@@ -7,8 +7,8 @@ It then fine-tunes its own jev-like model to make those decisions
 (self-hosting).
 
 > **Status: the factory exists; the first model is not yet trained.** The
-> domain-module contract, the 23 `jev run` stages, `jev status`, `jev decide`
-> and `jev ask` are built and tested. The first product, a **jev-tool**
+> domain-module contract, the 23 `jev run` stages, `jev status`, `jev decide`,
+> `jev ask` and `jev review` are built and tested. The first product, a **jev-tool**
 > scorer whose candidates are this CLI's own verbs, is not yet trained. The
 > build brief is
 > [issue #1](https://github.com/agentculture/jev-factory/issues/1).
@@ -70,7 +70,8 @@ These honesty rules are enforced in code, not exposed as knobs:
 - Publishing is private-first. Going public is always a human decision.
 
 The CLI is `jev init <domain>`, `jev run <stage>`, `jev status <run>`,
-`jev decide <run>` and `jev ask <request>`. Training dependencies stay out of
+`jev decide <run>`, `jev ask <request>` and `jev review <domain>` (a local
+site where an operator reviews a domain's seed entries). Training dependencies stay out of
 the base install, behind the `train` extra or an external venv.
 
 ## Who uses it

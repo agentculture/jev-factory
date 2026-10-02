@@ -7,9 +7,9 @@ import dataclasses
 
 import pytest
 
+import jev_factory.domains.jev_cli.annotations as ann
 from jev_factory.cli import _build_parser
 from jev_factory.domain.model import ArgSpec, Domain, GroundDecline, Grounded
-from jev_factory.domains.jev_cli import annotations as ann
 from jev_factory.domains.jev_cli.generate import (
     CliDomainError,
     cli_surface_sha256,
@@ -97,7 +97,7 @@ def test_annotated_argument_must_exist_and_required_positional_must_be_annotated
 def test_verbs_are_read_only_except_the_write_verbs_and_all_have_descriptions() -> None:
     domain = generate_domain()
     stages = [n for n in domain.names() if n.startswith("jev.run.")]
-    writes = {"jev.init", "jev.decide", *stages}
+    writes = {"jev.init", "jev.decide", "jev.review", *stages}
     assert stages and all(domain.is_mutating(n) for n in writes)
     assert all(domain.read_only(n) for n in domain.names() if n not in writes)
     assert all(domain.get(n).description.strip() for n in domain.names())

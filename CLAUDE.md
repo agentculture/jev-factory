@@ -48,7 +48,8 @@ it before designing anything). The intended flow is `/scope` → `/think` →
 The factory code is built and tested: the domain-module contract
 (`jev_factory/domain/model.py`, example `tests/fixtures/toy_domain`), the 23
 `jev run <stage>` stages with per-stage manifests, `jev status`, `jev decide`
-(pre-registered rule, append-only records), `jev ask`, the jev-CLI domain
+(pre-registered rule, append-only records), `jev ask`, `jev review` (the
+operator's seed-review site, deviation d16), the jev-CLI domain
 (`jev_factory/domains/jev_cli`) and the release gate. **No jev-tool model has
 been trained yet**: its bundle, calibration and gate do not exist, so never
 claim one as shipped. Check a verb with `uv run jev --help` and
