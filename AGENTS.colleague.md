@@ -33,24 +33,35 @@ update this section so the docs keep matching what's actually on disk.
 
 `jev-factory` turns [`nvsh`](https://github.com/agentculture/nvsh)'s
 Tool-Jev fine-tune process into a reusable factory for **jev-like** models.
+jev-factory absorbs that pipeline (it does not cite it) and nvsh becomes a
+consumer.
 A jev-like model is a calibrated candidate scorer that picks one of up to 52
 lettered actions, or `explain`/`escalate`. A read-only/mutating gate decides
 what happens next, and arguments are grounded outside the model. The factory
 adds explicit knobs and a recorded, rule-driven `jev decide` step after each
 run. It then builds its own jev-like decider to drive those decisions. The
-brief is issue #1 (`gh issue view 1`).
+brief is issue #1 (`gh issue view 1`); the operator's decisions, which
+override it where they differ, are in
+`docs/specs/2026-09-30-extract-jev-process-jev-cli-first-model.md`. The first and
+only acceptance target is a **jev-tool** model (candidates are the `jev`
+CLI's own verbs); nvsh `scorer-r3b` parity is not a gate.
 
-**Current state: scaffold only.** On disk there is the agent-first CLI
-(command `jev`, package `jev_factory`), the harness prompt files, the skill
-kit and CI. None of the factory is built. Treat `jev run`, `jev decide` and
-domain modules as planned.
+**Current state.** The factory code exists (command `jev`, package
+`jev_factory`): `jev init`, the 23 `jev run` stages, `jev status`,
+`jev decide`, `jev ask`, `jev review` and the domain-module contract in
+`jev_factory/domain/model.py`. The jev-tool model is not yet trained. Check a
+verb with `uv run jev --help` before calling it implemented.
 
 For a delegated task that touches the pipeline, the source to read is
 `../nvsh`:
 
 - `docs/scorer-finetune-playbook.md`;
 - `docs/tool-jev-calibration-rule.md`;
-- `scripts/lfm-finetune/`.
+- `scripts/lfm-finetune/` and `evals/`.
+
+Do not assume a script there is domain-generic: `gate.py`, `metrics.py`,
+`calibration_fit.py`, `sweep_gate.py`, `train_scorer.py`, `scan_bundle.py`
+and `leakage_check.py` are nvsh-coupled and must be rewired on import.
 
 Keep these invariants, whatever the task says:
 

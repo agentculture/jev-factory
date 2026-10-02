@@ -5,6 +5,97 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-10-01
+
+### Added
+
+- **The jev-like model factory** (issue #4, under #1): nvsh's scorer
+  (Tool-Jev) fine-tune pipeline is absorbed as the `jev run <stage>` stage
+  engine with 23 stages, from run config and pre-registration through
+  teachers, sealed held-out, augmentation, assemble and freeze, training with
+  merge verification, selection, quantize with a one-round heal,
+  recalibration, one final measurement, edge check, bundle, private upload
+  and the release gate. Each stage writes a manifest.
+- A declarative, validated **domain-module contract** (`jev_factory.domain`),
+  a toy domain, and the **jev-CLI domain** generated from argparse with an
+  operator-approved answer policy and a train-only seed (287 entries approved
+  as drafted, plus 10 agent-drafted entries for `dataset-bundle` and `review`
+  awaiting the operator in `jev review`).
+- CLI verbs **`jev init`, `jev run`, `jev status`, `jev decide`, `jev ask`,
+  `jev review`**.
+  Write stages are dry-run by default (`--apply` commits), and `ask` only
+  prints a proposal.
+- Machine-readable pre-registration (bars = stricter of stock Qwen3.5-0.8B
+  and minimums), append-only decision records, and the gated r3b failure
+  diagnostic.
+- Provenance headers on every imported module, with a generated
+  `docs/nvsh-import-provenance.md` (nvsh `9debdc6`, Apache-2.0).
+- A `dataset-bundle` stage (deviation d14): it publishes the validation and
+  test sides and the train set actually used, with each synthetic row's
+  teachers, plus `scorer-train.json`, the calibration and gate files and the
+  base LICENSE. The sealed held-out set is never published. `upload` ships it
+  privately beside the model bundle and needs the operator to name both repos.
+- `Domain.control_descriptions`: a domain can carry the exact explain/escalate
+  prompt text its model was trained on (part of the surface hash), so a model
+  trained elsewhere is measured on its own prompt.
+- `measure_gpu_layers` / `JEV_MEASURE_GPU_LAYERS`: `0` serves a GGUF on the CPU
+  only (`--device none`), and such a run needs no free GPU.
+- The release gate accepts `val`/`val-mc` case sets, and its report shows the
+  missing-candidate rows' escalation rate beside their share of rows.
+- The progress standard for long-running work (deviation d15): progress files
+  carry `started`/`updated`/`pid`, so `jev status` shows each job's rate and
+  ETA and the state of in-process jobs. `jev status <run> --watch [--every 30m]`
+  prints a timestamped update every interval (default 30 minutes) until nothing
+  is running. `measure` and `probe` write progress files (`--progress-dir`, set
+  by the pipeline to the run's `jobs/`).
+- `jev review <domain>` (deviation d16): operator review of a domain's seed
+  corpus. `--serve` starts a local site (127.0.0.1, per-run key, Host check)
+  where the domain's verb tree is drawn with React Flow and each verb's seed
+  entries hang off it. The operator approves, rejects or edits each entry, or
+  proposes a new one, and every decision is appended to
+  `<seed stem>.review.jsonl`. The default run is a dry run of the seed changes,
+  and `--apply` writes them; it refuses on a conflict or a validation problem.
+  It works for any domain with a seed. Five agent-drafted `jev.review` seed
+  entries (`jcs-op-186`…`190`) await the operator's review.
+- Spec, plan, gate-2 split, and the delivery summary
+  (`docs/deliveries/2026-09-30-extract-jev-process-jev-cli-first-model.md`).
+
+### Changed
+
+- The harness prompt files, README, and `jev learn`/`jev explain` describe
+  the factory, not a template.
+- CI lint now runs `portability-lint.sh`, and pytest disables the deepeval
+  plugin.
+
+### Fixed
+
+- nvsh#58's stop/start race in measurement serving, a teacher-cache
+  temp-file race, and the release gate's worktree guard (now uses
+  `git rev-parse`, nvsh#71).
+- SonarCloud reliability findings: float equality replaced by
+  `math.isclose` in `gen_config`, `train_scorer` and `calibration`, a NaN
+  check in the scorer, and regex grouping in the teacher and data helpers.
+  The 81 path-injection and seeded-PRNG findings were accepted with a
+  rationale (operator-supplied CLI paths; reproducible, non-security
+  randomness).
+- CI portability lint and harness-smoke waive machine paths quoted in
+  devague records and planning prose (`.devague/`, `docs/specs/`,
+  `docs/plans/`, `docs/deliveries/`), and the teacher test canary is built at
+  runtime so no credential-shaped literal is committed.
+- Release bundles: the model card now lists the teachers of the synthetic
+  rows actually trained on (it claimed none were used), the NOTICE states the
+  Q4_K_M quantization and any `config.json` MTP change, the card gives the
+  `--max-logprobs` value and the text-only GGUF note, and a dataset bundle's
+  LICENSE must be the Apache 2.0 text.
+- Dataset provenance: rows from jev's targeted stage (`tgt-` sources) are
+  published as teacher-drafted supplement rows naming their teachers, not as
+  hand-written corpus rows.
+- Pipeline: a changed training recipe retrains instead of reusing the old run;
+  naming the rule's winner no longer bypasses a non-ship verdict at
+  `quantize`; `measure-final` keeps the sealed numbers when the probe fails, so
+  a retry needs no second sealed measurement; `--apply` refuses a stage whose
+  upstream stage's last run failed.
+
 ## [0.9.1] - 2026-09-26
 
 ### Changed

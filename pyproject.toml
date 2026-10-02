@@ -1,6 +1,6 @@
 [project]
 name = "jev-factory"
-version = "0.9.1"
+version = "0.10.0"
 description = "Jev factory: turns nvsh's Tool-Jev fine-tune process into a reusable pipeline for building jev-like models, with knobs and per-run decision tools, then fine-tunes its own model to drive those decisions (self-hosting)."
 readme = "README.md"
 license = "Apache-2.0"
@@ -14,6 +14,26 @@ classifiers = [
     "Intended Audience :: Developers",
 ]
 dependencies = []
+
+[project.optional-dependencies]
+# torch is installed separately from the PyTorch cu130 index (see docs/training-env.md).
+# Pins mirror ../nvsh/scripts/lfm-finetune/requirements-train.txt.
+train = [
+    "torchvision==0.27.1",
+    "triton==3.7.1",
+    "transformers==5.5.0",
+    "tokenizers==0.22.2",
+    "huggingface-hub==1.32.0",
+    "safetensors==0.8.0",
+    "accelerate==1.15.0",
+    "peft==0.21.0",
+    "trl==0.24.0",
+    "datasets==4.3.0",
+    "bitsandbytes==0.50.2",
+    "numpy==2.5.3",
+    "unsloth==2026.9.9",
+    "unsloth-zoo==2026.9.7",
+]
 
 [project.urls]
 Homepage = "https://github.com/agentculture/jev-factory"
@@ -30,6 +50,9 @@ build-backend = "hatchling.build"
 packages = ["jev_factory"]
 
 [dependency-groups]
+evals = [
+    "deepeval==4.2.6",
+]
 dev = [
     "pytest>=8.0",
     "pytest-xdist>=3.0",
@@ -73,4 +96,12 @@ skips = ["B101", "B404", "B603"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra -p no:deepeval"
+markers = [
+    "behavioral(obligation_id): ties a test to one spec obligation id (for example o5)",
+]
+
+[tool.uv]
+# deepeval pins click<8.4 while huggingface-hub (train) needs click>=8.4.2:
+# the training env and the evals env are separate by design.
+conflicts = [[{ extra = "train" }, { group = "evals" }]]

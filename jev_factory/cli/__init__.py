@@ -2,8 +2,8 @@
 
 The agent-first global verbs (``whoami``, ``learn``, ``explain``, ``overview``,
 ``doctor``) are registered here under :mod:`jev_factory.cli._commands`,
-alongside the ``cli`` noun group. Future noun groups register via their own
-``register()`` functions following the same pattern.
+alongside the ``cli`` noun group and the factory verbs (``init``, ``run``,
+``status``, ``decide``), ``ask`` and ``review``. Every verb registers via its own ``register()``.
 
 Error propagation contract
 --------------------------
@@ -62,16 +62,25 @@ def _argv_has_json(argv: list[str] | None) -> bool:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    from jev_factory.cli._commands import ask as _ask_cmd
     from jev_factory.cli._commands import cli as _cli_group
+    from jev_factory.cli._commands import decide as _decide_cmd
     from jev_factory.cli._commands import doctor as _doctor_cmd
     from jev_factory.cli._commands import explain as _explain_cmd
+    from jev_factory.cli._commands import init as _init_cmd
     from jev_factory.cli._commands import learn as _learn_cmd
     from jev_factory.cli._commands import overview as _overview_cmd
+    from jev_factory.cli._commands import review as _review_cmd
+    from jev_factory.cli._commands import run as _run_cmd
+    from jev_factory.cli._commands import status as _status_cmd
     from jev_factory.cli._commands import whoami as _whoami_cmd
 
     parser = _CliArgumentParser(
         prog="jev-factory",
-        description="jev-factory — a clonable template for AgentCulture mesh agents.",
+        description=(
+            "jev-factory — a factory for jev-like calibrated candidate scorers: "
+            "build stages, recorded decisions, dry-run by default."
+        ),
     )
     parser.add_argument(
         "--version",
@@ -88,9 +97,12 @@ def _build_parser() -> argparse.ArgumentParser:
     _overview_cmd.register(sub)
     _doctor_cmd.register(sub)
     _cli_group.register(sub)
-    # Register your own noun groups here:
-    #   from jev_factory.cli._commands import my_noun as _my_noun_group
-    #   _my_noun_group.register(sub)
+    _init_cmd.register(sub)
+    _run_cmd.register(sub)
+    _status_cmd.register(sub)
+    _decide_cmd.register(sub)
+    _ask_cmd.register(sub)
+    _review_cmd.register(sub)
 
     return parser
 
