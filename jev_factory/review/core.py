@@ -270,7 +270,7 @@ def _checked_entry(
 ) -> dict[str, Any]:
     if not isinstance(after, Mapping):
         raise ReviewError("an edit or a proposal needs the entry as 'after'")
-    entry = dict(after)
+    entry: dict[str, Any] = {str(key): value for key, value in after.items()}
     entry.setdefault("id", entry_id)
     if entry["id"] != entry_id:
         raise ReviewError(f"the entry's id {entry['id']!r} is not {entry_id!r}")
