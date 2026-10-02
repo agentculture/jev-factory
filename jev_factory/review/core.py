@@ -261,7 +261,8 @@ def check_entry(entry: object, domain: Domain) -> list[str]:
             problems.append(f"{name} must be a string")
     if problems:
         return problems
-    return list(load_raw({"entries": [dict(entry)]}, domain).problems)
+    result = load_raw({"entries": [dict(entry)]}, domain)
+    return [str(problem) for problem in result.problems]
 
 
 def _checked_entry(
@@ -276,9 +277,9 @@ def _checked_entry(
     if propose and not entry.get("source"):
         entry["source"] = OPERATOR_SOURCE_PREFIX + (at or now_utc())[:10]
     problems = check_entry(entry, domain)
-    if problems:
-        raise ReviewError(f"{entry_id}: " + "; ".join(problems))
-    return entry
+    if not problems:
+        return entry
+    raise ReviewError(f"{entry_id}: " + "; ".join(problems))
 
 
 # -- the change plan ---------------------------------------------------------------

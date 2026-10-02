@@ -27,6 +27,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlunsplit
 
 from jev_factory.domain.model import Domain
 from jev_factory.review import core
@@ -51,6 +52,8 @@ class ReviewApp:
         self.seed = seed
         self.review_file = review_file
         self.token = secrets.token_hex(16)
+        #: The page, rendered once from the packaged file and this run's key.
+        self.page = page(self.token)
         self._lock = threading.Lock()
 
     def _raw_seed(self) -> dict[str, Any]:
@@ -111,7 +114,7 @@ class ReviewApp:
             records = core.read_records(self.review_file)
             record = core.make_record(raw, self.domain, payload, proposals=core.proposals(records))
             core.append_record(self.review_file, record)
-        return {"recorded": _public(record)}
+        return {"recorded": True, "action": record["action"]}
 
 
 def _status(record: Mapping[str, Any] | None) -> str:
@@ -174,7 +177,7 @@ def make_handler(app: ReviewApp) -> type[BaseHTTPRequestHandler]:
                 if not self._host_ok():
                     self._json(HTTPStatus.FORBIDDEN, {"error": "unexpected Host header"})
                     return
-                self._send(HTTPStatus.OK, page(app.token), "text/html; charset=utf-8")
+                self._send(HTTPStatus.OK, app.page, "text/html; charset=utf-8")
             elif self.path == "/api/state":
                 if self._authorised():
                     self._respond(app.state)
@@ -210,6 +213,11 @@ def make_handler(app: ReviewApp) -> type[BaseHTTPRequestHandler]:
                 self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 
     return Handler
+
+
+def local_url(port: int) -> str:
+    """The site's address. Plain HTTP is right here: the server only listens on loopback."""
+    return urlunsplit(("http", f"{HOST}:{port}", "/", "", ""))
 
 
 def make_server(app: ReviewApp, port: int) -> ThreadingHTTPServer:

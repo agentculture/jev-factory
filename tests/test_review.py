@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import dataclasses
 import http.client
+import io
 import json
 import re
 import shutil
+import sys
 import threading
 from pathlib import Path
 
@@ -356,7 +358,7 @@ def test_a_decision_through_the_api_is_appended_and_shows_in_the_state(site):
         {"action": "reject", "entry_id": "toy-02", "note": "dup"},
         token=app.token,
     )
-    assert status == 200 and json.loads(body)["recorded"]["action"] == "reject"
+    assert status == 200 and json.loads(body) == {"recorded": True, "action": "reject"}
     state = json.loads(_call(port, "GET", "/api/state", token=app.token)[2])
     rejected = [e for e in state["entries"] if e["status"] == "rejected"]
     assert [e["entry"]["id"] for e in rejected] == ["toy-02"]
@@ -389,3 +391,26 @@ def test_the_page_pins_every_cdn_asset_with_an_integrity_hash():
     for tag in tags:
         assert re.search(r'integrity="sha384-[A-Za-z0-9+/=]+"', tag), tag
         assert re.search(r"@\d+\.\d+\.\d+/", tag), tag  # an exact version, never a range
+
+
+def test_serve_flushes_the_url_before_it_blocks(cli_toy, monkeypatch):
+    class Out(io.StringIO):
+        flushed_with = None
+
+        def flush(self):
+            Out.flushed_with = self.getvalue()
+
+    class Httpd:
+        server_address = (server.HOST, 4321)
+
+        def serve_forever(self):
+            assert Out.flushed_with and "http://127.0.0.1:4321/" in Out.flushed_with
+            raise KeyboardInterrupt
+
+        def server_close(self):
+            pass
+
+    monkeypatch.setattr(server, "make_server", lambda app, port: Httpd())
+    monkeypatch.setattr(sys, "stdout", Out())
+    assert cli_main(["review", "toy", "--serve", "--json"]) == 0
+    assert json.loads(sys.stdout.getvalue())["url"] == "http://127.0.0.1:4321/"

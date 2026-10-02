@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -133,10 +134,11 @@ def _serve(domain: Domain, review_file: Path, port: int, json_mode: bool) -> int
         raise CliError(
             EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", "pass a free --port"
         ) from None
-    url = f"http://{server.HOST}:{httpd.server_address[1]}/"
+    url = server.local_url(httpd.server_address[1])
     emit_result(
         {"url": url, "review_file": str(review_file)} if json_mode else url, json_mode=json_mode
     )
+    sys.stdout.flush()  # the server blocks next; a piped caller must see the URL now
     emit_diagnostic(f"serving the {domain.name} seed review at {url} (Ctrl-C to stop)")
     emit_diagnostic(f"decisions are appended to {review_file}")
     try:
