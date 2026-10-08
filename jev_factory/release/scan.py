@@ -255,20 +255,27 @@ def private_hosts(text: str) -> list[tuple[int, str]]:
     """``(line, host)`` for each private address or private-suffix host name in *text*."""
     found: list[tuple[int, str]] = []
     for number, line in enumerate(text.splitlines(), start=1):
-        for match in _IPV4_RE.finditer(line):
-            try:
-                address = ipaddress.ip_address(match.group(1))
-            except ValueError:
-                continue
-            if address.is_loopback or address.is_unspecified:
-                continue
-            if any(address in net for net in _DOCUMENTATION):
-                continue
-            if address.is_private or address in _CGNAT:
-                found.append((number, match.group(1)))
-        for match in _PRIVATE_NAME_RE.finditer(line):
-            found.append((number, match.group(1)))
+        found.extend(
+            (number, match.group(1))
+            for match in _IPV4_RE.finditer(line)
+            if _is_private_address(match.group(1))
+        )
+        found.extend((number, match.group(1)) for match in _PRIVATE_NAME_RE.finditer(line))
     return found
+
+
+def _is_private_address(text: str) -> bool:
+    """Whether dotted-quad *text* is a private or CGNAT address (not loopback, unspecified
+    or an RFC 5737 documentation address); an invalid address is not one."""
+    try:
+        address = ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    if address.is_loopback or address.is_unspecified:
+        return False
+    if any(address in net for net in _DOCUMENTATION):
+        return False
+    return address.is_private or address in _CGNAT
 
 
 # ---------------------------------------------------------------------------
@@ -344,24 +351,35 @@ def _scan_fragment(rel: str, base_line: int, fragment: str) -> list[dict]:
 
 
 def _scan_json_strings(rel: str, suffix: str, text: str) -> list[dict]:
-    findings: list[dict] = []
     if suffix == ".json":
+        return _scan_json_document(rel, text)
+    if suffix == ".jsonl":
+        return _scan_json_lines(rel, text)
+    return []
+
+
+def _scan_json_document(rel: str, text: str) -> list[dict]:
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return []
+    findings: list[dict] = []
+    for fragment in _iter_json_strings(data):
+        findings.extend(_scan_fragment(rel, 1, fragment))
+    return findings
+
+
+def _scan_json_lines(rel: str, text: str) -> list[dict]:
+    findings: list[dict] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
         try:
-            data = json.loads(text)
+            record = json.loads(line)
         except ValueError:
-            return findings
-        for fragment in _iter_json_strings(data):
-            findings.extend(_scan_fragment(rel, 1, fragment))
-    elif suffix == ".jsonl":
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line)
-            except ValueError:
-                continue
-            for fragment in _iter_json_strings(record):
-                findings.extend(_scan_fragment(rel, lineno, fragment))
+            continue
+        for fragment in _iter_json_strings(record):
+            findings.extend(_scan_fragment(rel, lineno, fragment))
     return findings
 
 

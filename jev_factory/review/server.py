@@ -128,82 +128,89 @@ def page(token: str) -> bytes:
     return PAGE.read_text(encoding="utf-8").replace(_KEY_SLOT, token).encode("utf-8")
 
 
-def make_handler(app: ReviewApp) -> type[BaseHTTPRequestHandler]:
-    class Handler(BaseHTTPRequestHandler):
-        server_version = "jev-review"
+class _ReviewHandler(BaseHTTPRequestHandler):
+    """The review site's request handler; :func:`make_handler` binds it to one app."""
 
-        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 (stdlib name)
-            """Quiet: the review site logs nothing per request."""
+    server_version = "jev-review"
+    review_app: ReviewApp
 
-        def _host_ok(self) -> bool:
-            port = self.server.server_address[1]
-            return self.headers.get("Host", "") in (f"{HOST}:{port}", f"localhost:{port}")
+    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 (stdlib name)
+        """Quiet: the review site logs nothing per request."""
 
-        def _send(self, status: int, body: bytes, content_type: str) -> None:
-            self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Referrer-Policy", "no-referrer")
-            if content_type.startswith("text/html"):
-                self.send_header("Content-Security-Policy", _CSP)
-            self.end_headers()
-            self.wfile.write(body)
+    def _host_ok(self) -> bool:
+        port = self.server.server_address[1]
+        return self.headers.get("Host", "") in (f"{HOST}:{port}", f"localhost:{port}")
 
-        def _json(self, status: int, data: Any) -> None:
-            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-            self._send(status, body, "application/json; charset=utf-8")
+    def _send(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        if content_type.startswith("text/html"):
+            self.send_header("Content-Security-Policy", _CSP)
+        self.end_headers()
+        self.wfile.write(body)
 
-        def _authorised(self) -> bool:
+    def _json(self, status: int, data: Any) -> None:
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self._send(status, body, "application/json; charset=utf-8")
+
+    def _authorised(self) -> bool:
+        if not self._host_ok():
+            self._json(HTTPStatus.FORBIDDEN, {"error": "unexpected Host header"})
+            return False
+        given = self.headers.get(AUTH_HEADER, "")
+        if not hmac.compare_digest(given.encode(), self.review_app.token.encode()):
+            self._json(HTTPStatus.FORBIDDEN, {"error": "missing or wrong review token"})
+            return False
+        return True
+
+    def do_GET(self) -> None:  # noqa: N802 (stdlib name)
+        if self.path in ("/", "/index.html"):
             if not self._host_ok():
                 self._json(HTTPStatus.FORBIDDEN, {"error": "unexpected Host header"})
-                return False
-            given = self.headers.get(AUTH_HEADER, "")
-            if not hmac.compare_digest(given.encode(), app.token.encode()):
-                self._json(HTTPStatus.FORBIDDEN, {"error": "missing or wrong review token"})
-                return False
-            return True
+                return
+            self._send(HTTPStatus.OK, self.review_app.page, "text/html; charset=utf-8")
+        elif self.path == "/api/state":
+            if self._authorised():
+                self._respond(self.review_app.state)
+        else:
+            self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
-        def do_GET(self) -> None:  # noqa: N802 (stdlib name)
-            if self.path in ("/", "/index.html"):
-                if not self._host_ok():
-                    self._json(HTTPStatus.FORBIDDEN, {"error": "unexpected Host header"})
-                    return
-                self._send(HTTPStatus.OK, app.page, "text/html; charset=utf-8")
-            elif self.path == "/api/state":
-                if self._authorised():
-                    self._respond(app.state)
-            else:
-                self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+    def do_POST(self) -> None:  # noqa: N802 (stdlib name)
+        routes = {"/api/decision": self.review_app.decide, "/api/check": self.review_app.check}
+        handler = routes.get(self.path)
+        if handler is None:
+            self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+            return
+        if not self._authorised():
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > MAX_BODY:
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "a JSON body up to 1 MiB is needed"})
+            return
+        try:
+            payload = json.loads(self.rfile.read(length))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "the body is not JSON"})
+            return
+        if not isinstance(payload, dict):
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "the body must be a JSON object"})
+            return
+        self._respond(lambda: handler(payload))
 
-        def do_POST(self) -> None:  # noqa: N802 (stdlib name)
-            routes = {"/api/decision": app.decide, "/api/check": app.check}
-            handler = routes.get(self.path)
-            if handler is None:
-                self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
-                return
-            if not self._authorised():
-                return
-            length = int(self.headers.get("Content-Length") or 0)
-            if length <= 0 or length > MAX_BODY:
-                self._json(HTTPStatus.BAD_REQUEST, {"error": "a JSON body up to 1 MiB is needed"})
-                return
-            try:
-                payload = json.loads(self.rfile.read(length))
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                self._json(HTTPStatus.BAD_REQUEST, {"error": "the body is not JSON"})
-                return
-            if not isinstance(payload, dict):
-                self._json(HTTPStatus.BAD_REQUEST, {"error": "the body must be a JSON object"})
-                return
-            self._respond(lambda: handler(payload))
+    def _respond(self, call: Any) -> None:
+        try:
+            self._json(HTTPStatus.OK, call())
+        except (core.ReviewError, ValueError) as exc:
+            self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 
-        def _respond(self, call: Any) -> None:
-            try:
-                self._json(HTTPStatus.OK, call())
-            except (core.ReviewError, ValueError) as exc:
-                self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+
+def make_handler(app: ReviewApp) -> type[BaseHTTPRequestHandler]:
+    class Handler(_ReviewHandler):
+        review_app = app
 
     return Handler
 

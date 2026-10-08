@@ -31,7 +31,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from jev_factory.domain.model import DECLINE_PREFIX, ESCALATE, ESCALATE_PREFIX, EXPLAIN, Domain
+from jev_factory.domain.model import (
+    DECLINE_PREFIX,
+    ESCALATE,
+    ESCALATE_PREFIX,
+    EXPLAIN,
+    Domain,
+    Operation,
+)
 from jev_factory.measure.corpus import load_raw
 
 REVIEW_SUFFIX = ".review.jsonl"
@@ -70,29 +77,7 @@ def verb_tree(domain: Domain) -> list[dict[str, Any]]:
     }
     names = set(domain.names())
     for op in domain.operations:
-        parts = op.name.split(".")
-        parent = root
-        for depth in range(1, len(parts)):
-            prefix = ".".join(parts[:depth])
-            if prefix not in nodes:
-                if prefix in names:
-                    found = domain.get(prefix)
-                    nodes[prefix] = _node(
-                        prefix,
-                        parts[depth - 1],
-                        parent,
-                        "operation",
-                        bool(found.read_only) if found else None,
-                        found.description if found else "",
-                    )
-                else:
-                    nodes[prefix] = _node(prefix, parts[depth - 1], parent, "group", None, "")
-            parent = prefix
-        if op.name in nodes:  # already added as the prefix of an earlier operation
-            continue
-        nodes[op.name] = _node(
-            op.name, parts[-1], parent, "operation", bool(op.read_only), op.description
-        )
+        _add_operation(nodes, op, root, names, domain)
     nodes[EXPLAIN] = _node(
         EXPLAIN, EXPLAIN, root, "control", True, domain.control_description(EXPLAIN) or ""
     )
@@ -103,6 +88,45 @@ def verb_tree(domain: Domain) -> list[dict[str, Any]]:
         label = reason.escalate_label
         nodes[label] = _node(label, reason.name, ESCALATE, "reason", True, reason.description)
     return list(nodes.values())
+
+
+def _add_operation(
+    nodes: dict[str, dict[str, Any]],
+    op: Operation,
+    root: str,
+    names: set[str],
+    domain: Domain,
+) -> None:
+    """Add *op* to *nodes* under its dotted prefixes, adding each prefix not yet there."""
+    parts = op.name.split(".")
+    parent = root
+    for depth in range(1, len(parts)):
+        prefix = ".".join(parts[:depth])
+        if prefix not in nodes:
+            nodes[prefix] = _prefix_node(prefix, parts[depth - 1], parent, names, domain)
+        parent = prefix
+    if op.name in nodes:  # already added as the prefix of an earlier operation
+        return
+    nodes[op.name] = _node(
+        op.name, parts[-1], parent, "operation", bool(op.read_only), op.description
+    )
+
+
+def _prefix_node(
+    prefix: str, label: str, parent: str, names: set[str], domain: Domain
+) -> dict[str, Any]:
+    """The node of a dotted prefix: an operation when the domain has one by that name."""
+    if prefix not in names:
+        return _node(prefix, label, parent, "group", None, "")
+    found = domain.get(prefix)
+    return _node(
+        prefix,
+        label,
+        parent,
+        "operation",
+        bool(found.read_only) if found else None,
+        found.description if found else "",
+    )
 
 
 def _node(
@@ -206,15 +230,7 @@ def make_record(
     proposed in the review file: a proposal is revised by proposing it again
     and withdrawn by rejecting it. A bad decision raises :class:`ReviewError`.
     """
-    action = decision.get("action")
-    entry_id = decision.get("entry_id")
-    if action not in ACTIONS:
-        raise ReviewError(f"action must be one of {', '.join(ACTIONS)}")
-    if not isinstance(entry_id, str) or not entry_id.strip():
-        raise ReviewError("a decision needs an entry_id")
-    note = decision.get("note", "")
-    if not isinstance(note, str):
-        raise ReviewError("note must be a string")
+    action, entry_id, note = _decision_fields(decision)
     current = _by_id(raw_seed).get(entry_id)
     proposed = (proposals or {}).get(entry_id)
     after: dict[str, Any] | None = None
@@ -223,13 +239,7 @@ def make_record(
             raise ReviewError(f"{entry_id} is already in the seed; edit it instead")
         after = _checked_entry(decision.get("after"), entry_id, domain, propose=True, at=at)
     elif current is None:
-        if proposed is None:
-            raise ReviewError(f"{entry_id} is not in the seed")
-        if action != "reject":
-            raise ReviewError(
-                f"{entry_id} is a proposal, not a seed entry; propose it again to revise it, "
-                "or reject it to withdraw it"
-            )
+        _check_proposal_decision(action, entry_id, proposed)
     elif action == "edit":
         after = _checked_entry(decision.get("after"), entry_id, domain, propose=False, at=at)
         if after == current:
@@ -243,6 +253,33 @@ def make_record(
         "note": note.strip(),
         "seed_sha256": seed_sha256(raw_seed),
     }
+
+
+def _decision_fields(decision: Mapping[str, Any]) -> tuple[str, str, str]:
+    """``(action, entry_id, note)`` of a decision, each checked."""
+    action = decision.get("action")
+    entry_id = decision.get("entry_id")
+    if action not in ACTIONS:
+        raise ReviewError(f"action must be one of {', '.join(ACTIONS)}")
+    if not isinstance(entry_id, str) or not entry_id.strip():
+        raise ReviewError("a decision needs an entry_id")
+    note = decision.get("note", "")
+    if not isinstance(note, str):
+        raise ReviewError("note must be a string")
+    return action, entry_id, note
+
+
+def _check_proposal_decision(
+    action: str, entry_id: str, proposed: Mapping[str, Any] | None
+) -> None:
+    """A decision on an id not in the seed: only rejecting (withdrawing) a proposal is."""
+    if proposed is None:
+        raise ReviewError(f"{entry_id} is not in the seed")
+    if action != "reject":
+        raise ReviewError(
+            f"{entry_id} is a proposal, not a seed entry; propose it again to revise it, "
+            "or reject it to withdraw it"
+        )
 
 
 def check_entry(entry: object, domain: Domain) -> list[str]:
@@ -333,34 +370,71 @@ def _plan_one(
     position = index.get(entry_id)
     current = entries[position] if position is not None else None
     if action == "approve":
-        if current is None:
-            plan.conflicts.append(f"{entry_id}: approved, but it is no longer in the seed")
-        elif before is not None and current != before:
-            plan.conflicts.append(f"{entry_id}: approved, but the seed entry changed since")
-        return
-    if action == "reject":
-        if current is None:
-            return  # already removed (or a withdrawn proposal)
-        if before is not None and current != before:
-            plan.conflicts.append(f"{entry_id}: rejected, but the seed entry changed since")
-            return
-        removed.add(position)  # type: ignore[arg-type]
-        plan.changes.append({"action": "remove", "entry_id": entry_id, "before": current})
-        return
-    if current == after:
+        _plan_approve(entry_id, before, current, plan)
+    elif action == "reject":
+        _plan_reject(entry_id, before, current, position, removed, plan)
+    elif current == after:
         return  # already applied
-    if action == "edit":
-        if current is None:
-            plan.conflicts.append(f"{entry_id}: edited, but it is no longer in the seed")
-        elif current != before:
-            plan.conflicts.append(f"{entry_id}: edited, but the seed entry changed since")
-        else:
-            entries[position] = dict(after)  # type: ignore[index, arg-type]
-            plan.changes.append(
-                {"action": "edit", "entry_id": entry_id, "before": current, "after": after}
-            )
+    elif action == "edit":
+        _plan_edit(entry_id, before, after, current, position, entries, plan)
+    else:
+        _plan_propose(entry_id, after, current, added, plan)
+
+
+def _plan_approve(
+    entry_id: str, before: Any, current: dict[str, Any] | None, plan: ChangePlan
+) -> None:
+    if current is None:
+        plan.conflicts.append(f"{entry_id}: approved, but it is no longer in the seed")
+    elif before is not None and current != before:
+        plan.conflicts.append(f"{entry_id}: approved, but the seed entry changed since")
+
+
+def _plan_reject(
+    entry_id: str,
+    before: Any,
+    current: dict[str, Any] | None,
+    position: int | None,
+    removed: set[int],
+    plan: ChangePlan,
+) -> None:
+    if current is None:
+        return  # already removed (or a withdrawn proposal)
+    if before is not None and current != before:
+        plan.conflicts.append(f"{entry_id}: rejected, but the seed entry changed since")
         return
-    if current is not None:  # propose
+    removed.add(position)  # type: ignore[arg-type]
+    plan.changes.append({"action": "remove", "entry_id": entry_id, "before": current})
+
+
+def _plan_edit(
+    entry_id: str,
+    before: Any,
+    after: Any,
+    current: dict[str, Any] | None,
+    position: int | None,
+    entries: list[dict[str, Any]],
+    plan: ChangePlan,
+) -> None:
+    if current is None:
+        plan.conflicts.append(f"{entry_id}: edited, but it is no longer in the seed")
+    elif current != before:
+        plan.conflicts.append(f"{entry_id}: edited, but the seed entry changed since")
+    else:
+        entries[position] = dict(after)  # type: ignore[index, arg-type]
+        plan.changes.append(
+            {"action": "edit", "entry_id": entry_id, "before": current, "after": after}
+        )
+
+
+def _plan_propose(
+    entry_id: str,
+    after: Any,
+    current: dict[str, Any] | None,
+    added: list[dict[str, Any]],
+    plan: ChangePlan,
+) -> None:
+    if current is not None:
         plan.conflicts.append(f"{entry_id}: proposed, but the id is already taken in the seed")
         return
     added.append(dict(after))  # type: ignore[arg-type]

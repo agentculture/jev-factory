@@ -112,31 +112,47 @@ def _resolve_roles(
     ``model_name``/``model`` and ``licence``; reviewer A only when it was asked)."""
     models = row.get("models")
     if models:
-        resolved = {}
-        for role, _ in ROLES:
-            if role not in models:
-                raise ValueError(f"variation {entry_id}'s accepted record names no {role} teacher")
-            resolved[role] = _teacher(role_models, models[role])
-        return resolved
+        return _roles_from_models(entry_id, models, role_models)
     teachers = row.get("teachers")
     if not isinstance(teachers, dict) or not teachers:
         raise ValueError(f"variation {entry_id} has no accepted record naming its models")
+    return _roles_from_teachers(entry_id, teachers)
+
+
+def _roles_from_models(
+    entry_id: str, models: dict[str, str], role_models: dict[str, tuple[str, str]]
+) -> dict[str, tuple[str, str]]:
+    resolved = {}
+    for role, _ in ROLES:
+        if role not in models:
+            raise ValueError(f"variation {entry_id}'s accepted record names no {role} teacher")
+        resolved[role] = _teacher(role_models, models[role])
+    return resolved
+
+
+def _roles_from_teachers(entry_id: str, teachers: dict[str, Any]) -> dict[str, tuple[str, str]]:
     resolved = {}
     for name, roles in TEACHER_RECORD_ROLES.items():
         info = teachers.get(name)
-        if info is None:
-            if name == "reviewer_a":
-                continue
-            raise ValueError(f"variation {entry_id}'s accepted record names no {name} teacher")
-        if not isinstance(info, dict):
-            raise ValueError(f"variation {entry_id}: teacher {name!r} is not a record")
-        model = info.get("model_name") or info.get("model")
-        licence = info.get("licence")
-        if not model or not licence:
-            raise ValueError(f"variation {entry_id}: teacher {name!r} needs a model and a licence")
+        if info is None and name == "reviewer_a":
+            continue
+        model_and_licence = _teacher_record(entry_id, name, info)
         for role in roles:
-            resolved[role] = (str(model), str(licence))
+            resolved[role] = model_and_licence
     return resolved
+
+
+def _teacher_record(entry_id: str, name: str, info: object) -> tuple[str, str]:
+    """``(model, licence)`` from one jev-factory teacher record."""
+    if info is None:
+        raise ValueError(f"variation {entry_id}'s accepted record names no {name} teacher")
+    if not isinstance(info, dict):
+        raise ValueError(f"variation {entry_id}: teacher {name!r} is not a record")
+    model = info.get("model_name") or info.get("model")
+    licence = info.get("licence")
+    if not model or not licence:
+        raise ValueError(f"variation {entry_id}: teacher {name!r} needs a model and a licence")
+    return str(model), str(licence)
 
 
 def teacher_summary(
@@ -311,17 +327,18 @@ def _with_source(entry: dict[str, Any], default_source: str | None) -> dict[str,
     return {**entry, "source": default_source}
 
 
+def _answer_kind(expect: dict[str, Any]) -> str:
+    if expect.get("explain"):
+        return "explain"
+    if expect.get("escalate"):
+        return "escalate"
+    return "propose"
+
+
 def _answer_counts(records: list[dict[str, Any]]) -> dict[str, int]:
     kinds: collections.Counter[str] = collections.Counter()
     for record in records:
-        expect = record["expect"]
-        kinds[
-            (
-                "explain"
-                if expect.get("explain")
-                else "escalate" if expect.get("escalate") else "propose"
-            )
-        ] += 1
+        kinds[_answer_kind(record["expect"])] += 1
     return dict(kinds)
 
 
@@ -354,34 +371,18 @@ def build(
     naming its teachers (the ``teachers``/``decided_by`` shape), so those rows carry
     their teachers too; they are not counted as reviewed variations.
     """
-    files = {
-        "corpus": domain.seed_corpus.name if domain.seed_corpus else "seed corpus",
-        "supplement": "train-supplement",
-        "draft": "drafted requests",
-        **(source_files or {}),
-    }
+    files = _source_files(domain, source_files)
     train = [_with_source(e, default_source) for e in load_entries(train_augmented)]
     sides = {
         side: [_with_source(e, default_source) for e in load_entries(splits / name)]
         for side, name in (("validation", "val.json"), ("test", "test.json"))
     }
     accepted_rows = {row["id"]: row for row in load_jsonl(accepted)}
-    rejected_files = [rejected] if isinstance(rejected, Path) else list(rejected)
-    rejected_count = sum(len(load_jsonl(path)) for path in rejected_files)
+    rejected_count = _rejected_count(rejected)
     if not licence.read_text(encoding="utf-8").strip():
         raise ValueError(f"{licence} is empty")
+    _check_held_apart(train, sides)
 
-    held_apart = {_normal(e["text"]) for entries in sides.values() for e in entries}
-    leaked = sum(1 for entry in train if _normal(entry["text"]) in held_apart)
-    if leaked:
-        raise ValueError(
-            f"{leaked} train record(s) repeat a validation or test entry; re-run"
-            " the merge with the held-apart sides excluded before building the dataset"
-        )
-
-    manifest: list[dict[str, Any]] = []
-    rows: dict[str, list[dict[str, Any]]] = {"train": [], "validation": [], "test": []}
-    origins: collections.Counter[str] = collections.Counter()
     drafted = supplement_teachers or {}
     summary = teacher_summary(
         train,
@@ -390,69 +391,13 @@ def build(
         apache_only=apache_only,
         is_variation=lambda entry_id: "~v" in entry_id or entry_id in drafted,
     )
-    for entry in train:
-        if entry.get("side", "train") != "train":
-            raise ValueError(f"{entry['id']} in {train_augmented} is not a train-side entry")
-        origin = _origin(entry)
-        manifest.append(
-            {
-                "id": entry["id"],
-                "split": "train",
-                "origin": origin,
-                "source": entry["source"],
-                "source_id": entry.get("source_id", entry["id"]),
-                "source_file": files.get(origin, files["corpus"]),
-                "licence": APACHE_LICENCE,
-                "transformed": origin == "variation",
-                "teachers": summary.per_variation.get(entry["id"], {}),
-            }
-        )
-        origins[origin] += 1
-        rows["train"].append(_record(entry, "train"))
-    for split, entries in sides.items():
-        for entry in entries:
-            if "~v" in entry["id"]:
-                raise ValueError(f"{entry['id']}: variations never leave the train side")
-            origin = _origin(entry)
-            manifest.append(
-                {
-                    "id": entry["id"],
-                    "split": split,
-                    "origin": origin,
-                    "source": entry["source"],
-                    "source_id": entry.get("source_id", entry["id"]),
-                    "source_file": files.get(origin, files["corpus"]),
-                    "licence": APACHE_LICENCE,
-                    "transformed": False,
-                    "teachers": {},
-                }
-            )
-            rows[split].append(_record(entry, split))
+    manifest, rows, origins = _split_rows(train, sides, train_augmented, files, summary)
 
-    ids = [row["id"] for row in manifest]
-    if len(ids) != len(set(ids)):
-        raise ValueError("duplicate record ids across the splits")
-
-    if out.exists():
-        if any(out.iterdir()):
-            raise ValueError(f"{out} is not empty")
-        out.rmdir()
-    (out / "data").mkdir(parents=True)
-    for split, records in rows.items():
-        with open(out / "data" / f"{split}.jsonl", "w", encoding="utf-8") as handle:
-            for record in records:
-                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+    _prepare_out(out)
+    _write_records(out, rows, manifest)
     shutil.copyfile(licence, out / "LICENSE")
-    scorer_doc = json.loads(scorer_train.read_text(encoding="utf-8"))
-    for entry in scorer_doc.get("entries", []):
-        if isinstance(entry.get("text"), str):
-            entry["text"] = publishable_text(entry["text"])
-    (out / SCORER_TRAIN_FILE).write_text(
-        json.dumps(scorer_doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    _write_scorer_train(scorer_train, out)
 
-    all_entries = [*train, *(e for entries in sides.values() for e in entries)]
     counts = {
         "train": len(rows["train"]),
         "validation": len(rows["validation"]),
@@ -461,9 +406,7 @@ def build(
         "supplement": origins["supplement"],
         "variation": origins["variation"],
         "draft": origins["draft"],
-        "redacted_hosts": sum(
-            1 for e in all_entries if publishable_text(e.get("text", "")) != e.get("text", "")
-        ),
+        "redacted_hosts": _redacted_count(train, sides),
         "accepted": len(accepted_rows),
         "rejected": rejected_count,
         "answers": _answer_counts(rows["train"]),
@@ -481,6 +424,119 @@ def build(
         encoding="utf-8",
     )
     return counts
+
+
+def _rejected_count(rejected: Path | list[Path]) -> int:
+    rejected_files = [rejected] if isinstance(rejected, Path) else list(rejected)
+    return sum(len(load_jsonl(path)) for path in rejected_files)
+
+
+def _redacted_count(train: list[dict[str, Any]], sides: dict[str, list[dict[str, Any]]]) -> int:
+    """How many published records name a private address (and so are redacted)."""
+    all_entries = [*train, *(e for entries in sides.values() for e in entries)]
+    return sum(1 for e in all_entries if publishable_text(e.get("text", "")) != e.get("text", ""))
+
+
+def _source_files(domain: Domain, source_files: dict[str, str] | None) -> dict[str, str]:
+    """The file recorded as the source of each origin."""
+    return {
+        "corpus": domain.seed_corpus.name if domain.seed_corpus else "seed corpus",
+        "supplement": "train-supplement",
+        "draft": "drafted requests",
+        **(source_files or {}),
+    }
+
+
+def _check_held_apart(train: list[dict[str, Any]], sides: dict[str, list[dict[str, Any]]]) -> None:
+    """Refuse a train record that repeats a validation or test entry."""
+    held_apart = {_normal(e["text"]) for entries in sides.values() for e in entries}
+    leaked = sum(1 for entry in train if _normal(entry["text"]) in held_apart)
+    if leaked:
+        raise ValueError(
+            f"{leaked} train record(s) repeat a validation or test entry; re-run"
+            " the merge with the held-apart sides excluded before building the dataset"
+        )
+
+
+def _split_rows(
+    train: list[dict[str, Any]],
+    sides: dict[str, list[dict[str, Any]]],
+    train_augmented: Path,
+    files: dict[str, str],
+    summary: TeacherSummary,
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]], collections.Counter[str]]:
+    """The manifest, the published records per split and the train side's origin counts."""
+    manifest: list[dict[str, Any]] = []
+    rows: dict[str, list[dict[str, Any]]] = {"train": [], "validation": [], "test": []}
+    origins: collections.Counter[str] = collections.Counter()
+    for entry in train:
+        if entry.get("side", "train") != "train":
+            raise ValueError(f"{entry['id']} in {train_augmented} is not a train-side entry")
+        origin = _origin(entry)
+        teachers = summary.per_variation.get(entry["id"], {})
+        manifest.append(_manifest_row(entry, "train", origin, files, teachers))
+        origins[origin] += 1
+        rows["train"].append(_record(entry, "train"))
+    for split, entries in sides.items():
+        for entry in entries:
+            if "~v" in entry["id"]:
+                raise ValueError(f"{entry['id']}: variations never leave the train side")
+            manifest.append(_manifest_row(entry, split, _origin(entry), files, {}))
+            rows[split].append(_record(entry, split))
+    ids = [row["id"] for row in manifest]
+    if len(ids) != len(set(ids)):
+        raise ValueError("duplicate record ids across the splits")
+    return manifest, rows, origins
+
+
+def _manifest_row(
+    entry: dict[str, Any],
+    split: str,
+    origin: str,
+    files: dict[str, str],
+    teachers: dict[str, str],
+) -> dict[str, Any]:
+    return {
+        "id": entry["id"],
+        "split": split,
+        "origin": origin,
+        "source": entry["source"],
+        "source_id": entry.get("source_id", entry["id"]),
+        "source_file": files.get(origin, files["corpus"]),
+        "licence": APACHE_LICENCE,
+        "transformed": split == "train" and origin == "variation",
+        "teachers": teachers,
+    }
+
+
+def _prepare_out(out: Path) -> None:
+    """Remove an empty *out* folder; refuse one that holds anything."""
+    if out.exists():
+        if any(out.iterdir()):
+            raise ValueError(f"{out} is not empty")
+        out.rmdir()
+
+
+def _write_records(
+    out: Path, rows: dict[str, list[dict[str, Any]]], manifest: list[dict[str, Any]]
+) -> None:
+    (out / "data").mkdir(parents=True)
+    for split, records in rows.items():
+        with open(out / "data" / f"{split}.jsonl", "w", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+
+
+def _write_scorer_train(scorer_train: Path, out: Path) -> None:
+    """Ship the scorer's training file with the same address redaction as every record."""
+    scorer_doc = json.loads(scorer_train.read_text(encoding="utf-8"))
+    for entry in scorer_doc.get("entries", []):
+        if isinstance(entry.get("text"), str):
+            entry["text"] = publishable_text(entry["text"])
+    (out / SCORER_TRAIN_FILE).write_text(
+        json.dumps(scorer_doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
 
 def card(

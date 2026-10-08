@@ -192,25 +192,39 @@ def bundle_problems(folder: Path) -> list[str]:
     problems = [
         f"symlink {link}: a bundle never holds a link" for link in check_no_symlinks(folder)
     ]
-    for name in (*REQUIRED_FILES, BUNDLE_FILE):
-        if not (folder / name).is_file():
-            problems.append(f"missing {name}")
-    if (folder / BUNDLE_FILE).is_file():
-        try:
-            info = json.loads((folder / BUNDLE_FILE).read_text(encoding="utf-8"))
-        except ValueError:
-            info = None
-        if not isinstance(info, dict) or not info.get("surface_sha256"):
-            problems.append(f"{BUNDLE_FILE} records no surface_sha256")
+    problems.extend(
+        f"missing {name}"
+        for name in (*REQUIRED_FILES, BUNDLE_FILE)
+        if not (folder / name).is_file()
+    )
+    if (folder / BUNDLE_FILE).is_file() and not _records_surface(folder / BUNDLE_FILE):
+        problems.append(f"{BUNDLE_FILE} records no surface_sha256")
+    problems.extend(_gguf_problems(folder))
+    return problems
+
+
+def _records_surface(info_file: Path) -> bool:
+    """Whether *info_file* (a ``bundle.json``) is an object naming a surface hash."""
+    try:
+        info = json.loads(info_file.read_text(encoding="utf-8"))
+    except ValueError:
+        return False
+    return isinstance(info, dict) and bool(info.get("surface_sha256"))
+
+
+def _gguf_problems(folder: Path) -> list[str]:
+    """An absolute-path or unreadable-metadata problem per GGUF file in *folder*."""
+    problems: list[str] = []
     for gguf in sorted(folder.rglob("*.gguf")):
         rel = gguf.relative_to(folder).as_posix()
         if gguf.is_symlink():
-            continue  # already refused above; never follow it
+            continue  # already refused by bundle_problems; never follow it
         try:
-            for key in gguf_absolute_paths(gguf):
-                problems.append(f"{rel}: GGUF metadata {key} holds an absolute path")
+            keys = gguf_absolute_paths(gguf)
         except BundleError as exc:
             problems.append(str(exc))
+            continue
+        problems.extend(f"{rel}: GGUF metadata {key} holds an absolute path" for key in keys)
     return problems
 
 
@@ -585,6 +599,92 @@ def _require_sources(**sources: Path | None) -> None:
             raise BundleError(f"a bundle must carry {name}.json: pass an existing {name} file")
 
 
+def _check_kind_inputs(kind: str, gguf: Path | None, awq_dir: Path | None) -> None:
+    """Refuse an unknown kind, or a kind whose payload (GGUF file, AWQ folder) is missing."""
+    if kind not in KINDS:
+        raise BundleError(f"unknown bundle kind {kind!r} (one of {', '.join(KINDS)})")
+    if kind == "gguf" and (gguf is None or not gguf.is_file()):
+        raise BundleError("kind gguf needs gguf, an existing .gguf file")
+    if kind == "awq" and (awq_dir is None or not awq_dir.is_dir()):
+        raise BundleError("kind awq needs awq_dir, an existing export folder")
+
+
+def _report_list(results: Path | Sequence[Path], data_summary: str) -> list[Path]:
+    """The results reports as a list; refuse none, or an empty *data_summary*."""
+    reports = [results] if isinstance(results, Path) else list(results)
+    if not reports:
+        raise BundleError("pass at least one results report")
+    if not data_summary.strip():
+        raise BundleError("data_summary must describe the training data")
+    return reports
+
+
+def _check_teacher_licences(teachers: _dataset.TeacherSummary | None, licence: str) -> None:
+    """An Apache bundle names only Apache-2.0 teachers."""
+    if teachers is None or licence != APACHE_LICENCE:
+        return
+    for name, lic, _ in _dataset.teacher_rows(teachers):
+        if lic != APACHE_LICENCE:
+            raise BundleError(
+                f"teacher {name!r} ({lic}) is not {APACHE_LICENCE}; an Apache bundle"
+                " names only Apache-2.0 teachers"
+            )
+
+
+def _check_chat_templates(
+    base_snapshot: Path, merged: Path, kind: str, awq_dir: Path | None
+) -> None:
+    base_template = chat_template(base_snapshot)
+    if chat_template(merged) != base_template:
+        raise BundleError("the checkpoint's chat template differs from the base model's")
+    if kind == "awq" and chat_template(awq_dir) != base_template:
+        raise BundleError("the AWQ export's chat template differs from the base model's")
+
+
+def _base_licence_file(base_snapshot: Path, licence: str) -> Path:
+    licence_file = base_snapshot / "LICENSE"
+    if not licence_file.is_file():
+        raise BundleError(f"{base_snapshot} ships no LICENSE file")
+    _check_licence_file(licence_file, licence)
+    return licence_file
+
+
+def _quoted_results(reports: list[Path], heading: str | None) -> list[tuple[str, str, str]]:
+    quoted = []
+    for path in reports:
+        caption, table = results_section(path, heading)
+        quoted.append((caption, path.name, table))
+    return quoted
+
+
+def _awq_serve_args(kind: str, awq_dir: Path | None) -> list[str]:
+    """The vLLM serve arguments the quantize run recorded next to an AWQ export."""
+    if kind != "awq":
+        return []
+    record = awq_dir.parent / "quantize-run.json"
+    if not record.is_file():
+        raise BundleError(f"no {record} next to the AWQ export; run quantize first")
+    return list(json.loads(record.read_text(encoding="utf-8"))["awq_serve_args"])
+
+
+def _clear_out(out: Path) -> None:
+    """Remove an empty *out* folder; refuse one that holds anything."""
+    if not out.exists():
+        return
+    if any(out.iterdir()):
+        raise BundleError(f"{out} is not empty")
+    out.rmdir()
+
+
+def _check_card(card: str, licence: str, kind: str) -> None:
+    required = (f"license: {licence.lower()}", "base_model:", "derivative work")
+    missing = [p for p in required if p not in card]
+    if kind == "gguf":
+        missing += [p for p in ("llama-server", "--jinja") if p not in card]
+    if missing:
+        raise BundleError(f"model card is missing {missing}")
+
+
 def build_model_bundle(
     *,
     domain: Domain,
@@ -612,50 +712,17 @@ def build_model_bundle(
     ``calibration.json``, ``gate.json`` and ``scorer-train.json``. The hub prefix, licence
     and card prose come from *config* and *domain*. The finished folder is checked with
     :func:`check_bundle` (no symlink, no absolute GGUF path) and a failure removes it."""
-    if kind not in KINDS:
-        raise BundleError(f"unknown bundle kind {kind!r} (one of {', '.join(KINDS)})")
-    if kind == "gguf" and (gguf is None or not gguf.is_file()):
-        raise BundleError("kind gguf needs gguf, an existing .gguf file")
-    if kind == "awq" and (awq_dir is None or not awq_dir.is_dir()):
-        raise BundleError("kind awq needs awq_dir, an existing export folder")
+    _check_kind_inputs(kind, gguf, awq_dir)
     _require_sources(calibration=calibration, gate=gate, **{"scorer-train": scorer_train})
-    reports = [results] if isinstance(results, Path) else list(results)
-    if not reports:
-        raise BundleError("pass at least one results report")
-    if not data_summary.strip():
-        raise BundleError("data_summary must describe the training data")
+    reports = _report_list(results, data_summary)
     licence = _licence(domain, config)
-    if teachers is not None and licence == APACHE_LICENCE:
-        for name, lic, _ in _dataset.teacher_rows(teachers):
-            if lic != APACHE_LICENCE:
-                raise BundleError(
-                    f"teacher {name!r} ({lic}) is not {APACHE_LICENCE}; an Apache bundle"
-                    " names only Apache-2.0 teachers"
-                )
-    base_template = chat_template(base_snapshot)
-    if chat_template(merged) != base_template:
-        raise BundleError("the checkpoint's chat template differs from the base model's")
-    if kind == "awq" and chat_template(awq_dir) != base_template:
-        raise BundleError("the AWQ export's chat template differs from the base model's")
-    licence_file = base_snapshot / "LICENSE"
-    if not licence_file.is_file():
-        raise BundleError(f"{base_snapshot} ships no LICENSE file")
-    _check_licence_file(licence_file, licence)
-    quoted = []
-    for path in reports:
-        caption, table = results_section(path, results_heading)
-        quoted.append((caption, path.name, table))
-    awq_serve_args: list[str] = []
-    if kind == "awq":
-        record = awq_dir.parent / "quantize-run.json"
-        if not record.is_file():
-            raise BundleError(f"no {record} next to the AWQ export; run quantize first")
-        awq_serve_args = list(json.loads(record.read_text(encoding="utf-8"))["awq_serve_args"])
+    _check_teacher_licences(teachers, licence)
+    _check_chat_templates(base_snapshot, merged, kind, awq_dir)
+    licence_file = _base_licence_file(base_snapshot, licence)
+    quoted = _quoted_results(reports, results_heading)
+    awq_serve_args = _awq_serve_args(kind, awq_dir)
     base_repo, base_revision = _base_identity(base_snapshot)
-    if out.exists():
-        if any(out.iterdir()):
-            raise BundleError(f"{out} is not empty")
-        out.rmdir()
+    _clear_out(out)
     try:
         gguf_name, gguf_sha256 = _copy_payload(kind, merged, out, gguf, awq_dir)
         mtp_from = drop_undeclared_mtp(out) if kind != "gguf" else None
@@ -697,12 +764,7 @@ def build_model_bundle(
             awq_serve_args=awq_serve_args,
             quantized_from=quantized_from,
         )
-        required = (f"license: {licence.lower()}", "base_model:", "derivative work")
-        missing = [p for p in required if p not in card]
-        if kind == "gguf":
-            missing += [p for p in ("llama-server", "--jinja") if p not in card]
-        if missing:
-            raise BundleError(f"model card is missing {missing}")
+        _check_card(card, licence, kind)
         (out / "README.md").write_text(card, encoding="utf-8")
         check_bundle(out)
     except BaseException:
