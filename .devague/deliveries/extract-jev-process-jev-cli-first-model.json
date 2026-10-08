@@ -2,7 +2,7 @@
   "plan_slug": "extract-jev-process-jev-cli-first-model",
   "schema_version": 2,
   "created": "2026-09-30T18:14:02Z",
-  "updated": "2026-10-01T07:56:47Z",
+  "updated": "2026-10-08T15:45:04Z",
   "deviations": [
     {
       "id": "d1",
@@ -231,6 +231,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 57
+    },
+    {
+      "id": "d17",
+      "what": "Sonar quality pass before merge: split every composite 'assert a and b' in tests (S9073, 350) and refactor every cognitive-complexity finding (S3776, 52 Python + the review page) in jev_factory, absorbed nvsh code included; each refactor is preceded by coverage of the function (characterization tests where short) and must leave behaviour unchanged",
+      "task_ref": "t30",
+      "reason": "operator decision 2026-10-08: absorbed nvsh code is not trusted as-is, so its complexity is paid down rather than accepted, and the test-assert standard is made uniform",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 58
     }
   ],
   "evidence": [
