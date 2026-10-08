@@ -694,6 +694,16 @@ def prepare(args: argparse.Namespace) -> tuple[Domain, list[Example], list[Examp
     return domain, train, match_validation(domain, train, val)
 
 
+@dataclass(frozen=True)
+class RunStats:
+    """How big and how long one training run was, for :func:`train_log`."""
+
+    train_rows: int
+    val_rows: int
+    seconds: float
+    max_gpu_memory_gb: float | None
+
+
 def train_log(
     args: argparse.Namespace,
     *,
@@ -704,10 +714,7 @@ def train_log(
     readout_ids: dict,
     perm_summary: dict,
     row_maps: dict,
-    train_rows: int,
-    val_rows: int,
-    seconds: float,
-    max_gpu_memory_gb: float | None,
+    stats: RunStats,
     val: dict | None,
     history: list[dict],
 ) -> dict[str, Any]:
@@ -743,8 +750,8 @@ def train_log(
         "train_sha256": file_sha256(args.train),
         "val_file": str(args.val) if args.val else None,
         "val_sha256": file_sha256(args.val) if args.val else None,
-        "train_examples": train_rows,
-        "val_examples": val_rows,
+        "train_examples": stats.train_rows,
+        "val_examples": stats.val_rows,
         "hyperparameters": {
             "epochs": args.epochs,
             "lr": args.lr,
@@ -754,8 +761,8 @@ def train_log(
             "seed": args.seed,
             "max_length": args.max_length,
         },
-        "seconds": round(seconds, 1),
-        "max_gpu_memory_gb": max_gpu_memory_gb,
+        "seconds": round(stats.seconds, 1),
+        "max_gpu_memory_gb": stats.max_gpu_memory_gb,
         "val": val,
         "history": history,
     }
@@ -850,13 +857,15 @@ def _train(args, domain: Domain, train_examples, val_examples) -> int:  # needs 
         readout_ids=readout_ids,
         perm_summary=perm_summary,
         row_maps=write_row_maps(args.out / ROW_MAPS_NAME, maps),
-        train_rows=len(train_rows),
-        val_rows=len(val_rows),
-        seconds=seconds,
-        max_gpu_memory_gb=(
-            round(torch.cuda.max_memory_allocated() / 2**30, 2)
-            if torch.cuda.is_available()
-            else None
+        stats=RunStats(
+            train_rows=len(train_rows),
+            val_rows=len(val_rows),
+            seconds=seconds,
+            max_gpu_memory_gb=(
+                round(torch.cuda.max_memory_allocated() / 2**30, 2)
+                if torch.cuda.is_available()
+                else None
+            ),
         ),
         val=val,
         history=history,

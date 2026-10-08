@@ -383,10 +383,7 @@ def test_the_train_log_carries_what_replays_the_run(tmp_path) -> None:
         readout_ids={"A": (5, 6)},
         perm_summary={"perm_seeds": [], "permuted_rows": {}, "fixed_rows": {}},
         row_maps={"file": ts.ROW_MAPS_NAME, "sha256": "0" * 64, "rows": 0},
-        train_rows=3,
-        val_rows=0,
-        seconds=1.23,
-        max_gpu_memory_gb=None,
+        stats=ts.RunStats(train_rows=3, val_rows=0, seconds=1.23, max_gpu_memory_gb=None),
         val=None,
         history=[{"epoch": 1, "step": 1, "loss": 0.5}],
     )

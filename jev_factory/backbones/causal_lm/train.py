@@ -64,7 +64,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 
 from jev_factory.backbones.causal_lm import gen_config
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
-from jev_factory.data.assemble import select_frozen
+from jev_factory.data.assemble import FrozenChoice, select_frozen
 from jev_factory.factory.gpu import WATCHDOG_STATUS, run_gpu_stage
 from jev_factory.factory.prereg import require_registered
 
@@ -539,7 +539,9 @@ class TrainPlan:
         }
 
 
-def _gates(prereg_path: Path, lock_dir: Path, freeze: Path, deviation_id: str | None):
+def _gates(
+    prereg_path: Path, lock_dir: Path, freeze: Path, deviation_id: str | None
+) -> FrozenChoice:
     """The pre-registration gate, then the frozen training set chosen by sha256."""
     require_registered(Path(prereg_path), Path(lock_dir), deviation_id)
     return select_frozen(Path(freeze), deviation_id=deviation_id)
@@ -556,8 +558,7 @@ def _commands(
     *,
     python: str,
     domain: str,
-    data: Path,
-    sha256: str,
+    frozen: FrozenChoice,
     run_dir: Path,
     base: str,
     revision: str | None,
@@ -570,7 +571,7 @@ def _commands(
     extra_args: Sequence[str],
 ) -> tuple[tuple[str, ...], ...]:
     train = [python, "-m", TRAIN_SCORER_MODULE, "--domain", domain]
-    train += ["--train", str(data), "--expect-sha256", sha256, "--out", str(run_dir)]
+    train += ["--train", str(frozen.path), "--expect-sha256", frozen.sha256, "--out", str(run_dir)]
     train += ["--base", base]
     train += ["--revision", revision] if revision else []
     train += ["--prereg", str(prereg_path), "--lock-dir", str(lock_dir)]
@@ -614,8 +615,7 @@ def plan_train(
     commands = _commands(
         python=python,
         domain=domain,
-        data=choice.path,
-        sha256=choice.sha256,
+        frozen=choice,
         run_dir=run_dir,
         base=base,
         revision=revision,
@@ -708,8 +708,7 @@ def plan_heal(
     commands = _commands(
         python=python,
         domain=domain,
-        data=choice.path,
-        sha256=choice.sha256,
+        frozen=choice,
         run_dir=run_dir,
         base=str(merged),
         revision=None,
