@@ -536,103 +536,112 @@ def _render_main_table(rows: Sequence[Mapping[str, Any]]) -> list[str]:
 _RULE_4 = "| --- | --- | --- | --- |"
 
 
+def _fmt_optional(value: float | None) -> str:
+    return "-" if value is None else f"{value:.3f}"
+
+
+def _bucket_label(lower: float | None, upper: float | None) -> str:
+    if lower is None or upper is None:
+        return "n/a"
+    return f"{lower:.1f} to {upper:.1f}"
+
+
+def _render_read_only_mutating(table: Mapping[str, Any]) -> list[str]:
+    lines = [
+        "Read-only vs. mutating:",
+        "",
+        "| slice | n | ECE | Brier | missing-candidate |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for name, data in table.items():
+        measurable = data["ece"] is not None
+        missing = _fmt_rate(data["missing_candidate"])
+        lines.append(
+            f"| {name} | {data['n']} | {_fmt_measurable(data['ece'], measurable)} | "
+            f"{_fmt_measurable(data['brier'], measurable)} | {missing} |"
+        )
+    return lines
+
+
+def _render_top1_counts(title: str, header: str, table: Mapping[str, Any]) -> list[str]:
+    """A rows / measurable / top-1 rate table (candidate count, missing-candidate split)."""
+    lines = ["", title, "", header, _RULE_4]
+    for key, data in table.items():
+        lines.append(
+            f"| {key} | {data['n_rows']} | {data['n_measurable']} | "
+            f"{_fmt_rate(data['top1_rate'])} |"
+        )
+    return lines
+
+
+def _render_confidence_buckets(buckets: Sequence[Mapping[str, Any]]) -> list[str]:
+    lines = [
+        "",
+        "Confidence bucket:",
+        "",
+        "| bucket | n | mean confidence | accuracy |",
+        _RULE_4,
+    ]
+    for bucket in buckets:
+        label = _bucket_label(bucket["lower"], bucket["upper"])
+        confidence = _fmt_optional(bucket["confidence"])
+        accuracy = _fmt_optional(bucket["accuracy"])
+        lines.append(f"| {label} | {bucket['n']} | {confidence} | {accuracy} |")
+    return lines
+
+
+def _render_semantic_vs_epistemic(sem: Mapping[str, Any]) -> list[str]:
+    sem_rate = _fmt_rate(sem["semantic_escalation"]["rate"])
+    epi_rate = _fmt_rate(sem["epistemic_abstention"]["rate"])
+    semantic, epistemic = sem["semantic_escalation"], sem["epistemic_abstention"]
+    return [
+        "",
+        "Semantic escalation vs. uncertainty abstention:",
+        "",
+        "| kind | n | N | rate |",
+        _RULE_4,
+        f"| semantic escalation | {semantic['n']} | {semantic['N']} | {sem_rate} |",
+        f"| epistemic abstention | {epistemic['n']} | {epistemic['N']} | {epi_rate} |",
+        "",
+    ]
+
+
+def _render_permutation(permutation: Any) -> str:
+    if permutation == "not_run":
+        return "Permutation slice: not run."
+    return f"Permutation slice: `{json.dumps(permutation, sort_keys=True)}`"
+
+
+def _render_row_slices(row: Mapping[str, Any]) -> list[str]:
+    heading = f"### {row['subject']} ({row['variant']})"
+    slices = row["slices"]
+    lines = [heading, ""]
+    lines.extend(_render_read_only_mutating(slices["read_only_vs_mutating"]))
+    lines.extend(
+        _render_top1_counts(
+            "Candidate count (offered candidates per case):",
+            "| candidates offered | rows | measurable | top-1 rate |",
+            slices["candidate_count"],
+        )
+    )
+    lines.extend(_render_confidence_buckets(slices["confidence_bucket"]))
+    lines.extend(
+        _render_top1_counts(
+            "Missing-candidate split:",
+            "| bucket | rows | measurable | top-1 rate |",
+            slices["missing_candidate_split"],
+        )
+    )
+    lines.extend(_render_semantic_vs_epistemic(slices["semantic_vs_epistemic"]))
+    lines.append(_render_permutation(slices["permutation"]))
+    lines.append("")
+    return lines
+
+
 def _render_slices(rows: Sequence[Mapping[str, Any]]) -> list[str]:
     lines: list[str] = []
     for row in rows:
-        variant = f"{row['subject']} ({row['variant']})"
-        slices = row["slices"]
-        lines.extend(
-            [
-                f"### {variant}",
-                "",
-                "Read-only vs. mutating:",
-                "",
-                "| slice | n | ECE | Brier | missing-candidate |",
-                "| --- | --- | --- | --- | --- |",
-            ]
-        )
-        for name, data in slices["read_only_vs_mutating"].items():
-            measurable = data["ece"] is not None
-            missing = _fmt_rate(data["missing_candidate"])
-            lines.append(
-                f"| {name} | {data['n']} | {_fmt_measurable(data['ece'], measurable)} | "
-                f"{_fmt_measurable(data['brier'], measurable)} | {missing} |"
-            )
-        lines.extend(
-            [
-                "",
-                "Candidate count (offered candidates per case):",
-                "",
-                "| candidates offered | rows | measurable | top-1 rate |",
-                _RULE_4,
-            ]
-        )
-        for key, data in slices["candidate_count"].items():
-            lines.append(
-                f"| {key} | {data['n_rows']} | {data['n_measurable']} | "
-                f"{_fmt_rate(data['top1_rate'])} |"
-            )
-        lines.extend(
-            [
-                "",
-                "Confidence bucket:",
-                "",
-                "| bucket | n | mean confidence | accuracy |",
-                _RULE_4,
-            ]
-        )
-        for bucket in slices["confidence_bucket"]:
-            lo, hi = bucket["lower"], bucket["upper"]
-            label = "n/a" if lo is None or hi is None else f"{lo:.1f} to {hi:.1f}"
-            confidence = "-" if bucket["confidence"] is None else f"{bucket['confidence']:.3f}"
-            accuracy = "-" if bucket["accuracy"] is None else f"{bucket['accuracy']:.3f}"
-            lines.append(f"| {label} | {bucket['n']} | {confidence} | {accuracy} |")
-        lines.extend(
-            [
-                "",
-                "Missing-candidate split:",
-                "",
-                "| bucket | rows | measurable | top-1 rate |",
-                _RULE_4,
-            ]
-        )
-        for name, data in slices["missing_candidate_split"].items():
-            lines.append(
-                f"| {name} | {data['n_rows']} | {data['n_measurable']} | "
-                f"{_fmt_rate(data['top1_rate'])} |"
-            )
-        lines.extend(
-            [
-                "",
-                "Semantic escalation vs. uncertainty abstention:",
-                "",
-            ]
-        )
-        sem = slices["semantic_vs_epistemic"]
-        lines.extend(
-            [
-                "| kind | n | N | rate |",
-                _RULE_4,
-            ]
-        )
-        sem_rate = _fmt_rate(sem["semantic_escalation"]["rate"])
-        epi_rate = _fmt_rate(sem["epistemic_abstention"]["rate"])
-        lines.extend(
-            [
-                f"| semantic escalation | {sem['semantic_escalation']['n']} | "
-                f"{sem['semantic_escalation']['N']} | {sem_rate} |",
-                f"| epistemic abstention | {sem['epistemic_abstention']['n']} | "
-                f"{sem['epistemic_abstention']['N']} | {epi_rate} |",
-                "",
-            ]
-        )
-
-        permutation = slices["permutation"]
-        if permutation == "not_run":
-            lines.append("Permutation slice: not run.")
-        else:
-            lines.append(f"Permutation slice: `{json.dumps(permutation, sort_keys=True)}`")
-        lines.append("")
+        lines.extend(_render_row_slices(row))
     return lines
 
 

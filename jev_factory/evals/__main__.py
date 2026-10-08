@@ -99,6 +99,41 @@ def _require(value: str | None, flag: str, env_name: str) -> Path:
     return Path(value)
 
 
+def _print_status(run_dir: Path, as_json: bool, emit: Callable[[str], None]) -> None:
+    doc = runner.status(run_dir)
+    if as_json:
+        emit(json.dumps(doc, indent=2, sort_keys=True))
+        return
+    for line in runner.render_status(doc):
+        emit(line)
+
+
+def _send(args: argparse.Namespace, run_dir: Path, kwargs: dict) -> runner.StepOutcome:
+    """Run the ``run``, ``continue`` or ``smoke`` command."""
+    manifest = _require(args.manifest, "--manifest", ENV_MANIFEST_PATH)
+    if args.command == "run":
+        return runner.start(
+            run_dir,
+            manifest,
+            run_id=args.run_id,
+            date=args.date,
+            expand=args.expand,
+            use_deepeval=not args.no_deepeval,
+            **kwargs,
+        )
+    if args.command == "continue":
+        return runner.step(
+            run_dir,
+            manifest,
+            retry_rejected=args.retry_rejected,
+            use_deepeval=not args.no_deepeval,
+            **kwargs,
+        )
+    if args.cases < 1:
+        raise runner.RunError("--cases must be at least 1")
+    return runner.start(run_dir, manifest, smoke_cases=args.cases, **kwargs)
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -114,39 +149,12 @@ def main(
     try:
         run_dir = _require(args.run_dir, "--run-dir", ENV_RUN_DIR)
         if args.command == "status":
-            doc = runner.status(run_dir)
-            if args.json:
-                emit(json.dumps(doc, indent=2, sort_keys=True))
-            else:
-                for line in runner.render_status(doc):
-                    emit(line)
+            _print_status(run_dir, args.json, emit)
             return runner.EXIT_OK
-        manifest = _require(args.manifest, "--manifest", ENV_MANIFEST_PATH)
         kwargs = {"env": env, "factory": factory, "out": say}
         if clock is not None:
             kwargs["clock"] = clock
-        if args.command == "run":
-            outcome = runner.start(
-                run_dir,
-                manifest,
-                run_id=args.run_id,
-                date=args.date,
-                expand=args.expand,
-                use_deepeval=not args.no_deepeval,
-                **kwargs,
-            )
-        elif args.command == "continue":
-            outcome = runner.step(
-                run_dir,
-                manifest,
-                retry_rejected=args.retry_rejected,
-                use_deepeval=not args.no_deepeval,
-                **kwargs,
-            )
-        else:
-            if args.cases < 1:
-                raise runner.RunError("--cases must be at least 1")
-            outcome = runner.start(run_dir, manifest, smoke_cases=args.cases, **kwargs)
+        outcome = _send(args, run_dir, kwargs)
         if args.json:
             emit(
                 json.dumps(

@@ -219,6 +219,16 @@ def _error_type_from_body(raw: bytes) -> str | None:
     return None
 
 
+def _top_logprobs(token: dict) -> dict[str, float]:
+    """``{token: logprob}`` of one content token's alternatives (the first of a repeat wins)."""
+    top: dict[str, float] = {}
+    for entry in token.get("top_logprobs") or []:
+        text, logprob = entry.get("token"), entry.get("logprob")
+        if isinstance(text, str) and text not in top:
+            top[text] = logprob
+    return top
+
+
 def classify_result(
     answer: str | None,
     offered: tuple[str, ...] | None,
@@ -331,18 +341,19 @@ class OpenAICompatProvider(BaseProvider):
         content = message.get("content")
         answer = content.strip() if isinstance(content, str) else ""
         labels = contract.canonical_content(request)[2]
-        candidates = None
-        if self.capabilities.logprobs and labels:
-            logprobs_block = choices[0].get("logprobs") or {}
-            content_tokens = logprobs_block.get("content") or []
-            if content_tokens:
-                top: dict[str, float] = {}
-                for entry in content_tokens[0].get("top_logprobs") or []:
-                    token, logprob = entry.get("token"), entry.get("logprob")
-                    if isinstance(token, str) and token not in top:
-                        top[token] = logprob
-                candidates = contract.distribution_from_logprobs(top, labels, tuple(labels))
+        candidates = self._candidates(choices[0], labels)
         return (answer or None), candidates, not answer, False
+
+    def _candidates(self, choice: dict, labels: dict[str, str] | None) -> dict[str, float] | None:
+        """The first answer token's distribution over *labels*, when logprobs came back."""
+        if not (self.capabilities.logprobs and labels):
+            return None
+        logprobs_block = choice.get("logprobs") or {}
+        content_tokens = logprobs_block.get("content") or []
+        if not content_tokens:
+            return None
+        top = _top_logprobs(content_tokens[0])
+        return contract.distribution_from_logprobs(top, labels, tuple(labels))
 
     # -- BaseProvider hooks --------------------------------------------------
 

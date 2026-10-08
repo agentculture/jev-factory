@@ -331,46 +331,47 @@ def _parse_case_set(table: Mapping, where: str) -> CaseSet:
     return CaseSet(name=name, count=count, split=split, path=path, include_heldout=include_heldout)
 
 
+def _is_real(value: object) -> bool:
+    """An int or float that is not a bool."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _parse_budget(provider: str, table: Mapping, where: str) -> Budget:
+    if provider not in ALLOWED_PROVIDERS:
+        raise ManifestError(
+            f"{where}: unknown provider {provider!r} "
+            f"(must be one of {sorted(ALLOWED_PROVIDERS)})"
+        )
+    usd_cap = table.get("usd_cap")
+    if not _is_real(usd_cap) or usd_cap < 0:
+        raise ManifestError(f"{where}: usd_cap must be a non-negative number")
+    concurrency_cap = table.get("concurrency_cap")
+    if (
+        not isinstance(concurrency_cap, int)
+        or isinstance(concurrency_cap, bool)
+        or concurrency_cap < 1
+    ):
+        raise ManifestError(f"{where}: concurrency_cap must be a positive integer")
+    if "batch_discount" in table:
+        raise ManifestError(f"{where}: batch_discount is not supported (batch APIs are deferred)")
+    rpm = table.get("requests_per_minute")
+    if rpm is not None and (not _is_real(rpm) or rpm <= 0):
+        raise ManifestError(f"{where}: requests_per_minute must be a positive number")
+    return Budget(
+        provider=provider,
+        usd_cap=float(usd_cap),
+        concurrency_cap=concurrency_cap,
+        requests_per_minute=None if rpm is None else float(rpm),
+        timeout_seconds=_number(table, "timeout_seconds", where, 60.0),
+    )
+
+
 def _parse_budgets(raw: Mapping, where: str) -> tuple[Budget, ...]:
     if not isinstance(raw, Mapping):
         raise ManifestError(f"{where} must be a table")
-    budgets = []
-    for provider, table in raw.items():
-        entry_where = f"{where}.{provider}"
-        if provider not in ALLOWED_PROVIDERS:
-            raise ManifestError(
-                f"{entry_where}: unknown provider {provider!r} "
-                f"(must be one of {sorted(ALLOWED_PROVIDERS)})"
-            )
-        usd_cap = table.get("usd_cap")
-        if not isinstance(usd_cap, (int, float)) or isinstance(usd_cap, bool) or usd_cap < 0:
-            raise ManifestError(f"{entry_where}: usd_cap must be a non-negative number")
-        concurrency_cap = table.get("concurrency_cap")
-        if (
-            not isinstance(concurrency_cap, int)
-            or isinstance(concurrency_cap, bool)
-            or concurrency_cap < 1
-        ):
-            raise ManifestError(f"{entry_where}: concurrency_cap must be a positive integer")
-        if "batch_discount" in table:
-            raise ManifestError(
-                f"{entry_where}: batch_discount is not supported (batch APIs are deferred)"
-            )
-        rpm = table.get("requests_per_minute")
-        if rpm is not None and (
-            not isinstance(rpm, (int, float)) or isinstance(rpm, bool) or rpm <= 0
-        ):
-            raise ManifestError(f"{entry_where}: requests_per_minute must be a positive number")
-        budgets.append(
-            Budget(
-                provider=provider,
-                usd_cap=float(usd_cap),
-                concurrency_cap=concurrency_cap,
-                requests_per_minute=None if rpm is None else float(rpm),
-                timeout_seconds=_number(table, "timeout_seconds", entry_where, 60.0),
-            )
-        )
-    return tuple(budgets)
+    return tuple(
+        _parse_budget(provider, table, f"{where}.{provider}") for provider, table in raw.items()
+    )
 
 
 def _parse_stops(raw: Mapping) -> StopRules:

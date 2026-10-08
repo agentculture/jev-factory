@@ -428,19 +428,7 @@ def _load_saved(
     except OSError as exc:
         raise RunError(f"{entry.name}: cannot read saved predictions {path}: {exc}") from exc
     wanted = {c.id for c in cases}
-    rows: dict[str, dict] = {}
-    for number, line in enumerate(data.decode("utf-8").splitlines(), 1):
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except ValueError as exc:
-            raise RunError(f"{entry.name}: {path} line {number} is not JSON") from exc
-        case_id = row.get("id") if isinstance(row, dict) else None
-        if case_id in wanted:
-            if case_id in rows:
-                raise RunError(f"{entry.name}: {path} has case {case_id!r} twice")
-            rows[case_id] = row
+    rows = _saved_rows(entry, path, data, wanted)
     if not rows:
         return None
     missing = [c.id for c in cases if c.id not in rows]
@@ -450,24 +438,53 @@ def _load_saved(
             f"{len(cases)} cases; a partial replay would bias every figure"
         )
     if entry.train_split:
+        _check_training_overlap(entry, wanted, env)
+    traces = [_saved_trace(entry, rows[case.id], case, cs.split, name) for case in cases]
+    return Saved(traces=traces, artifact=_saved_artifact(entry, data))
+
+
+def _saved_rows(entry: RunEntry, path: Path, data: bytes, wanted: set[str]) -> dict[str, dict]:
+    """The prediction lines of *data* whose case id is in *wanted*, each at most once."""
+    rows: dict[str, dict] = {}
+    for number, line in enumerate(data.decode("utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
         try:
-            training_overlap(wanted, resolve_private(entry.train_split, env))
-        except TrainingOverlapError as exc:
-            raise RunError(f"{entry.name}: {exc}") from exc
-        except OSError as exc:
-            raise RunError(f"{entry.name}: cannot read its train split: {exc}") from exc
-    traces = []
-    for case in cases:
-        try:
-            traces.append(Trace.from_prediction_line(rows[case.id], split=cs.split, subject=name))
-        except PredictionError as exc:
-            raise RunError(f"{entry.name}: case {case.id!r}: {exc}") from exc
+            row = json.loads(line)
+        except ValueError as exc:
+            raise RunError(f"{entry.name}: {path} line {number} is not JSON") from exc
+        case_id = row.get("id") if isinstance(row, dict) else None
+        if case_id not in wanted:
+            continue
+        if case_id in rows:
+            raise RunError(f"{entry.name}: {path} has case {case_id!r} twice")
+        rows[case_id] = row
+    return rows
+
+
+def _check_training_overlap(entry: RunEntry, wanted: set[str], env: Mapping[str, str]) -> None:
+    try:
+        training_overlap(wanted, resolve_private(entry.train_split, env))
+    except TrainingOverlapError as exc:
+        raise RunError(f"{entry.name}: {exc}") from exc
+    except OSError as exc:
+        raise RunError(f"{entry.name}: cannot read its train split: {exc}") from exc
+
+
+def _saved_trace(entry: RunEntry, row: dict, case: Case, split: str, name: str) -> Trace:
+    try:
+        return Trace.from_prediction_line(row, split=split, subject=name)
+    except PredictionError as exc:
+        raise RunError(f"{entry.name}: case {case.id!r}: {exc}") from exc
+
+
+def _saved_artifact(entry: RunEntry, data: bytes) -> dict[str, str]:
     artifact = {"predictions_sha256": hashlib.sha256(data).hexdigest()}
     if entry.repo_id:
         artifact["repo_id"] = entry.repo_id
     if entry.revision:
         artifact["revision"] = entry.revision
-    return Saved(traces=traces, artifact=artifact)
+    return artifact
 
 
 def build_plan(
@@ -492,54 +509,17 @@ def build_plan(
     sendable = list(manifest.sendable_case_sets())
     full_case_count = sum(len(cases[cs.name]) for cs in sendable)
     smoke = scope.get("mode") == "smoke"
-    if smoke:
-        chosen = [cs for cs in sendable if cs.name == scope.get("case_set")]
-        if not chosen:
-            raise RunError(f"the smoke case set {scope.get('case_set')!r} is not in the manifest")
-        wanted = list(scope.get("case_ids", []))
-        by_id = {case.id: case for case in cases[chosen[0].name]}
-        missing = [case_id for case_id in wanted if case_id not in by_id]
-        if missing:
-            raise RunError(f"smoke cases {missing} are no longer in {chosen[0].name!r}")
-        cases = {chosen[0].name: tuple(by_id[case_id] for case_id in wanted)}
-        sendable = chosen
-
     subjects: list[Subject] = []
     saved: dict[str, Saved] = {}
-    if not smoke:
-        for kind, entries in (("candidate", manifest.candidates), ("baseline", manifest.baselines)):
-            for entry in entries:
-                for policy in entry.policies:
-                    if not policy_path(policy, env).is_file():
-                        raise RunError(f"{entry.name}: unknown policy {policy!r}")
-                for cs in manifest.case_sets:
-                    name = subject_name(entry.name, cs.name)
-                    loaded = _load_saved(entry, cs, cases[cs.name], name, env)
-                    if loaded is None:
-                        continue
-                    subjects.append(Subject(name, kind, cs, tuple(entry.policies), entry=entry))
-                    saved[name] = loaded
-
+    if smoke:
+        cases, sendable = _smoke_selection(scope, cases, sendable)
+    else:
+        subjects, saved = _saved_subjects(manifest, cases, env)
     models: dict[str, Model] = {}
     for ref in manifest.references:
-        budget = manifest.budget_for(ref.provider)
-        if budget is None:
-            raise RunError(f"{ref.provider}/{ref.model}: no [budget.{ref.provider}] table")
-        provider = factory(ref, budget, env)
-        if provider.capabilities.batch:
-            raise RunError(f"{ref.provider}/{ref.model}: batch adapters are not supported")
-        model = Model(ref=ref, provider=provider, host=provider_host(provider))
+        model = _reference_model(ref, manifest, factory, env)
         models[model.label] = model
-        for cs in sendable:
-            subjects.append(
-                Subject(
-                    subject_name(f"{ref.provider}.{ref.model}", cs.name),
-                    "reference",
-                    cs,
-                    ("raw",),
-                    model=model.label,
-                )
-            )
+        subjects.extend(_reference_subjects(model, sendable))
     names = [s.name for s in subjects]
     if len(set(names)) != len(names):
         raise RunError("two subjects map to the same file name; rename a checkpoint")
@@ -555,6 +535,72 @@ def build_plan(
         full_case_count=full_case_count,
         scope=scope,
     )
+
+
+def _smoke_selection(
+    scope: Mapping[str, Any], cases: dict[str, tuple[Case, ...]], sendable: list[CaseSet]
+) -> tuple[dict[str, tuple[Case, ...]], list[CaseSet]]:
+    """The smoke run's cases and its one sendable case set, from its persisted selection."""
+    chosen = [cs for cs in sendable if cs.name == scope.get("case_set")]
+    if not chosen:
+        raise RunError(f"the smoke case set {scope.get('case_set')!r} is not in the manifest")
+    wanted = list(scope.get("case_ids", []))
+    by_id = {case.id: case for case in cases[chosen[0].name]}
+    missing = [case_id for case_id in wanted if case_id not in by_id]
+    if missing:
+        raise RunError(f"smoke cases {missing} are no longer in {chosen[0].name!r}")
+    return {chosen[0].name: tuple(by_id[case_id] for case_id in wanted)}, chosen
+
+
+def _saved_subjects(
+    manifest: Manifest, cases: Mapping[str, tuple[Case, ...]], env: Mapping[str, str]
+) -> tuple[list[Subject], dict[str, Saved]]:
+    """Every candidate and baseline subject with saved predictions, and those predictions."""
+    subjects: list[Subject] = []
+    saved: dict[str, Saved] = {}
+    for kind, entries in (("candidate", manifest.candidates), ("baseline", manifest.baselines)):
+        for entry in entries:
+            _check_policies(entry, env)
+            for cs in manifest.case_sets:
+                name = subject_name(entry.name, cs.name)
+                loaded = _load_saved(entry, cs, cases[cs.name], name, env)
+                if loaded is None:
+                    continue
+                subjects.append(Subject(name, kind, cs, tuple(entry.policies), entry=entry))
+                saved[name] = loaded
+    return subjects, saved
+
+
+def _check_policies(entry: RunEntry, env: Mapping[str, str]) -> None:
+    for policy in entry.policies:
+        if not policy_path(policy, env).is_file():
+            raise RunError(f"{entry.name}: unknown policy {policy!r}")
+
+
+def _reference_model(
+    ref: Reference, manifest: Manifest, factory: ProviderFactory, env: Mapping[str, str]
+) -> Model:
+    budget = manifest.budget_for(ref.provider)
+    if budget is None:
+        raise RunError(f"{ref.provider}/{ref.model}: no [budget.{ref.provider}] table")
+    provider = factory(ref, budget, env)
+    if provider.capabilities.batch:
+        raise RunError(f"{ref.provider}/{ref.model}: batch adapters are not supported")
+    return Model(ref=ref, provider=provider, host=provider_host(provider))
+
+
+def _reference_subjects(model: Model, sendable: Sequence[CaseSet]) -> list[Subject]:
+    ref = model.ref
+    return [
+        Subject(
+            subject_name(f"{ref.provider}.{ref.model}", cs.name),
+            "reference",
+            cs,
+            ("raw",),
+            model=model.label,
+        )
+        for cs in sendable
+    ]
 
 
 def smoke_scope(manifest: Manifest, env: Mapping[str, str], count: int) -> dict[str, Any]:

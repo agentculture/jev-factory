@@ -78,6 +78,7 @@ from .ledger import (
     PENDING,
     CachedResponse,
     CallSpec,
+    Entry,
     Ledger,
     LedgerCorrupt,
     LedgerLocked,
@@ -719,68 +720,68 @@ class Runner:
         """
         if not work:
             return False
-        semaphores: dict[str, threading.Semaphore] = {}
-        caps: dict[str, int] = {}
-        for model, _item in work:
-            if model.kind not in semaphores:
-                budget = self.plan.manifest.budget_for(model.kind)
-                cap = budget.concurrency_cap if budget else 1
-                semaphores[model.kind] = threading.Semaphore(cap)
-                caps[model.kind] = cap
+        caps = self._concurrency_caps(work)
+        semaphores = {kind: threading.Semaphore(cap) for kind, cap in caps.items()}
         deadline = time.monotonic() + ROUND_SECONDS
 
         def task(model: Model, item: WorkItem) -> bool:
             with semaphores[model.kind]:
                 if time.monotonic() > deadline or self.blocked(model):
                     return False  # stays pending: the next round (or pass) sends it
-                if not self.claim(model, item.key, item.request):
-                    return False
-                self._note_host(model)
-                try:
-                    result = model.provider.submit_sync(item.request)
-                except KeyboardInterrupt:
-                    raise
-                except Exception as exc:  # noqa: BLE001 -- classified or re-raised
-                    classification = classify_exception(exc, model.kind)
-                    if classification is None:
-                        raise
-                    if classification.reason in UNCERTAIN_REASONS and not refused_before_send(exc):
-                        self._uncertain(
-                            item.key, f"sent but not answered ({classification.reason})"
-                        )
-                    else:
-                        self._release(item.key)
-                    self.apply_stop(model, classification, item.request.params)
-                    return False
-                self.record(model, item.key, result)
-                return True
+                return self._send_one(model, item)
 
-        progress = False
         pools = {
             kind: concurrent.futures.ThreadPoolExecutor(
-                max_workers=max(1, caps[kind]), thread_name_prefix=f"sync-{kind}"
+                max_workers=max(1, cap), thread_name_prefix=f"sync-{kind}"
             )
-            for kind in semaphores
+            for kind, cap in caps.items()
         }
         futures = [pools[model.kind].submit(task, model, item) for model, item in work]
-        failure: BaseException | None = None
         try:
-            for future in concurrent.futures.as_completed(futures):
-                if future.cancelled():
-                    continue
-                try:
-                    progress |= future.result()
-                except BaseException as exc:  # noqa: BLE001 -- re-raised after the drain
-                    if failure is None:
-                        failure = exc
-                        for other in futures:
-                            other.cancel()
+            progress, failure = _drain(futures)
         finally:
             for pool in pools.values():
                 pool.shutdown(wait=True, cancel_futures=True)
         if failure is not None:
             raise failure
         return progress
+
+    def _concurrency_caps(self, work: list[tuple[Model, WorkItem]]) -> dict[str, int]:
+        """Each provider's concurrency cap, in first-seen order (1 without a budget)."""
+        caps: dict[str, int] = {}
+        for model, _item in work:
+            if model.kind not in caps:
+                budget = self.plan.manifest.budget_for(model.kind)
+                caps[model.kind] = budget.concurrency_cap if budget else 1
+        return caps
+
+    def _send_one(self, model: Model, item: WorkItem) -> bool:
+        """Claim, send and record one call; ``False`` when it stays pending."""
+        if not self.claim(model, item.key, item.request):
+            return False
+        self._note_host(model)
+        try:
+            result = model.provider.submit_sync(item.request)
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:  # noqa: BLE001 -- classified or re-raised
+            classification = classify_exception(exc, model.kind)
+            if classification is None:
+                raise
+            self._send_failed(model, item, exc, classification)
+            return False
+        self.record(model, item.key, result)
+        return True
+
+    def _send_failed(
+        self, model: Model, item: WorkItem, exc: Exception, classification: Classification
+    ) -> None:
+        """A failed send: uncertain if it may have reached the provider, else released."""
+        if classification.reason in UNCERTAIN_REASONS and not refused_before_send(exc):
+            self._uncertain(item.key, f"sent but not answered ({classification.reason})")
+        else:
+            self._release(item.key)
+        self.apply_stop(model, classification, item.request.params)
 
     # -- work --------------------------------------------------------------
 
@@ -917,10 +918,9 @@ class Runner:
 
     def finalize(self) -> None:
         """Traces, per-(subject, policy) metrics, result.json and the page."""
-        from . import deepeval_layer, policies, report
+        from . import policies, report
 
         run_dir = self.run_dir
-        domain = self.plan.domain
         loaded_policies = {
             name: policies.load_policy(policy_path(name, self.env))
             for subject in self.plan.subjects
@@ -929,46 +929,16 @@ class Runner:
         subjects_doc = []
         for subject, traces in self.subject_traces().items():
             spec = next(s for s in self.plan.subjects if s.name == subject)
-            final_traces = []
-            for trace in traces:
-                truncated = trace.raw.outcome == "invalid" and trace.raw.invalid_reason == TRUNCATED
-                for policy in spec.policies:
-                    if truncated:
-                        # A cut reply stays invalid under every policy.
-                        trace = trace.with_policy(policy, "invalid", TRUNCATED)
-                        continue
-                    decision, reason, _n, _v = policies.apply(
-                        loaded_policies[policy],
-                        trace.raw.to_dict(),
-                        trace.raw.offered_order(),
-                        domain,
-                    )
-                    trace = trace.with_policy(policy, decision, reason or "")
-                final_traces.append(trace)
+            final_traces = [
+                self._with_policies(trace, spec.policies, loaded_policies) for trace in traces
+            ]
             write_traces(report.traces_path(run_dir, subject), final_traces)
             for policy in spec.policies:
-                policy_json = loaded_policies[policy]
-                if self.use_deepeval:
-                    folder = run_dir / DEEPEVAL_DIR / f"{subject}__{policy}"
-                    folder.mkdir(parents=True, exist_ok=True)
-                    # deepeval prints its own summary; keep stdout for the runner's lines.
-                    log = folder / "deepeval.log"
-                    with open(log, "w", encoding="utf-8") as sink, contextlib.redirect_stdout(sink):
-                        outcome = deepeval_layer.evaluate_traces(
-                            final_traces, policy_json, domain, results_folder=folder
-                        )
-                    figures = outcome.corpus_metrics
-                else:
-                    figures = deepeval_layer.corpus_metrics(final_traces, policy_json, domain)
+                figures = self._policy_figures(
+                    subject, policy, final_traces, loaded_policies[policy]
+                )
                 runstate.write_json_durable(report.metrics_path(run_dir, subject, policy), figures)
-            doc: dict[str, Any] = {
-                "name": subject,
-                "kind": spec.kind,
-                "policies": list(spec.policies),
-            }
-            if spec.kind != "reference":
-                doc["artifact"] = self.plan.saved[subject].artifact
-            subjects_doc.append(doc)
+            subjects_doc.append(self._subject_doc(subject, spec))
         runstate.write_json_durable(
             run_dir / report.MANIFEST_FILENAME,
             {
@@ -985,83 +955,163 @@ class Runner:
         self._persist()
         self.say(f"complete: {run_dir / RESULT_FILE} and {run_dir / PAGE_FILE}")
 
+    def _with_policies(
+        self, trace: Trace, names: tuple[str, ...], loaded: Mapping[str, Any]
+    ) -> Trace:
+        """*trace* with each named policy's decision applied, in order."""
+        from . import policies
+
+        truncated = trace.raw.outcome == "invalid" and trace.raw.invalid_reason == TRUNCATED
+        for policy in names:
+            if truncated:
+                # A cut reply stays invalid under every policy.
+                trace = trace.with_policy(policy, "invalid", TRUNCATED)
+                continue
+            decision, reason, _n, _v = policies.apply(
+                loaded[policy],
+                trace.raw.to_dict(),
+                trace.raw.offered_order(),
+                self.plan.domain,
+            )
+            trace = trace.with_policy(policy, decision, reason or "")
+        return trace
+
+    def _policy_figures(
+        self, subject: str, policy: str, traces: list[Trace], policy_json: Any
+    ) -> Any:
+        """One (subject, policy)'s corpus metrics, through the DeepEval layer when it runs."""
+        from . import deepeval_layer
+
+        domain = self.plan.domain
+        if not self.use_deepeval:
+            return deepeval_layer.corpus_metrics(traces, policy_json, domain)
+        folder = self.run_dir / DEEPEVAL_DIR / f"{subject}__{policy}"
+        folder.mkdir(parents=True, exist_ok=True)
+        # deepeval prints its own summary; keep stdout for the runner's lines.
+        log = folder / "deepeval.log"
+        with open(log, "w", encoding="utf-8") as sink, contextlib.redirect_stdout(sink):
+            outcome = deepeval_layer.evaluate_traces(
+                traces, policy_json, domain, results_folder=folder
+            )
+        return outcome.corpus_metrics
+
+    def _subject_doc(self, subject: str, spec: Subject) -> dict[str, Any]:
+        doc: dict[str, Any] = {
+            "name": subject,
+            "kind": spec.kind,
+            "policies": list(spec.policies),
+        }
+        if spec.kind != "reference":
+            doc["artifact"] = self.plan.saved[subject].artifact
+        return doc
+
     def write_smoke(self) -> None:
         """Per-model tokens, cost, truncation and a projected full-run cost (smoke run)."""
         smoke_ids = {case.id for cases in self.plan.cases.values() for case in cases}
         smoke_count = len(smoke_ids)
         scale = self.plan.full_case_count / smoke_count if smoke_count else 0.0
-        billed = {
-            e["key"]: e for e in self.billing.entries() if e.get("kind") == runstate.BILL_ANSWER
-        }
-        rows: dict[str, dict[str, Any]] = {}
-        for entry in self.ledger.entries():
-            model = self._model_of_spec(entry.spec)
-            if model is None or entry.spec.get("case_id") not in smoke_ids:
-                continue
-            if entry.state not in (DONE, INVALID) or not self._current(model, entry.spec):
-                continue
-            row = rows.setdefault(
-                model.label,
-                {
-                    "provider": model.kind,
-                    "calls": 0,
-                    "invalid": 0,
-                    "truncated": 0,
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "reasoning_tokens": 0,
-                    "cost_usd": 0.0,
-                },
-            )
-            cached = self.ledger.cached(entry.key)
-            row["calls"] += 1
-            row["invalid"] += entry.state == INVALID
-            usage = cached.usage if cached else {}
-            row["input_tokens"] += tokens_in(usage)
-            row["output_tokens"] += tokens_out(usage)
-            row["reasoning_tokens"] += usage.get("reasoning_tokens", 0)
-            bill = billed.get(entry.key)
-            row["cost_usd"] += bill["cost_usd"] if bill else model.cost(usage)
-            cut = entry.reason == TRUNCATED
-            if cached is not None and not cut:
-                cut = _cut(model, cached.raw)
-            row["truncated"] += bool(cut)
+        rows = self._smoke_rows(smoke_ids)
         for label, row in rows.items():
-            model = self.plan.models[label]
-            row["cost_usd"] = round(row["cost_usd"], 6)
-            row["projected_full_run_usd"] = round(row["cost_usd"] * scale, 4)
-            row["max_output_tokens"] = model.knobs["max_output_tokens"]
-            row["reasoning"] = model.ref.reasoning
-            row["flag"] = "CAPPED" if row["truncated"] else "OK"
-            stop = self.model_stops.get(label)
-            if stop:
-                row["stop"] = stop["kind"]
-        providers: dict[str, dict[str, float]] = {}
-        for row in rows.values():
-            total = providers.setdefault(
-                row["provider"], {"cost_usd": 0.0, "projected_full_run_usd": 0.0}
-            )
-            total["cost_usd"] = round(total["cost_usd"] + row["cost_usd"], 6)
-            total["projected_full_run_usd"] = round(
-                total["projected_full_run_usd"] + row["projected_full_run_usd"], 4
-            )
+            self._finish_smoke_row(label, row, scale)
         smoke = {
             "cases": smoke_count,
             "full_run_cases": self.plan.full_case_count,
             "models": dict(sorted(rows.items())),
-            "providers": dict(sorted(providers.items())),
+            "providers": dict(sorted(_provider_totals(rows).items())),
         }
         runstate.write_json_durable(self.run_dir / SMOKE_FILE, smoke)
         self.state["smoke"] = smoke
         self.state["status"] = STATUS_COMPLETE
         self._persist()
         for label, row in sorted(rows.items()):
-            self.out(
-                f"smoke {label}: {row['flag']} calls={row['calls']} truncated={row['truncated']} "
-                f"invalid={row['invalid']} tokens in/out/reasoning={row['input_tokens']}/"
-                f"{row['output_tokens']}/{row['reasoning_tokens']} cost=${row['cost_usd']:.4f} "
-                f"projected full run=${row['projected_full_run_usd']:.2f}"
-            )
+            self.out(_smoke_line(label, row))
+
+    def _smoke_rows(self, smoke_ids: set[str]) -> dict[str, dict[str, Any]]:
+        """Per-model call, token, cost and truncation counts over the final smoke calls."""
+        billed = {
+            e["key"]: e for e in self.billing.entries() if e.get("kind") == runstate.BILL_ANSWER
+        }
+        rows: dict[str, dict[str, Any]] = {}
+        for entry in self.ledger.entries():
+            model = self._smoke_model(entry, smoke_ids)
+            if model is None:
+                continue
+            row = rows.setdefault(model.label, _new_smoke_row(model.kind))
+            self._add_smoke_call(row, model, entry, billed)
+        return rows
+
+    def _smoke_model(self, entry: Entry, smoke_ids: set[str]) -> Model | None:
+        """*entry*'s model when it is a final smoke call made with current settings."""
+        model = self._model_of_spec(entry.spec)
+        if model is None or entry.spec.get("case_id") not in smoke_ids:
+            return None
+        if entry.state not in (DONE, INVALID) or not self._current(model, entry.spec):
+            return None
+        return model
+
+    def _add_smoke_call(
+        self, row: dict[str, Any], model: Model, entry: Entry, billed: Mapping[str, Any]
+    ) -> None:
+        cached = self.ledger.cached(entry.key)
+        row["calls"] += 1
+        row["invalid"] += entry.state == INVALID
+        usage = cached.usage if cached else {}
+        row["input_tokens"] += tokens_in(usage)
+        row["output_tokens"] += tokens_out(usage)
+        row["reasoning_tokens"] += usage.get("reasoning_tokens", 0)
+        bill = billed.get(entry.key)
+        row["cost_usd"] += bill["cost_usd"] if bill else model.cost(usage)
+        cut = entry.reason == TRUNCATED
+        if cached is not None and not cut:
+            cut = _cut(model, cached.raw)
+        row["truncated"] += bool(cut)
+
+    def _finish_smoke_row(self, label: str, row: dict[str, Any], scale: float) -> None:
+        model = self.plan.models[label]
+        row["cost_usd"] = round(row["cost_usd"], 6)
+        row["projected_full_run_usd"] = round(row["cost_usd"] * scale, 4)
+        row["max_output_tokens"] = model.knobs["max_output_tokens"]
+        row["reasoning"] = model.ref.reasoning
+        row["flag"] = "CAPPED" if row["truncated"] else "OK"
+        stop = self.model_stops.get(label)
+        if stop:
+            row["stop"] = stop["kind"]
+
+
+def _new_smoke_row(provider: str) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "calls": 0,
+        "invalid": 0,
+        "truncated": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_tokens": 0,
+        "cost_usd": 0.0,
+    }
+
+
+def _provider_totals(rows: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, float]]:
+    """The smoke rows' cost and projected full-run cost summed per provider."""
+    providers: dict[str, dict[str, float]] = {}
+    for row in rows.values():
+        total = providers.setdefault(
+            row["provider"], {"cost_usd": 0.0, "projected_full_run_usd": 0.0}
+        )
+        total["cost_usd"] = round(total["cost_usd"] + row["cost_usd"], 6)
+        total["projected_full_run_usd"] = round(
+            total["projected_full_run_usd"] + row["projected_full_run_usd"], 4
+        )
+    return providers
+
+
+def _smoke_line(label: str, row: Mapping[str, Any]) -> str:
+    return (
+        f"smoke {label}: {row['flag']} calls={row['calls']} truncated={row['truncated']} "
+        f"invalid={row['invalid']} tokens in/out/reasoning={row['input_tokens']}/"
+        f"{row['output_tokens']}/{row['reasoning_tokens']} cost=${row['cost_usd']:.4f} "
+        f"projected full run=${row['projected_full_run_usd']:.2f}"
+    )
 
 
 def _calibration_labels(candidates: Mapping[str, float] | None) -> dict[str, float] | None:
@@ -1084,6 +1134,31 @@ def interleave(work: list[tuple[Model, WorkItem]]) -> list[tuple[Model, WorkItem
     for turn in range(max((len(q) for q in queues.values()), default=0)):
         out.extend(q[turn] for q in queues.values() if turn < len(q))
     return out
+
+
+def _drain(futures: list[concurrent.futures.Future]) -> tuple[bool, BaseException | None]:
+    """Wait for every future: whether any made progress, and the first failure.
+
+    The first failure cancels every future that has not started; the rest
+    still run to the end, so the caller re-raises only after the drain.
+    """
+    progress = False
+    failure: BaseException | None = None
+    for future in concurrent.futures.as_completed(futures):
+        if future.cancelled():
+            continue
+        try:
+            progress |= future.result()
+        except BaseException as exc:  # noqa: BLE001 -- re-raised after the drain
+            if failure is None:
+                failure = exc
+                _cancel(futures)
+    return progress, failure
+
+
+def _cancel(futures: list[concurrent.futures.Future]) -> None:
+    for other in futures:
+        other.cancel()
 
 
 def _cut(model: Model, raw: bytes) -> bool:
