@@ -268,8 +268,14 @@ def _object_end(text: str, start: int) -> int | None:
     for i in range(start, len(text)):
         ch = text[i]
         if in_str:
-            esc = (ch == "\\") and not esc
-            in_str = not (ch == '"' and not esc)
+            # Inside a JSON string: the character after a backslash is escaped, so an
+            # escaped quote never ends the string.
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
             continue
         if ch == '"':
             in_str = True

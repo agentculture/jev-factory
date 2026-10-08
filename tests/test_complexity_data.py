@@ -45,9 +45,9 @@ from tests.fixtures.toy_domain import DOMAIN
         ('{"a": 1', None),
         # a backslash pair inside a string
         ('{"a": "x\\\\"}', '{"a": "x\\\\"}'),
-        # pinned as is: an escaped quote ends the string in this scanner (see the d17 report)
-        ('{"a": "\\"}"} rest', '{"a": "\\"}'),
-        ('{"a": "\\"x"}', None),
+        # an escaped quote does not end the string (fixed after the d17 report)
+        ('{"a": "\\"}"} rest', '{"a": "\\"}"}'),
+        ('{"a": "\\"x"}', '{"a": "\\"x"}'),
         ("{} {}", "{}"),
         ('"{"}', None),
     ],
@@ -458,3 +458,14 @@ def test_missing_argument_caps_and_is_deterministic_per_seed() -> None:
     assert len(first) == 2
     zero = TG.missing_argument_units(entries, 0, 9, {}, DOMAIN)
     assert zero == []
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ['a "}" brace', 'quote " then } then {', "back\\slash", 'mixed \\" and "}"'],
+)
+def test_a_reason_with_escaped_quotes_and_braces_round_trips(reason) -> None:
+    """Regression: an escaped quote inside the reason used to end the string early, so a
+    later ``}`` cut the object short and a valid verdict was refused as malformed JSON."""
+    reply = "here you go: " + json.dumps({"reason": reason, "verdict": "no"}) + " done"
+    assert T.parse_verdict(reply) == (False, reason)
