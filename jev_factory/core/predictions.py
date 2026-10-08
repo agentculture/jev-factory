@@ -129,9 +129,9 @@ class Prediction:
     grounded: bool | None = None
 
     @classmethod
-    def from_dict(cls, row: object) -> "Prediction":
+    def from_dict(cls, line: object) -> "Prediction":
         """Validate one decoded line; raises :class:`PredictionError` naming the problem."""
-        _check_row(row)
+        row = _check_row(line)
         _check_expected(row["expected"])
         outcome = row["outcome"]
         if outcome not in OUTCOMES:
@@ -198,7 +198,8 @@ class Prediction:
         return tuple(self.candidates or ())
 
 
-def _check_row(row: object) -> None:
+def _check_row(row: object) -> dict:
+    """*row* itself once it is a JSON object with every field and a usable id."""
     if not isinstance(row, dict):
         raise PredictionError("a line must be a JSON object")
     missing = [name for name in FIELDS if name not in row]
@@ -206,6 +207,7 @@ def _check_row(row: object) -> None:
         raise PredictionError(f"missing field(s): {', '.join(missing)}")
     if not isinstance(row["id"], str) or not row["id"]:
         raise PredictionError("id must be a non-empty string")
+    return row
 
 
 def _check_costs(row: dict) -> None:
