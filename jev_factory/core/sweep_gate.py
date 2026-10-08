@@ -41,7 +41,7 @@ import json
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence, cast
 
 from jev_factory.core import calibration, gate, metrics
 from jev_factory.core.predictions import Prediction, read_predictions
@@ -281,15 +281,17 @@ def redecide(prediction: Prediction, thresholds: gate.Thresholds, domain: Domain
         # nothing here has grounded arguments for it.
         outcome, operation, arguments, invalid_reason = "invalid", None, None, NOT_GROUNDED_BY_SWEEP
         grounded = False
-    redecided: Prediction = replace(
-        prediction,
-        outcome=outcome,
-        operation=operation,
-        arguments=arguments,
-        invalid_reason=invalid_reason,
-        grounded=grounded,
+    return cast(
+        Prediction,
+        replace(
+            prediction,
+            outcome=outcome,
+            operation=operation,
+            arguments=arguments,
+            invalid_reason=invalid_reason,
+            grounded=grounded,
+        ),
     )
-    return redecided
 
 
 # ---------------------------------------------------------------------------

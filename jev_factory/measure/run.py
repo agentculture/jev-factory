@@ -84,7 +84,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence, cast
 
 from jev_factory import __version__
 from jev_factory.backbones.causal_lm import readout as ro
@@ -1495,15 +1495,17 @@ def _with_progress(plan: RunPlan, args: argparse.Namespace) -> RunPlan:
         return plan
     from jev_factory.factory.detach import Progress
 
-    with_progress: RunPlan = replace(
-        plan,
-        progress=Progress(
-            Path(args.progress_dir),
-            "measure-" + args.label.replace(".", "_"),
-            len(plan.entries) * len(args.model),
+    return cast(
+        RunPlan,
+        replace(
+            plan,
+            progress=Progress(
+                Path(args.progress_dir),
+                "measure-" + args.label.replace(".", "_"),
+                len(plan.entries) * len(args.model),
+            ),
         ),
     )
-    return with_progress
 
 
 def _keep_record(

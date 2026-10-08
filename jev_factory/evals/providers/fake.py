@@ -18,6 +18,7 @@ import dataclasses
 import json
 from collections import deque
 from dataclasses import dataclass, field
+from typing import cast
 
 from .base import (
     BaseProvider,
@@ -243,10 +244,12 @@ class FakeProvider(BaseProvider):
             truncated=bool(doc.get("truncated")),
         )
         result = self._resolve(request, outcome)
-        replayed: CallResult = dataclasses.replace(
-            result, response_id=doc.get("id", ""), returned_model=doc.get("model")
+        return cast(
+            CallResult,
+            dataclasses.replace(
+                result, response_id=doc.get("id", ""), returned_model=doc.get("model")
+            ),
         )
-        return replayed
 
     def reply_text(self, raw: bytes) -> ReplyText:
         """The scripted ``text``/``truncated`` of a raw answer this fake wrote."""

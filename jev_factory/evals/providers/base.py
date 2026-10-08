@@ -30,7 +30,7 @@ import os
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 from jev_factory.release.scan import redact
 
@@ -214,12 +214,14 @@ def _redact_text(text: str) -> str:
 
 
 def _redacted_request(request: CallRequest) -> CallRequest:
-    redacted: CallRequest = dataclasses.replace(
-        request,
-        case_text=_redact_text(request.case_text),
-        prompt=_redact_text(request.prompt),
+    return cast(
+        CallRequest,
+        dataclasses.replace(
+            request,
+            case_text=_redact_text(request.case_text),
+            prompt=_redact_text(request.prompt),
+        ),
     )
-    return redacted
 
 
 class BaseProvider(ABC):

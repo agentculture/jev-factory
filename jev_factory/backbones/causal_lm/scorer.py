@@ -47,7 +47,7 @@ import random
 import re
 import urllib.request
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence, cast
 
 from jev_factory.backbones.causal_lm import readout as ro
 from jev_factory.domain.model import (
@@ -299,8 +299,7 @@ def _memoised_lookups(domain: Domain) -> Domain:
         replace(kind, lookup=once(kind.lookup)) if kind.lookup is not None else kind
         for kind in domain.ground_kinds
     )
-    memoised: Domain = replace(domain, ground_kinds=kinds)
-    return memoised
+    return cast(Domain, replace(domain, ground_kinds=kinds))
 
 
 def _choice_value(name: str, choices: Sequence[str], spellings, text: str) -> str:
