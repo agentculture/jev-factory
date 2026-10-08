@@ -116,6 +116,64 @@ def _split_entries(path: Path) -> list:
     return entries
 
 
+def _kind_values(kind: GroundKind, base: Mapping[str, Any]) -> list[str]:
+    """The kind's live lookup (or the base world's field), its string values only."""
+    if kind.lookup is not None:
+        try:
+            values = kind.lookup()
+        except Exception as exc:  # noqa: BLE001 -- any failed lookup refuses the build
+            raise SnapshotError(
+                f"cannot list this machine's {kind.plural}: {type(exc).__name__}", env=True
+            ) from exc
+    else:
+        values = base.get(kind.world_field) or []
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
+        raise SnapshotError(f"the {kind.plural} lookup did not return a list", env=True)
+    return [v for v in values if isinstance(v, str)]
+
+
+def _expected_args(item: object) -> tuple[str, dict] | None:
+    """``(operation, args)`` a split entry expects, or None when it names no args object."""
+    expect = item.get("expect") if isinstance(item, dict) else None
+    args = expect.get("args") if isinstance(expect, dict) else None
+    if not isinstance(args, dict):
+        return None
+    return str(expect.get("operation")), args
+
+
+def _entry_values(
+    domain: Domain,
+    grounded: Mapping[str, Mapping[str, str]],
+    item: object,
+    live: Mapping[str, list[str]],
+) -> list[tuple[str, str]]:
+    """``(ground kind name, world spelling)`` for each grounded value one split entry expects."""
+    expected = _expected_args(item)
+    if expected is None:
+        return []
+    operation, args = expected
+    values: list[tuple[str, str]] = []
+    for arg, kind_name in grounded.get(operation, {}).items():
+        value = args.get(arg)
+        kind = domain.ground_kind(kind_name)
+        if isinstance(value, str) and value and kind is not None:
+            values.append((kind.name, world_spelling(kind, value, live[kind.name])))
+    return values
+
+
+def _split_values(
+    domain: Domain, splits: Sequence[Path], live: Mapping[str, list[str]]
+) -> dict[str, set[str]]:
+    """ground kind name -> every value the split files expect, spelled the world's way."""
+    grounded = _grounded_args(domain)
+    found: dict[str, set[str]] = {kind.name: set() for kind in domain.ground_kinds}
+    for path in splits:
+        for item in _split_entries(path):
+            for kind_name, spelled in _entry_values(domain, grounded, item, live):
+                found[kind_name].add(spelled)
+    return found
+
+
 def build_snapshot(
     domain: Domain,
     splits: Sequence[Path],
@@ -126,33 +184,8 @@ def build_snapshot(
 ) -> tuple[dict, dict[str, int]]:
     """This machine's (or the base world's) values plus every split value, and counts only."""
     base = dict(base_world or {})
-    live: dict[str, list[str]] = {}
-    for kind in domain.ground_kinds:
-        if kind.lookup is not None:
-            try:
-                values = kind.lookup()
-            except Exception as exc:  # noqa: BLE001 -- any failed lookup refuses the build
-                raise SnapshotError(
-                    f"cannot list this machine's {kind.plural}: {type(exc).__name__}", env=True
-                ) from exc
-        else:
-            values = base.get(kind.world_field) or []
-        if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
-            raise SnapshotError(f"the {kind.plural} lookup did not return a list", env=True)
-        live[kind.name] = [v for v in values if isinstance(v, str)]
-    grounded = _grounded_args(domain)
-    found: dict[str, set[str]] = {kind.name: set() for kind in domain.ground_kinds}
-    for path in splits:
-        for item in _split_entries(path):
-            expect = item.get("expect") if isinstance(item, dict) else None
-            args = expect.get("args") if isinstance(expect, dict) else None
-            if not isinstance(args, dict):
-                continue
-            for arg, kind_name in grounded.get(str(expect.get("operation")), {}).items():
-                value = args.get(arg)
-                kind = domain.ground_kind(kind_name)
-                if isinstance(value, str) and value and kind is not None:
-                    found[kind.name].add(world_spelling(kind, value, live[kind.name]))
+    live = {kind.name: _kind_values(kind, base) for kind in domain.ground_kinds}
+    found = _split_values(domain, splits, live)
     snapshot: dict[str, Any] = {
         field.name: base[field.name] for field in domain.world_schema if field.name in base
     }

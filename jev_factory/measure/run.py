@@ -1046,10 +1046,9 @@ def _serving_line(record: RunRecord) -> str:
     return f"- `{record.model}` serving: " + ", ".join(parts)
 
 
-def render_markdown(prov: Provenance, records: Sequence[RunRecord]) -> str:
-    seed = f"{prov.seed} ({prov.seed_origin})" if prov.seed is not None else "not recorded"
-    nothing = bool(records) and all(record.failure for record in records)
-    lines = [f"# Scorer measurement, {prov.date}: {prov.label}", ""]
+def _warning_lines(prov: Provenance, nothing: bool) -> list[str]:
+    """The bold warnings above the provenance list: nothing measured, tier errors allowed."""
+    lines: list[str] = []
     if nothing:
         lines += [
             "**Nothing was measured: every model's start-up failed.** A re-run with the",
@@ -1063,6 +1062,38 @@ def render_markdown(prov: Provenance, records: Sequence[RunRecord]) -> str:
             "unreachable for at least one entry; this run is not a clean measurement.",
             "",
         ]
+    return lines
+
+
+def _sealed_lines(prov: Provenance, nothing: bool) -> list[str]:
+    """The acceptance/final lines, with the sealed side's measurement count when sealed."""
+    lines = [
+        f"- Acceptance run: {'yes' if prov.acceptance else 'no'}",
+        FINAL_MARKER if prov.final else "- Final run: no",
+    ]
+    if prov.final or prov.acceptance:
+        side = TEST if prov.final else HELD_OUT
+        slice_note = "" if prov.slice == SLICE_FULL else f" ({prov.slice} slice)"
+        lines.append(
+            f"- Measurements of the {side} side{slice_note} in this run, including this one:"
+            f" {prov.sealed_before + (0 if nothing else 1)}"
+        )
+    return lines
+
+
+def _background_lines(records: Sequence[RunRecord]) -> list[str]:
+    lines: list[str] = []
+    for record in records:
+        lines += [f"### `{record.model}`", "", "`nvidia-smi`:", "", "```text"]
+        lines += [record.nvidia_smi or "(not captured)", "```", ""]
+    return lines
+
+
+def render_markdown(prov: Provenance, records: Sequence[RunRecord]) -> str:
+    seed = f"{prov.seed} ({prov.seed_origin})" if prov.seed is not None else "not recorded"
+    nothing = bool(records) and all(record.failure for record in records)
+    lines = [f"# Scorer measurement, {prov.date}: {prov.label}", ""]
+    lines += _warning_lines(prov, nothing)
     lines += [
         f"- Command: `{prov.command}`",
         f"- Domain: `{prov.domain}`, candidate surface sha256 `{prov.surface_sha256}`",
@@ -1086,17 +1117,7 @@ def render_markdown(prov: Provenance, records: Sequence[RunRecord]) -> str:
     lines.append(f"- Calibration: {prov.calibration_note or calibration_note(None)}")
     if nothing:
         lines.append(NOT_MEASURED_MARKER)
-    lines += [
-        f"- Acceptance run: {'yes' if prov.acceptance else 'no'}",
-        FINAL_MARKER if prov.final else "- Final run: no",
-    ]
-    if prov.final or prov.acceptance:
-        side = TEST if prov.final else HELD_OUT
-        slice_note = "" if prov.slice == SLICE_FULL else f" ({prov.slice} slice)"
-        lines.append(
-            f"- Measurements of the {side} side{slice_note} in this run, including this one:"
-            f" {prov.sealed_before + (0 if nothing else 1)}"
-        )
+    lines += _sealed_lines(prov, nothing)
     if prov.deviation:
         lines.append(f"- Deviation: `{prov.deviation}`")
     if prov.problems:
@@ -1119,9 +1140,7 @@ def render_markdown(prov: Provenance, records: Sequence[RunRecord]) -> str:
         "## Background before each run",
         "",
     ]
-    for record in records:
-        lines += [f"### `{record.model}`", "", "`nvidia-smi`:", "", "```text"]
-        lines += [record.nvidia_smi or "(not captured)", "```", ""]
+    lines += _background_lines(records)
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -1214,8 +1233,8 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _check_flags(args: argparse.Namespace) -> None:
-    """Refuse flag combinations before anything is loaded or started."""
+def _check_common_flags(args: argparse.Namespace) -> None:
+    """The flags every scorer kind shares: label, revisions, tier errors, grounding, ctx."""
     if not _LABEL_RE.match(args.label):
         raise MeasureError(
             EXIT_USER,
@@ -1237,6 +1256,36 @@ def _check_flags(args: argparse.Namespace) -> None:
         once.check_deviation_id(args.deviation)
     except ValueError as exc:
         raise MeasureError(EXIT_USER, str(exc)) from exc
+
+
+def _check_serve_flags(args: argparse.Namespace) -> None:
+    """--serve: this stage starts the server, for one model, with its tokenizer."""
+    if len(args.model) != 1:
+        raise MeasureError(EXIT_USER, "--serve serves one --model per run")
+    if args.tokenizer is None:
+        raise MeasureError(
+            EXIT_USER,
+            "--serve needs --tokenizer: the served name is not a loadable tokenizer",
+            "pass the source model directory the build was made from",
+        )
+
+
+def _check_attach_flags(args: argparse.Namespace) -> None:
+    """--base-url: the attached engine must allow READOUT_TOP log-probabilities."""
+    needed = ro.READOUT_TOP
+    if args.max_logprobs is None or args.max_logprobs < needed:
+        raise MeasureError(
+            EXIT_USER,
+            f"a served scorer asks for {needed} log-probabilities (READOUT_TOP) per request;"
+            " --max-logprobs must say the attached engine allows that",
+            f"start the server with --max-logprobs {needed} or more and pass the same value,"
+            " or let this stage start it (--serve)",
+        )
+
+
+def _check_flags(args: argparse.Namespace) -> None:
+    """Refuse flag combinations before anything is loaded or started."""
+    _check_common_flags(args)
     if args.scorer == SCORER_IN_PROCESS:
         if args.base_url or args.serve:
             raise MeasureError(EXIT_USER, "--base-url/--serve apply to --scorer served only")
@@ -1247,24 +1296,9 @@ def _check_flags(args: argparse.Namespace) -> None:
             "a served scorer needs exactly one of --base-url (attach) or --serve (start it)",
         )
     if args.serve:
-        if len(args.model) != 1:
-            raise MeasureError(EXIT_USER, "--serve serves one --model per run")
-        if args.tokenizer is None:
-            raise MeasureError(
-                EXIT_USER,
-                "--serve needs --tokenizer: the served name is not a loadable tokenizer",
-                "pass the source model directory the build was made from",
-            )
-        return
-    needed = ro.READOUT_TOP
-    if args.max_logprobs is None or args.max_logprobs < needed:
-        raise MeasureError(
-            EXIT_USER,
-            f"a served scorer asks for {needed} log-probabilities (READOUT_TOP) per request;"
-            " --max-logprobs must say the attached engine allows that",
-            f"start the server with --max-logprobs {needed} or more and pass the same value,"
-            " or let this stage start it (--serve)",
-        )
+        _check_serve_flags(args)
+    else:
+        _check_attach_flags(args)
 
 
 def _world(
@@ -1379,6 +1413,256 @@ def run(argv: Sequence[str], seams: Seams) -> int:
         ) from exc
 
 
+def _results_page(args: argparse.Namespace, measure_dir: Path, date: str) -> Path:
+    """The results page path; refuses to overwrite one that measured something."""
+    out = Path(args.out) if args.out else measure_dir / f"{date}-{args.label}.md"
+    if out.exists() and not args.force:
+        if not measured_nothing(out):
+            raise MeasureError(
+                EXIT_USER, f"{out} already exists", "pick another --label or --force"
+            )
+        print(
+            f"note: replacing {out}: its run measured nothing (every start-up failed)",
+            file=sys.stderr,
+        )
+    return out
+
+
+def _corpus_raw(args: argparse.Namespace, raw: dict, domain: Domain) -> dict:
+    """The split itself, or its missing-candidate slice."""
+    if args.slice != SLICE_MISSING:
+        return raw
+    header = raw.get("header")
+    header_text = header if isinstance(header, str) else json.dumps(header, sort_keys=True)
+    return missing_candidate_slice(
+        {"header": header_text, "entries": raw["entries"]}, domain.names()
+    )
+
+
+def _seed(args: argparse.Namespace, raw: dict) -> tuple[int | None, str]:
+    if args.seed is not None:
+        return args.seed, "--seed"
+    return seed_from_header(raw.get("header")), "from the split header"
+
+
+def _serve_settings(args: argparse.Namespace, measure_dir: Path) -> serve.ServeSettings | None:
+    """--serve: the environment's settings with this run's overrides; else None."""
+    if not args.serve:
+        return None
+    settings = serve.ServeSettings.from_env()
+    overrides = {
+        "run_dir": measure_dir / "serve",
+        "ctx": args.ctx,
+        "llama_server": args.llama_server,
+        "image": args.image,
+    }
+    return replace(settings, **{k: v for k, v in overrides.items() if v is not None})
+
+
+def _context(args: argparse.Namespace, settings: serve.ServeSettings | None) -> int:
+    if args.ctx is not None:
+        return args.ctx
+    if settings:
+        return settings.ctx
+    return 2048
+
+
+def _guard_gpu(
+    args: argparse.Namespace, settings: serve.ServeSettings | None, seams: Seams
+) -> None:
+    """Refuse next to a foreign GPU job unless the run scores on the CPU only."""
+    cpu_served = bool(
+        args.serve
+        and settings is not None
+        and settings.gpu_layers == 0
+        and str(args.serve).endswith(".gguf")
+    )
+    if args.scorer == SCORER_IN_PROCESS or (args.serve and not cpu_served):
+        try:
+            seams.gpu_guard("measure", allow_foreign=args.allow_foreign_gpu)
+        except Exception as exc:  # noqa: BLE001 -- GpuBusyError / GpuQueryError
+            raise MeasureError(
+                EXIT_ENV, str(exc), "stop the other GPU job, or pass --allow-foreign-gpu"
+            ) from exc
+
+
+def _with_progress(plan: RunPlan, args: argparse.Namespace) -> RunPlan:
+    if not args.progress_dir:
+        return plan
+    from jev_factory.factory.detach import Progress
+
+    return replace(
+        plan,
+        progress=Progress(
+            Path(args.progress_dir),
+            "measure-" + args.label.replace(".", "_"),
+            len(plan.entries) * len(args.model),
+        ),
+    )
+
+
+def _keep_record(
+    record: RunRecord,
+    name: str,
+    keep: Path,
+    calibration: Calibration | None,
+    domain: Domain,
+) -> None:
+    """Calibrate (when asked) and score one record; write its predictions and metrics."""
+    if calibration is not None:
+        record.raw_calibration = metrics.compute_calibration(record.predictions)
+        record.predictions = calibrate_lines(record.predictions, calibration)
+    record.metrics = score_predictions(
+        record.predictions, keep / f"{name}.predictions.jsonl", domain
+    )
+    kept = dict(record.metrics)
+    kept["readout"] = readout_counts(record.notes)
+    kept["top_asked"] = sorted(set(record.top_asked))
+    if calibration is not None:
+        kept["calibration_applied"] = {
+            "params": calibration.path,
+            "sha256": calibration.sha256,
+            "before": record.raw_calibration,
+        }
+    (keep / f"{name}.metrics.json").write_text(
+        json.dumps(kept, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def _tier_error_total(records: Sequence[RunRecord]) -> int:
+    return sum(
+        record.metrics.get("invalid", {}).get("by_reason", {}).get(TIER_ERROR_REASON, 0)
+        for record in records
+        if not record.failure
+    )
+
+
+def _slice_note(args: argparse.Namespace) -> str:
+    if args.slice == SLICE_FULL:
+        return "full split"
+    return (
+        f"{SLICE_MISSING} (each operation entry with its gold operation left out"
+        " of the offered candidates, expected to escalate)"
+    )
+
+
+@dataclass(frozen=True)
+class _RunFacts:
+    """What a run settled before scoring, carried into its provenance."""
+
+    date: str
+    split_path: Path
+    seed: int | None
+    seed_origin: str
+    snapshot_note: str
+    sealed_before: int
+    calibration: Calibration | None
+    #: Where the predictions and metrics files go.
+    keep: Path
+
+
+def _provenance(
+    args: argparse.Namespace,
+    argv: Sequence[str],
+    plan: RunPlan,
+    facts: _RunFacts,
+    tier_errors: int,
+) -> Provenance:
+    return Provenance(
+        date=facts.date,
+        label=args.label,
+        command=home_relative(shlex.join(["python -m jev_factory.measure.run", *argv])),
+        domain=plan.domain.name,
+        surface_sha256=plan.domain.surface_sha256(),
+        split_path=home_relative(str(facts.split_path)),
+        split_sha256=sha256_file(facts.split_path),
+        split_count=len(plan.entries),
+        source_count=len({entry.source_id for entry in plan.entries}),
+        problems=plan.problems,
+        seed=facts.seed,
+        seed_origin=facts.seed_origin,
+        grounding=plan.grounding,
+        final=args.final,
+        acceptance=args.acceptance,
+        sealed_before=facts.sealed_before,
+        slice=args.slice,
+        deviation=args.deviation,
+        decision_mode=_mode_note(args),
+        slice_note=_slice_note(args),
+        snapshot_note=facts.snapshot_note,
+        tier_errors=tier_errors,
+        tier_errors_allowed=args.allow_tier_errors,
+        calibration_note=calibration_note(facts.calibration),
+        ctx=plan.ctx,
+    )
+
+
+def _record_sealed(
+    sealed: tuple[once.OnceLedger, str] | None,
+    records: Sequence[RunRecord],
+    args: argparse.Namespace,
+    facts: _RunFacts,
+    status: str,
+) -> None:
+    """A sealed side is touched once: any run that scored entries is recorded, cleanly
+    or not; a run whose every start-up failed (or was refused) never is (P71)."""
+    if sealed is not None and any(not record.failure for record in records):
+        ledger, side = sealed
+        ledger.append(
+            once.OnceRecord(
+                side=side,
+                split_sha256=sha256_file(facts.split_path),
+                label=args.label,
+                date=facts.date,
+                status=status,
+                deviation=args.deviation,
+                slice=args.slice,
+            )
+        )
+
+
+def _score_and_write(
+    args: argparse.Namespace,
+    argv: Sequence[str],
+    plan: RunPlan,
+    facts: _RunFacts,
+    out: Path,
+    records: list[RunRecord],
+    seams: Seams,
+) -> int:
+    """Score every model into *records*, keep its files and write the results page."""
+    for model, revision in zip(args.model, args.revision):
+        records.append(score_one(plan, model, revision, seams))
+    for index, record in enumerate(records, start=1):
+        if not record.failure:
+            name = f"{args.label}-{index}-{_slug(record.model)}"
+            _keep_record(record, name, facts.keep, facts.calibration, plan.domain)
+
+    tier_error_total = _tier_error_total(records)
+    if tier_error_total > args.allow_tier_errors:
+        print(
+            f"error: {tier_error_total} tier_error prediction(s) (server unreachable"
+            f" mid-run), above --allow-tier-errors {args.allow_tier_errors}; not writing"
+            f" {out}",
+            file=sys.stderr,
+        )
+        print(
+            "hint: fix or restart the server and re-run, or pass --allow-tier-errors N",
+            file=sys.stderr,
+        )
+        return EXIT_ENV
+
+    prov = _provenance(args, argv, plan, facts, tier_error_total)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render_markdown(prov, records), encoding="utf-8")
+    print(render_metrics(records))
+    print(f"wrote {out}")
+    failed = [record for record in records if record.failure]
+    for record in failed:
+        print(f"error: {record.model}: {record.failure}", file=sys.stderr)
+    return EXIT_ENV if failed else EXIT_OK
+
+
 def _run(
     args: argparse.Namespace,
     argv: Sequence[str],
@@ -1391,44 +1675,16 @@ def _run(
 ) -> int:
     date = seams.today()
     measure_dir = run_dir / "measure"
-    out = Path(args.out) if args.out else measure_dir / f"{date}-{args.label}.md"
-    if out.exists() and not args.force:
-        if not measured_nothing(out):
-            raise MeasureError(
-                EXIT_USER, f"{out} already exists", "pick another --label or --force"
-            )
-        print(
-            f"note: replacing {out}: its run measured nothing (every start-up failed)",
-            file=sys.stderr,
-        )
+    out = _results_page(args, measure_dir, date)
     calibration = load_calibration(Path(args.calibration)) if args.calibration else None
     world, grounding, snapshot_note = _world(args, raw, domain)
 
-    corpus_raw = raw
-    if args.slice == SLICE_MISSING:
-        header = raw.get("header")
-        header_text = header if isinstance(header, str) else json.dumps(header, sort_keys=True)
-        corpus_raw = missing_candidate_slice(
-            {"header": header_text, "entries": raw["entries"]}, domain.names()
-        )
-    loaded = load_raw(corpus_raw, domain)
+    loaded = load_raw(_corpus_raw(args, raw, domain), domain)
     if not loaded.entries:
         raise MeasureError(EXIT_USER, f"{split_path.name} has no valid entries")
-    seed, seed_origin = args.seed, "--seed"
-    if seed is None:
-        seed, seed_origin = seed_from_header(raw.get("header")), "from the split header"
+    seed, seed_origin = _seed(args, raw)
 
-    settings = None
-    if args.serve:
-        settings = serve.ServeSettings.from_env()
-        overrides = {
-            "run_dir": measure_dir / "serve",
-            "ctx": args.ctx,
-            "llama_server": args.llama_server,
-            "image": args.image,
-        }
-        settings = replace(settings, **{k: v for k, v in overrides.items() if v is not None})
-    ctx = args.ctx if args.ctx is not None else (settings.ctx if settings else 2048)
+    settings = _serve_settings(args, measure_dir)
     plan = RunPlan(
         domain=domain,
         entries=loaded.entries,
@@ -1443,142 +1699,31 @@ def _run(
         serve_path=args.serve,
         port=args.port,
         settings=settings,
-        ctx=ctx,
+        ctx=_context(args, settings),
     )
-
-    cpu_served = bool(
-        args.serve
-        and settings is not None
-        and settings.gpu_layers == 0
-        and str(args.serve).endswith(".gguf")
-    )
-    if args.scorer == SCORER_IN_PROCESS or (args.serve and not cpu_served):
-        try:
-            seams.gpu_guard("measure", allow_foreign=args.allow_foreign_gpu)
-        except Exception as exc:  # noqa: BLE001 -- GpuBusyError / GpuQueryError
-            raise MeasureError(
-                EXIT_ENV, str(exc), "stop the other GPU job, or pass --allow-foreign-gpu"
-            ) from exc
+    _guard_gpu(args, settings, seams)
     sealed_before = 0
     if sealed is not None:
         sealed_before = len(sealed[0].measured(sealed[1], args.slice))
-
-    if args.progress_dir:
-        from jev_factory.factory.detach import Progress
-
-        plan = replace(
-            plan,
-            progress=Progress(
-                Path(args.progress_dir),
-                "measure-" + args.label.replace(".", "_"),
-                len(loaded.entries) * len(args.model),
-            ),
-        )
+    plan = _with_progress(plan, args)
+    facts = _RunFacts(
+        date=date,
+        split_path=split_path,
+        seed=seed,
+        seed_origin=seed_origin,
+        snapshot_note=snapshot_note,
+        sealed_before=sealed_before,
+        calibration=calibration,
+        keep=Path(args.predictions) if args.predictions else measure_dir / args.label,
+    )
     records: list[RunRecord] = []
-    status = once.FAILED_MID_RUN
+    code = EXIT_ENV
     try:
-        for model, revision in zip(args.model, args.revision):
-            records.append(score_one(plan, model, revision, seams))
-        keep = Path(args.predictions) if args.predictions else measure_dir / args.label
-        for index, record in enumerate(records, start=1):
-            if record.failure:
-                continue
-            name = f"{args.label}-{index}-{_slug(record.model)}"
-            if calibration is not None:
-                record.raw_calibration = metrics.compute_calibration(record.predictions)
-                record.predictions = calibrate_lines(record.predictions, calibration)
-            record.metrics = score_predictions(
-                record.predictions, keep / f"{name}.predictions.jsonl", domain
-            )
-            kept = dict(record.metrics)
-            kept["readout"] = readout_counts(record.notes)
-            kept["top_asked"] = sorted(set(record.top_asked))
-            if calibration is not None:
-                kept["calibration_applied"] = {
-                    "params": calibration.path,
-                    "sha256": calibration.sha256,
-                    "before": record.raw_calibration,
-                }
-            (keep / f"{name}.metrics.json").write_text(
-                json.dumps(kept, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-            )
-
-        tier_error_total = sum(
-            record.metrics.get("invalid", {}).get("by_reason", {}).get(TIER_ERROR_REASON, 0)
-            for record in records
-            if not record.failure
-        )
-        if tier_error_total > args.allow_tier_errors:
-            print(
-                f"error: {tier_error_total} tier_error prediction(s) (server unreachable"
-                f" mid-run), above --allow-tier-errors {args.allow_tier_errors}; not writing"
-                f" {out}",
-                file=sys.stderr,
-            )
-            print(
-                "hint: fix or restart the server and re-run, or pass --allow-tier-errors N",
-                file=sys.stderr,
-            )
-            return EXIT_ENV
-
-        prov = Provenance(
-            date=date,
-            label=args.label,
-            command=home_relative(shlex.join(["python -m jev_factory.measure.run", *argv])),
-            domain=domain.name,
-            surface_sha256=domain.surface_sha256(),
-            split_path=home_relative(str(split_path)),
-            split_sha256=sha256_file(split_path),
-            split_count=len(loaded.entries),
-            source_count=len({entry.source_id for entry in loaded.entries}),
-            problems=loaded.problems,
-            seed=seed,
-            seed_origin=seed_origin,
-            grounding=grounding,
-            final=args.final,
-            acceptance=args.acceptance,
-            sealed_before=sealed_before,
-            slice=args.slice,
-            deviation=args.deviation,
-            decision_mode=_mode_note(args),
-            slice_note=(
-                "full split"
-                if args.slice == SLICE_FULL
-                else f"{SLICE_MISSING} (each operation entry with its gold operation left out"
-                " of the offered candidates, expected to escalate)"
-            ),
-            snapshot_note=snapshot_note,
-            tier_errors=tier_error_total,
-            tier_errors_allowed=args.allow_tier_errors,
-            calibration_note=calibration_note(calibration),
-            ctx=ctx,
-        )
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(render_markdown(prov, records), encoding="utf-8")
-        print(render_metrics(records))
-        print(f"wrote {out}")
-        failed = [record for record in records if record.failure]
-        for record in failed:
-            print(f"error: {record.model}: {record.failure}", file=sys.stderr)
-        if not failed:
-            status = once.MEASURED
-        return EXIT_ENV if failed else EXIT_OK
+        code = _score_and_write(args, argv, plan, facts, out, records, seams)
+        return code
     finally:
-        # A sealed side is touched once: any run that scored entries is recorded, cleanly
-        # or not; a run whose every start-up failed (or was refused) never is (P71).
-        if sealed is not None and any(not record.failure for record in records):
-            ledger, side = sealed
-            ledger.append(
-                once.OnceRecord(
-                    side=side,
-                    split_sha256=sha256_file(split_path),
-                    label=args.label,
-                    date=date,
-                    status=status,
-                    deviation=args.deviation,
-                    slice=args.slice,
-                )
-            )
+        status = once.MEASURED if code == EXIT_OK else once.FAILED_MID_RUN
+        _record_sealed(sealed, records, args, facts, status)
 
 
 def main(argv: Sequence[str] | None = None, *, seams: Seams | None = None) -> int:

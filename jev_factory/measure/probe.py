@@ -250,6 +250,65 @@ def _incomplete(scored: sc.ScorerPrediction) -> bool:
     return scored.choice is None or scored.incomplete is not None
 
 
+@dataclass(frozen=True)
+class _Baseline:
+    """One entry's unperturbed draw: what every trial of the entry is compared against."""
+
+    order: list[str]
+    labels: Mapping[str, str]
+    gold: str
+    scored: sc.ScorerPrediction
+
+
+def _kind_trials(
+    domain: Domain,
+    top_k: sc.TopK,
+    render: Render,
+    entry: CorpusEntry,
+    kind: str,
+    baseline: _Baseline,
+    *,
+    pool: Sequence[str],
+    per_entry: int,
+    seed: object,
+    paraphrases: Mapping[str, Sequence[str]] | None,
+    reasons: bool,
+) -> list[tuple[bool, bool, bool | None, bool]]:
+    """*per_entry* scored trials of *kind* against *baseline* (none for paraphrase without any)."""
+    if kind == "paraphrase" and not paraphrases:
+        return []
+    baseline_incomplete = _incomplete(baseline.scored)
+    trials: list[tuple[bool, bool, bool | None, bool]] = []
+    for index in range(per_entry):
+        trial = build_trial(
+            kind,
+            derive_seed(seed, entry.id, kind, index),
+            pool,
+            baseline.order,
+            baseline.labels,
+            baseline.gold,
+            baseline.scored.choice,
+            paraphrases,
+        )
+        scored = _score(
+            domain,
+            top_k,
+            render,
+            entry.text,
+            trial.order,
+            trial.labels,
+            trial.descriptions,
+            reasons,
+        )
+        # A baseline or trial the scorer could not fully read is not evidence of an
+        # answer change either way -- tallied separately, never scored.
+        incomplete = baseline_incomplete or _incomplete(scored)
+        changed = False if incomplete else not sc.same_choice(scored, baseline.scored)
+        has_lowercase = any(letter.islower() for letter in trial.labels.values())
+        trials.append((changed, has_lowercase, trial.baseline_choice_dropped, incomplete))
+    return trials
+
+
 def probe_entry(
     domain: Domain,
     top_k: sc.TopK,
@@ -264,49 +323,31 @@ def probe_entry(
     reasons: bool = False,
 ) -> EntryOutcome:
     """Baseline plus *per_entry* trials of each of *kinds* for one corpus entry."""
-    request_text = entry.text
     gold = gold_name(domain, entry.expect, reasons=reasons, cls=entry.phrasing or None)
     if reasons:
         baseline_labels = sc.positional_labels(pool, pool)
     else:
         baseline_labels = sc.labels_for(domain, pool)
     baseline_order = list(pool)
-    baseline = _score(
-        domain, top_k, render, request_text, baseline_order, baseline_labels, None, reasons
+    scored = _score(
+        domain, top_k, render, entry.text, baseline_order, baseline_labels, None, reasons
     )
-    baseline_incomplete = _incomplete(baseline)
-    outcome = EntryOutcome(entry_id=entry.id, gold=gold, baseline_choice=baseline.choice)
+    baseline = _Baseline(order=baseline_order, labels=baseline_labels, gold=gold, scored=scored)
+    outcome = EntryOutcome(entry_id=entry.id, gold=gold, baseline_choice=scored.choice)
     for kind in kinds:
-        trials: list[tuple[bool, bool, bool | None, bool]] = []
-        for index in range(per_entry):
-            if kind == "paraphrase" and not paraphrases:
-                break
-            trial = build_trial(
-                kind,
-                derive_seed(seed, entry.id, kind, index),
-                pool,
-                baseline_order,
-                baseline_labels,
-                gold,
-                baseline.choice,
-                paraphrases,
-            )
-            scored = _score(
-                domain,
-                top_k,
-                render,
-                request_text,
-                trial.order,
-                trial.labels,
-                trial.descriptions,
-                reasons,
-            )
-            # A baseline or trial the scorer could not fully read is not evidence of an
-            # answer change either way -- tallied separately, never scored.
-            incomplete = baseline_incomplete or _incomplete(scored)
-            changed = False if incomplete else not sc.same_choice(scored, baseline)
-            has_lowercase = any(letter.islower() for letter in trial.labels.values())
-            trials.append((changed, has_lowercase, trial.baseline_choice_dropped, incomplete))
+        trials = _kind_trials(
+            domain,
+            top_k,
+            render,
+            entry,
+            kind,
+            baseline,
+            pool=pool,
+            per_entry=per_entry,
+            seed=seed,
+            paraphrases=paraphrases,
+            reasons=reasons,
+        )
         if trials:
             outcome.trials[kind] = trials
     return outcome
@@ -324,19 +365,38 @@ def _rate_stat(pairs: Sequence[tuple[int, int]]) -> float | None:
     return sum(changes for _, changes in pairs) / total_trials
 
 
-def kind_report(outcomes: Sequence[EntryOutcome], kind: str, *, bootstrap_seed: int) -> dict | None:
-    """One kind's report: trials, changes, rate with a bootstrap CI over entries, label case."""
-    per_entry_pairs: list[tuple[int, int]] = []
-    lowercase_trials = lowercase_changes = 0
-    uppercase_trials = uppercase_changes = 0
-    baseline_dropped = subset_trials_seen = 0
-    incomplete_count = raw_trial_count = 0
-    for outcome in outcomes:
-        trials = outcome.trials.get(kind)
-        if not trials:
-            continue
-        raw_trial_count += len(trials)
-        incomplete_count += sum(1 for *_, incomplete in trials if incomplete)
+def _ratio(part: int, whole: int) -> float | None:
+    return (part / whole) if whole else None
+
+
+@dataclass
+class _KindTally:
+    """One kind's counts over every entry, before the bootstrap."""
+
+    per_entry_pairs: list[tuple[int, int]] = field(default_factory=list)
+    lowercase_trials: int = 0
+    lowercase_changes: int = 0
+    uppercase_trials: int = 0
+    uppercase_changes: int = 0
+    baseline_dropped: int = 0
+    subset_trials_seen: int = 0
+    incomplete_count: int = 0
+    raw_trial_count: int = 0
+
+    def add_scored(self, changed: bool, has_lowercase: bool, dropped: bool | None) -> None:
+        if has_lowercase:
+            self.lowercase_trials += 1
+            self.lowercase_changes += int(changed)
+        else:
+            self.uppercase_trials += 1
+            self.uppercase_changes += int(changed)
+        if dropped is not None:
+            self.subset_trials_seen += 1
+            self.baseline_dropped += int(dropped)
+
+    def add_entry(self, trials: Sequence[tuple[bool, bool, bool | None, bool]]) -> None:
+        self.raw_trial_count += len(trials)
+        self.incomplete_count += sum(1 for *_, incomplete in trials if incomplete)
         scored_trials = [
             (changed, has_lowercase, dropped)
             for changed, has_lowercase, dropped, incomplete in trials
@@ -344,49 +404,51 @@ def kind_report(outcomes: Sequence[EntryOutcome], kind: str, *, bootstrap_seed: 
         ]
         if scored_trials:
             changes = sum(1 for changed, _, _ in scored_trials if changed)
-            per_entry_pairs.append((len(scored_trials), changes))
+            self.per_entry_pairs.append((len(scored_trials), changes))
         for changed, has_lowercase, dropped in scored_trials:
-            if has_lowercase:
-                lowercase_trials += 1
-                lowercase_changes += int(changed)
-            else:
-                uppercase_trials += 1
-                uppercase_changes += int(changed)
-            if dropped is not None:
-                subset_trials_seen += 1
-                baseline_dropped += int(dropped)
-    if raw_trial_count == 0:
+            self.add_scored(changed, has_lowercase, dropped)
+
+
+def kind_report(outcomes: Sequence[EntryOutcome], kind: str, *, bootstrap_seed: int) -> dict | None:
+    """One kind's report: trials, changes, rate with a bootstrap CI over entries, label case."""
+    tally = _KindTally()
+    for outcome in outcomes:
+        trials = outcome.trials.get(kind)
+        if trials:
+            tally.add_entry(trials)
+    if tally.raw_trial_count == 0:
         return None
-    ci = metrics.bootstrap_ci(per_entry_pairs, _rate_stat, seed=bootstrap_seed)
+    pairs = tally.per_entry_pairs
+    ci = metrics.bootstrap_ci(pairs, _rate_stat, seed=bootstrap_seed)
     report = {
         "kind": kind,
-        "entries": len(per_entry_pairs),
-        "trials": sum(t for t, _ in per_entry_pairs),
-        "changes": sum(c for _, c in per_entry_pairs),
+        "entries": len(pairs),
+        "trials": sum(t for t, _ in pairs),
+        "changes": sum(c for _, c in pairs),
         "rate": ci["value"],
         "ci_low": ci["ci_low"],
         "ci_high": ci["ci_high"],
         "bootstrap_note": "95% CI is a bootstrap over entries, not trials (trials of one"
         " entry are correlated)",
         "incomplete": {
-            "trials": incomplete_count,
-            "of": raw_trial_count,
-            "rate": (incomplete_count / raw_trial_count) if raw_trial_count else None,
+            "trials": tally.incomplete_count,
+            "of": tally.raw_trial_count,
+            "rate": _ratio(tally.incomplete_count, tally.raw_trial_count),
         },
         "label_case": {
-            "lowercase_trials": lowercase_trials,
-            "lowercase_changes": lowercase_changes,
-            "lowercase_rate": (lowercase_changes / lowercase_trials) if lowercase_trials else None,
-            "uppercase_trials": uppercase_trials,
-            "uppercase_changes": uppercase_changes,
-            "uppercase_rate": (uppercase_changes / uppercase_trials) if uppercase_trials else None,
+            "lowercase_trials": tally.lowercase_trials,
+            "lowercase_changes": tally.lowercase_changes,
+            "lowercase_rate": _ratio(tally.lowercase_changes, tally.lowercase_trials),
+            "uppercase_trials": tally.uppercase_trials,
+            "uppercase_changes": tally.uppercase_changes,
+            "uppercase_rate": _ratio(tally.uppercase_changes, tally.uppercase_trials),
         },
     }
     if kind == "subset":
         report["baseline_choice_removed"] = {
-            "trials": subset_trials_seen,
-            "removed": baseline_dropped,
-            "rate": (baseline_dropped / subset_trials_seen) if subset_trials_seen else None,
+            "trials": tally.subset_trials_seen,
+            "removed": tally.baseline_dropped,
+            "rate": _ratio(tally.baseline_dropped, tally.subset_trials_seen),
         }
     return report
 
@@ -512,14 +574,11 @@ def _build_real_scorer(args: argparse.Namespace):  # a model or server
     return measure.build_scorer(spec)
 
 
-def main(
-    argv: Sequence[str] | None = None,
-    *,
-    build_scorer: Callable[[argparse.Namespace], object] = _build_real_scorer,
-) -> int:
-    from jev_factory.domain.validate import load_domain
-    from jev_factory.measure.corpus import load_corpus
+class _Refused(Exception):
+    """A CLI refusal: printed as ``error: <message>``, exit code 1."""
 
+
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m jev_factory.measure.probe",
         description="Answer-change rate under seeded order/letter/subset/paraphrase"
@@ -545,59 +604,92 @@ def main(
     parser.add_argument("--base-url", default=None, help="served: attached localhost endpoint")
     parser.add_argument("--scorer", default="in-process", choices=("served", "in-process"))
     parser.add_argument("--reasons", action="store_true", help="probe the escalate:<r> pool")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def _load_split(args: argparse.Namespace) -> tuple[Domain, Sequence[CorpusEntry]]:
+    """The domain and the split's valid entries; refuses a sealed split without --final."""
+    from jev_factory.domain.validate import load_domain
+    from jev_factory.measure.corpus import load_corpus
 
     split_path = Path(args.split)
     try:
         domain = load_domain(args.domain)
         raw = json.loads(split_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:  # DomainError is a ValueError
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
+        raise _Refused(str(exc)) from exc
     header = raw.get("header") if isinstance(raw, dict) else None
     markers = split_markers(split_path, header)
     if markers and not args.final:
-        print(
-            f"error: {split_path} looks like the {' and '.join(sorted(markers))} split; "
-            "refusing to probe it without --final",
-            file=sys.stderr,
+        raise _Refused(
+            f"{split_path} looks like the {' and '.join(sorted(markers))} split; "
+            "refusing to probe it without --final"
         )
-        return 1
     loaded = load_corpus(split_path, domain)
     if not loaded.entries:
-        print(f"error: {split_path} has no valid entries", file=sys.stderr)
-        return 1
+        raise _Refused(f"{split_path} has no valid entries")
+    return domain, loaded.entries
+
+
+def _paraphrases(args: argparse.Namespace, domain: Domain) -> dict[str, list[str]]:
     try:
-        paraphrases = (
+        return (
             load_paraphrases(Path(args.paraphrases))
             if args.paraphrases
             else domain_paraphrases(domain)
         )
     except ProbeError as exc:
+        raise _Refused(str(exc)) from exc
+
+
+def _check_scorer_args(args: argparse.Namespace) -> None:
+    if not args.model:
+        raise _Refused("--model is required (no fake scorer is wired to the CLI)")
+    if args.scorer == "served" and not args.base_url:
+        raise _Refused("--scorer served needs --base-url")
+
+
+def _progress(args: argparse.Namespace, total: int) -> Any:
+    if not args.progress_dir:
+        return None
+    from jev_factory.factory.detach import Progress
+
+    where = Path(args.out) if args.out else Path(args.split)
+    stem = f"{where.parent.name}-{where.stem}" if where.parent.name else where.stem
+    return Progress(Path(args.progress_dir), "probe-" + stem.replace(".", "_"), total)
+
+
+def _write_report(args: argparse.Namespace, report: dict) -> None:
+    payload = json.dumps(report, indent=2, sort_keys=True)
+    if args.out:
+        Path(args.out).write_text(payload + "\n", encoding="utf-8")
+    else:
+        print(payload)
+    if args.markdown:
+        Path(args.markdown).write_text(render_markdown(report), encoding="utf-8")
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    build_scorer: Callable[[argparse.Namespace], object] = _build_real_scorer,
+) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        domain, entries = _load_split(args)
+        paraphrases = _paraphrases(args, domain)
+        _check_scorer_args(args)
+    except _Refused as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    if not args.model:
-        print("error: --model is required (no fake scorer is wired to the CLI)", file=sys.stderr)
-        return 1
-    if args.scorer == "served" and not args.base_url:
-        print("error: --scorer served needs --base-url", file=sys.stderr)
-        return 1
-    progress = None
-    if args.progress_dir:
-        from jev_factory.factory.detach import Progress
-
-        where = Path(args.out) if args.out else Path(args.split)
-        stem = f"{where.parent.name}-{where.stem}" if where.parent.name else where.stem
-        progress = Progress(
-            Path(args.progress_dir), "probe-" + stem.replace(".", "_"), len(loaded.entries)
-        )
+    progress = _progress(args, len(entries))
     handle = build_scorer(args)
     try:
         report = run_probe(
             domain,
             handle.top_k,  # type: ignore[attr-defined]
             handle.render,  # type: ignore[attr-defined]
-            loaded.entries,
+            entries,
             per_entry=args.per_entry,
             seed=args.seed,
             paraphrases=paraphrases,
@@ -608,13 +700,7 @@ def main(
     finally:
         handle.close()  # type: ignore[attr-defined]
     report["pooled_change_rate"] = pooled_change_rate(report)
-    payload = json.dumps(report, indent=2, sort_keys=True)
-    if args.out:
-        Path(args.out).write_text(payload + "\n", encoding="utf-8")
-    else:
-        print(payload)
-    if args.markdown:
-        Path(args.markdown).write_text(render_markdown(report), encoding="utf-8")
+    _write_report(args, report)
     return 0
 
 

@@ -509,8 +509,8 @@ def _stop_launched(pid: int, launched: str | None, settings: ServeSettings) -> N
     print(f"serve: stopped the llama-server it had just launched (pid {pid})", file=sys.stderr)
 
 
-def start_llama(model: Path, port: int, settings: ServeSettings, record: Path | None = None) -> int:
-    """Launch llama-server for *model* on *port*; returns its pid (see the module docstring)."""
+def _llama_binary(settings: ServeSettings) -> tuple[str, str]:
+    """``(resolved llama-server path, its --version output)``; refuses a missing binary."""
     binary = settings.llama_server
     if not binary:
         raise ServeError(
@@ -522,28 +522,73 @@ def start_llama(model: Path, port: int, settings: ServeSettings, record: Path | 
     if not path.is_file() or not os.access(path, os.X_OK):
         raise ServeError(f"llama_server={binary} is not an executable file", code=2)
     binary_path = str(path.resolve())
-    model = Path(model).resolve()
     code, version = default_run([binary_path, "--version"], 60.0)
     if code != 0:
         raise ServeError(f"'{binary_path} --version' failed: {version.strip()}", code=2)
+    return binary_path, version
+
+
+def _claim_free_port(settings: ServeSettings, port: int, model: Path) -> None:
+    """Under the port lock: drop a stale state file; refuse a port in use."""
+    state = read_state(settings, port)
+    if state is not None or state_file(settings, port).exists():
+        if own_pid(state) is not None:
+            raise ServeError(
+                f"a llama-server this helper started runs on port {port}; stop it first",
+                code=2,
+            )
+        _remove_state(settings, port)  # stale: its process is gone or no longer ours
+    if port_busy(port):
+        raise ServeError(
+            f"something already listens on 127.0.0.1:{port}; it would answer /v1/models in"
+            f" place of {model.name} -- stop it or pick another measure_port",
+            code=2,
+        )
+
+
+def _launch_llama(argv: list, settings: ServeSettings, port: int) -> subprocess.Popen:
+    with open(log_file(settings, port), "wb") as log:
+        child = subprocess.Popen(  # nosec B603 - fixed argv list, no shell
+            argv,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            close_fds=True,
+            env=llama_env(settings),
+        )
+    _CHILDREN[child.pid] = child
+    return child
+
+
+def _await_identity(
+    pid: int, launched: str | None, argv: list, settings: ServeSettings, port: int
+) -> str:
+    """Wait until *pid* is the process launched with *argv*; returns its start time."""
+    deadline = time.monotonic() + settings.start_seconds
+    while True:
+        now = proc_starttime(pid)
+        if now is None or now != launched:
+            raise ServeError(f"llama-server exited at once; see {log_file(settings, port)}", code=2)
+        if is_ours(pid, now, argv):
+            return now
+        if time.monotonic() >= deadline:
+            raise ServeError(
+                f"the launched process never ran {argv[0]} with the recorded argv",
+                code=2,
+            )
+        time.sleep(0.05)
+
+
+def start_llama(model: Path, port: int, settings: ServeSettings, record: Path | None = None) -> int:
+    """Launch llama-server for *model* on *port*; returns its pid (see the module docstring)."""
+    binary_path, version = _llama_binary(settings)
+    model = Path(model).resolve()
     name = settings.model_name or model.stem
     Path(settings.run_dir).mkdir(parents=True, exist_ok=True)
     argv = llama_argv(binary_path, model, port, settings, name)
     with port_lock(settings, port):
-        state = read_state(settings, port)
-        if state is not None or state_file(settings, port).exists():
-            if own_pid(state) is not None:
-                raise ServeError(
-                    f"a llama-server this helper started runs on port {port}; stop it first",
-                    code=2,
-                )
-            _remove_state(settings, port)  # stale: its process is gone or no longer ours
-        if port_busy(port):
-            raise ServeError(
-                f"something already listens on 127.0.0.1:{port}; it would answer /v1/models in"
-                f" place of {model.name} -- stop it or pick another measure_port",
-                code=2,
-            )
+        _claim_free_port(settings, port, model)
         if record is not None:
             _write_record(
                 record,
@@ -562,34 +607,10 @@ def start_llama(model: Path, port: int, settings: ServeSettings, record: Path | 
                     "argv": argv,
                 },
             )
-        with open(log_file(settings, port), "wb") as log:
-            child = subprocess.Popen(  # nosec B603 - fixed argv list, no shell
-                argv,
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                close_fds=True,
-                env=llama_env(settings),
-            )
-        _CHILDREN[child.pid] = child
+        child = _launch_llama(argv, settings, port)
         launched = proc_starttime(child.pid)
         try:
-            deadline = time.monotonic() + settings.start_seconds
-            while True:
-                now = proc_starttime(child.pid)
-                if now is None or now != launched:
-                    raise ServeError(
-                        f"llama-server exited at once; see {log_file(settings, port)}", code=2
-                    )
-                if is_ours(child.pid, now, argv):
-                    break
-                if time.monotonic() >= deadline:
-                    raise ServeError(
-                        f"the launched process never ran {binary_path} with the recorded argv",
-                        code=2,
-                    )
-                time.sleep(0.05)
+            now = _await_identity(child.pid, launched, argv, settings, port)
             _write_state(
                 settings,
                 port,
