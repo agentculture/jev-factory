@@ -185,8 +185,14 @@ def update(doc: dict[str, Any], previous: dict[str, Any] | None, now: float) -> 
     }
 
 
+def _update_head(upd: dict[str, Any], final: bool) -> str:
+    if final:
+        return "final update"
+    return "update" if upd["running"] else "nothing running"
+
+
 def render_update(upd: dict[str, Any], *, final: bool = False) -> str:
-    head = "final update" if final else ("update" if upd["running"] else "nothing running")
+    head = _update_head(upd, final)
     lines = [f"[{upd['at']}] {upd['work']}: {head}"]
     for job in upd["jobs"]:
         lines.append(f"  {job['job']}: {job['state']}, {_progress(job)}")
@@ -224,20 +230,26 @@ def watch(
         sleep(every)
 
 
+def _stage_mark(status: str) -> str:
+    if status == "not-run":
+        return "-"
+    return "ok" if status == COMPLETE else status
+
+
+def _stage_line(s: dict[str, Any]) -> str:
+    line = f"  {s['stage']:<16} {_stage_mark(s['status']):<8}"
+    if s["status"] == COMPLETE and s["stale"]:
+        line += f" stale: {s['stale']}"
+    if s.get("error"):
+        line += f" error: {s['error']}"
+    for job in s["jobs"]:
+        line += f" [{job['job']}: {job['state']}, {_progress(job)}]"
+    return line.rstrip()
+
+
 def render(doc: dict[str, Any]) -> str:
     lines = [f"run: {doc['work']}", ""]
-    for s in doc["stages"]:
-        mark = (
-            "-" if s["status"] == "not-run" else ("ok" if s["status"] == COMPLETE else s["status"])
-        )
-        line = f"  {s['stage']:<16} {mark:<8}"
-        if s["status"] == COMPLETE and s["stale"]:
-            line += f" stale: {s['stale']}"
-        if s.get("error"):
-            line += f" error: {s['error']}"
-        for job in s["jobs"]:
-            line += f" [{job['job']}: {job['state']}, {_progress(job)}]"
-        lines.append(line.rstrip())
+    lines += [_stage_line(s) for s in doc["stages"]]
     staged = {j["job"] for s in doc["stages"] for j in s["jobs"]}
     others = [j for j in doc["jobs"] if j["job"] not in staged]
     if others:

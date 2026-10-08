@@ -172,6 +172,28 @@ def _operation_problems(domain: Domain) -> list[DomainError]:
     return found
 
 
+def _choice_problems(op_name: str, spec) -> list[DomainError]:
+    where = f"{op_name!r} argument {spec.name!r}"
+    if spec.kind != "choice":
+        return [BadChoices(f"{where} is not a choice but lists choices")] if spec.choices else []
+    if not spec.choices or any(_blank(c) for c in spec.choices):
+        return [BadChoices(f"{where} needs non-empty choices")]
+    if len(set(spec.choices)) != len(spec.choices):
+        return [BadChoices(f"{where} repeats a choice")]
+    return []
+
+
+def _ground_problems(op_name: str, spec, ground_names: set[str]) -> list[DomainError]:
+    where = f"{op_name!r} argument {spec.name!r}"
+    if spec.ground is None:
+        return []
+    if spec.kind != "str":
+        return [UnknownGroundKind(f"{where}: only a str argument is grounded")]
+    if spec.ground not in ground_names:
+        return [UnknownGroundKind(f"{where} grounds on undeclared kind {spec.ground!r}")]
+    return []
+
+
 def _arg_problems(op_name: str, args, ground_names: set[str]) -> list[DomainError]:
     found: list[DomainError] = []
     arg_names: set[str] = set()
@@ -189,31 +211,8 @@ def _arg_problems(op_name: str, args, ground_names: set[str]) -> list[DomainErro
                     f" (known: {', '.join(sorted(ARG_KINDS))})"
                 )
             )
-        if spec.kind == "choice":
-            if not spec.choices or any(_blank(c) for c in spec.choices):
-                found.append(
-                    BadChoices(f"{op_name!r} argument {spec.name!r} needs non-empty choices")
-                )
-            elif len(set(spec.choices)) != len(spec.choices):
-                found.append(BadChoices(f"{op_name!r} argument {spec.name!r} repeats a choice"))
-        elif spec.choices:
-            found.append(
-                BadChoices(f"{op_name!r} argument {spec.name!r} is not a choice but lists choices")
-            )
-        if spec.ground is not None:
-            if spec.kind != "str":
-                found.append(
-                    UnknownGroundKind(
-                        f"{op_name!r} argument {spec.name!r}: only a str argument is grounded"
-                    )
-                )
-            elif spec.ground not in ground_names:
-                found.append(
-                    UnknownGroundKind(
-                        f"{op_name!r} argument {spec.name!r} grounds on undeclared kind"
-                        f" {spec.ground!r}"
-                    )
-                )
+        found.extend(_choice_problems(op_name, spec))
+        found.extend(_ground_problems(op_name, spec, ground_names))
     return found
 
 
@@ -295,6 +294,29 @@ def _candidate_problems(domain: Domain) -> list[DomainError]:
     return found
 
 
+def _control_text_problems(domain: Domain) -> list[DomainError]:
+    found: list[DomainError] = []
+    for control, text in domain.control_descriptions:
+        if control not in CONTROLS:
+            found.append(
+                UnknownOperationRef(f"control_descriptions names {control!r}, not a control")
+            )
+        if _blank(text):
+            found.append(EmptyText(f"control_descriptions for {control!r} is empty"))
+    return found
+
+
+def _paraphrase_problems(domain: Domain) -> list[DomainError]:
+    found: list[DomainError] = []
+    names = set(domain.names())
+    for op_name, texts in domain.paraphrases:
+        if op_name not in names:
+            found.append(UnknownOperationRef(f"paraphrases name unknown operation {op_name!r}"))
+        if not texts or any(_blank(t) for t in texts):
+            found.append(EmptyText(f"paraphrases for {op_name!r} include an empty text"))
+    return found
+
+
 def _text_problems(domain: Domain) -> list[DomainError]:
     found: list[DomainError] = []
     if _blank(domain.name):
@@ -305,20 +327,7 @@ def _text_problems(domain: Domain) -> list[DomainError]:
     for what in ("explain_topics", "phrasing_styles"):
         if any(_blank(t) for t in getattr(domain, what)):
             found.append(EmptyText(f"domain {domain.name!r} has an empty entry in {what}"))
-    for control, text in domain.control_descriptions:
-        if control not in CONTROLS:
-            found.append(
-                UnknownOperationRef(f"control_descriptions names {control!r}, not a control")
-            )
-        if _blank(text):
-            found.append(EmptyText(f"control_descriptions for {control!r} is empty"))
-    names = set(domain.names())
-    for op_name, texts in domain.paraphrases:
-        if op_name not in names:
-            found.append(UnknownOperationRef(f"paraphrases name unknown operation {op_name!r}"))
-        if not texts or any(_blank(t) for t in texts):
-            found.append(EmptyText(f"paraphrases for {op_name!r} include an empty text"))
-    return found
+    return found + _control_text_problems(domain) + _paraphrase_problems(domain)
 
 
 def problems(domain: Domain) -> tuple[DomainError, ...]:

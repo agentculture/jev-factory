@@ -47,7 +47,7 @@ import math
 from collections import Counter
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from jev_factory.decide import records
@@ -104,6 +104,37 @@ def _check_source(owner: str, source: Any, sha256: Any) -> None:
         raise _err(f"{owner}: sha256 must be 64 lowercase hex characters")
 
 
+def _optional(ok: Callable[[Any], bool]) -> Callable[[Any], bool]:
+    return lambda v: v is None or ok(v)
+
+
+def _is_pos_int(v: Any) -> bool:
+    return _is_count(v) and v > 0
+
+
+#: A summary's numeric fields, in check order: (fields, is-valid, problem).
+_SUMMARY_FIELD_RULES: tuple[tuple[tuple[str, ...], Callable[[Any], bool], str], ...] = (
+    (_COUNTS, _is_count, "must be a non-negative integer count"),
+    (_RATES, _is_rate, "must be a number in [0, 1]"),
+    (_OPT_RATES, _optional(_is_rate), "must be a number in [0, 1] or null"),
+    (_OPT_POS_INTS, _optional(_is_pos_int), "must be a positive integer or null"),
+    (("train_loss",), _optional(_is_num), "must be a number or null"),
+)
+
+
+def _check_summary_fields(who: str, summary: Any) -> None:
+    for keys, ok, problem in _SUMMARY_FIELD_RULES:
+        for key in keys:
+            if not ok(getattr(summary, key)):
+                raise _err(f"{who}: {key} {problem}")
+
+
+def _failure_classes_ok(fc: Any) -> bool:
+    return isinstance(fc, Mapping) and all(
+        isinstance(k, str) and k.strip() and _is_count(v) for k, v in fc.items()
+    )
+
+
 @dataclass(frozen=True)
 class CandidateSummary:
     """One candidate's selection-fold numbers, backbone-agnostic."""
@@ -134,26 +165,8 @@ class CandidateSummary:
             raise _err("summary name must be a non-empty string")
         who = f"summary {self.name}"
         _check_source(who, self.source, self.sha256)
-        for key in _COUNTS:
-            if not _is_count(getattr(self, key)):
-                raise _err(f"{who}: {key} must be a non-negative integer count")
-        for key in _RATES:
-            if not _is_rate(getattr(self, key)):
-                raise _err(f"{who}: {key} must be a number in [0, 1]")
-        for key in _OPT_RATES:
-            value = getattr(self, key)
-            if value is not None and not _is_rate(value):
-                raise _err(f"{who}: {key} must be a number in [0, 1] or null")
-        for key in _OPT_POS_INTS:
-            value = getattr(self, key)
-            if value is not None and not (_is_count(value) and value > 0):
-                raise _err(f"{who}: {key} must be a positive integer or null")
-        if self.train_loss is not None and not _is_num(self.train_loss):
-            raise _err(f"{who}: train_loss must be a number or null")
-        fc = self.failure_classes
-        if not isinstance(fc, Mapping) or not all(
-            isinstance(k, str) and k.strip() and _is_count(v) for k, v in fc.items()
-        ):
+        _check_summary_fields(who, self)
+        if not _failure_classes_ok(self.failure_classes):
             raise _err(f"{who}: failure_classes must map class names to non-negative counts")
         if self.gate_fold not in (None, "fit", "selection"):
             raise _err(f"{who}: gate_fold must be 'fit' or 'selection'")
@@ -473,6 +486,103 @@ def _check_inputs(
         )
 
 
+_Verdict = tuple[str, dict[str, Any], list[str]]
+
+
+def _yield_verdict(yields: list[ClassYield]) -> _Verdict | None:
+    low = sorted(y.name for y in yields if y.rate < YIELD_FLOOR - _EPS)
+    if not low:
+        return None
+    return (
+        "fix_grader",
+        {"classes": low},
+        [
+            f"class {y.name} yield {y.accepted}/{y.reviewed} is under "
+            f"{YIELD_FLOOR:.0%}: fix the grader before drafting more"
+            for y in yields
+            if y.name in low
+        ],
+    )
+
+
+def _quant_verdict(quant: QuantCheck) -> _Verdict | None:
+    if not quant.heal_needed():
+        return None
+    why = [
+        f"{quant.candidate} quant loses {quant.loss_points} pts of right proposals vs "
+        f"its own bf16 (heal above {HEAL_MARGIN_POINTS}); new wrong-mutating ids: "
+        f"{quant.new_wrong_mutating_ids or 'none'}"
+    ]
+    if quant.heal_rounds >= HEAL_ROUNDS:
+        return (
+            "stop_escalate",
+            {"candidate": quant.candidate},
+            why + ["heal is one round only and it has been spent; drop this build"],
+        )
+    return "heal_quant", {"candidate": quant.candidate}, why
+
+
+def _stale_gate_verdict(candidates: Sequence[CandidateSummary]) -> _Verdict | None:
+    stale = [(c.name, c.gate_stale()) for c in candidates if c.gate_stale()]
+    if not stale:
+        return None
+    return (
+        "refit_gate",
+        {"candidates": [n for n, _ in stale]},
+        [f"{n}: {why}; refit it on the fit fold before judging" for n, why in stale],
+    )
+
+
+def _pre_rule_verdict(
+    candidates: Sequence[CandidateSummary],
+    yields: list[ClassYield],
+    quant: QuantCheck | None,
+    cited: list[dict[str, Any]],
+) -> _Verdict | None:
+    """The verdicts checked before the rule runs (grader, quant, gate); cites what they read."""
+    for y in yields:
+        cited.append(records.cite(f"yield.{y.name}", y.rate, y.source, y.sha256))
+    found = _yield_verdict(yields)
+    if found is None and quant is not None:
+        cited.extend(quant.citations())
+        found = _quant_verdict(quant)
+    return found if found is not None else _stale_gate_verdict(candidates)
+
+
+def _winner_verdict(
+    prereg: Prereg,
+    winner: CandidateSummary,
+    trail: list[dict[str, Any]],
+    reference: CandidateSummary | None,
+) -> _Verdict:
+    if winner.ece > RECALIBRATE_ECE + _EPS:
+        return (
+            "recalibrate",
+            {"candidate": winner.name},
+            [
+                f"rule picks {winner.name} but its ECE {winner.ece} is above "
+                f"{RECALIBRATE_ECE}: run the calibration-aware stage"
+            ],
+        )
+    # wrong_mutating and right_proposals are already the safety and floor steps.
+    missed = [
+        f"{name} {getattr(winner, name)} misses the bar {bar.bar}"
+        for name, bar in prereg.bars.items()
+        if name in ("ece", "permutation_change", "mc_escalation")
+        and not bar.met(getattr(winner, name))
+    ]
+    if missed:
+        return _diagnose(
+            [winner], reference, [f"rule picks {winner.name}, but {m}" for m in missed]
+        )
+    return (
+        "ship_candidate",
+        {"candidate": winner.name},
+        [f"{winner.name} wins the pre-registered rule and meets every bar"]
+        + [f"{s['step']}: {s['survivors']} ({s['detail']})" for s in trail],
+    )
+
+
 def decide(
     prereg: Prereg,
     candidates: Sequence[CandidateSummary],
@@ -498,79 +608,17 @@ def decide(
             {"hard_stops": hard_stops},
             [f"hard stop: {s} is always a human decision" for s in hard_stops],
         )
-
-    for y in yields:
-        cited.append(records.cite(f"yield.{y.name}", y.rate, y.source, y.sha256))
-    low = sorted(y.name for y in yields if y.rate < YIELD_FLOOR - _EPS)
-    if low:
-        return out(
-            "fix_grader",
-            {"classes": low},
-            [
-                f"class {y.name} yield {y.accepted}/{y.reviewed} is under "
-                f"{YIELD_FLOOR:.0%}: fix the grader before drafting more"
-                for y in yields
-                if y.name in low
-            ],
-        )
-
-    if quant is not None:
-        cited.extend(quant.citations())
-        if quant.heal_needed():
-            why = [
-                f"{quant.candidate} quant loses {quant.loss_points} pts of right proposals vs "
-                f"its own bf16 (heal above {HEAL_MARGIN_POINTS}); new wrong-mutating ids: "
-                f"{quant.new_wrong_mutating_ids or 'none'}"
-            ]
-            if quant.heal_rounds >= HEAL_ROUNDS:
-                return out(
-                    "stop_escalate",
-                    {"candidate": quant.candidate},
-                    why + ["heal is one round only and it has been spent; drop this build"],
-                )
-            return out("heal_quant", {"candidate": quant.candidate}, why)
-
-    stale = [(c.name, c.gate_stale()) for c in candidates if c.gate_stale()]
-    if stale:
-        return out(
-            "refit_gate",
-            {"candidates": [n for n, _ in stale]},
-            [f"{n}: {why}; refit it on the fit fold before judging" for n, why in stale],
-        )
+    early = _pre_rule_verdict(candidates, yields, quant, cited)
+    if early is not None:
+        return out(*early)
 
     winner, trail = select(prereg, candidates)
     if winner is None:
         verdict, params, reasons = _diagnose(
             candidates, reference, ["no candidate survives the safety and accuracy filters"]
         )
-    elif winner.ece > RECALIBRATE_ECE + _EPS:
-        verdict, params, reasons = (
-            "recalibrate",
-            {"candidate": winner.name},
-            [
-                f"rule picks {winner.name} but its ECE {winner.ece} is above "
-                f"{RECALIBRATE_ECE}: run the calibration-aware stage"
-            ],
-        )
     else:
-        # wrong_mutating and right_proposals are already the safety and floor steps.
-        missed = [
-            f"{name} {getattr(winner, name)} misses the bar {bar.bar}"
-            for name, bar in prereg.bars.items()
-            if name in ("ece", "permutation_change", "mc_escalation")
-            and not bar.met(getattr(winner, name))
-        ]
-        if missed:
-            verdict, params, reasons = _diagnose(
-                [winner], reference, [f"rule picks {winner.name}, but {m}" for m in missed]
-            )
-        else:
-            verdict, params, reasons = (
-                "ship_candidate",
-                {"candidate": winner.name},
-                [f"{winner.name} wins the pre-registered rule and meets every bar"]
-                + [f"{s['step']}: {s['survivors']} ({s['detail']})" for s in trail],
-            )
+        verdict, params, reasons = _winner_verdict(prereg, winner, trail, reference)
     if reference is not None and verdict in ("more_epochs", "fewer_epochs"):
         cited.extend(reference.citations())
     return out(verdict, params, reasons, trail)

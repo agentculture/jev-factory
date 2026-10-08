@@ -64,26 +64,38 @@ def job_status(jobdir: Path, name: str) -> dict[str, Any]:
     takes its state from its progress file: ``complete`` when every item is done, else
     ``running`` while the writing process lives and ``stopped`` once it is gone."""
     pid_f, done_f, _ = _paths(Path(jobdir), name)
-    rc = None
-    if done_f.is_file():
-        try:
-            rc = int(done_f.read_text().strip())
-        except ValueError:
-            rc = None
+    rc = _read_rc(done_f)
     pid = int(pid_f.read_text()) if pid_f.is_file() else None
     progress = read_progress(jobdir, name)
-    if rc is not None:
-        state = "done"
-    elif pid is not None:
-        state = "running" if _alive(pid) else "died"
-    elif progress is not None and progress.get("pid"):
-        if progress["done"] >= progress["total"]:
-            state = "complete"
-        else:
-            state = "running" if _alive(int(progress["pid"])) else "stopped"
-    else:
-        state = "absent"
+    state = _job_state(rc, pid, progress)
     return {"state": state, "pid": pid, "rc": rc, "progress": progress}
+
+
+def _read_rc(done_f: Path) -> int | None:
+    """The real exit code from a done marker, or None (absent or garbled)."""
+    if not done_f.is_file():
+        return None
+    try:
+        return int(done_f.read_text().strip())
+    except ValueError:
+        return None
+
+
+def _job_state(rc: int | None, pid: int | None, progress: dict[str, Any] | None) -> str:
+    if rc is not None:
+        return "done"
+    if pid is not None:
+        return "running" if _alive(pid) else "died"
+    if progress is not None and progress.get("pid"):
+        return _progress_state(progress)
+    return "absent"
+
+
+def _progress_state(progress: dict[str, Any]) -> str:
+    """State of a pid-less job from its progress file (complete, running or stopped)."""
+    if progress["done"] >= progress["total"]:
+        return "complete"
+    return "running" if _alive(int(progress["pid"])) else "stopped"
 
 
 class Progress:

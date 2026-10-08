@@ -1345,6 +1345,113 @@ def _train_fields(workdir: Path, name: str) -> dict[str, Any]:
 SUMMARY_FILE = "summary.json"
 
 
+@dataclass(frozen=True)
+class _SelectPlan:
+    """What every candidate of one select run is calibrated, gated and probed against."""
+
+    ctx: RunContext
+    registered: prereg_mod.Prereg
+    folds: Any
+    grid: Any
+    mc_bar: float
+    out: Path
+    selection_split: Path
+    knobs: dict[str, Any]
+
+
+def _candidate_predictions(workdir: Path, name: str) -> tuple[Path, Path] | None:
+    """A candidate's validation and missing-candidate predictions, or None if either is absent."""
+    cand = workdir / CANDIDATES_DIR / _candidate_name(name)
+    try:
+        return one_predictions_file(cand / VAL_DIR), one_predictions_file(cand / VAL_MC_DIR)
+    except CliError:
+        return None
+
+
+def _write_select_fit(
+    workdir: Path, here: Path, fitted: dict[str, Any], val_path: Path, val_sha: str, mc_bar: float
+) -> None:
+    _write_json(here / "calibration.json", fitted["calibration"])
+    _write_json(
+        here / "gate.json",
+        gate_document(
+            fitted["thresholds"],
+            predictions=_rel(workdir, val_path),
+            predictions_sha256=val_sha,
+            objective="0 wrong mutating, then missing-candidate escalation >= the bar,"
+            " then most right proposals",
+            mc_bar=mc_bar,
+        ),
+    )
+    _write_json(here / "sweep.json", fitted["sweep"])
+    write_predictions(here / "selection.gated.predictions.jsonl", fitted["selection"])
+
+
+def _probe_candidate(workdir: Path, plan: _SelectPlan, name: str, here: Path) -> dict[str, Any]:
+    run_dir = workdir / RUNS_DIR / name
+    revision_file = run_dir / "revision"
+    revision = revision_file.read_text().strip() if revision_file.is_file() else "unknown"
+    return probe(
+        plan.selection_split,
+        here / PROBE_FILE,
+        model=str(run_dir / "merged"),
+        revision=revision,
+        per_entry=plan.registered.perms_per_entry,
+        progress_dir=workdir / JOBS_DIR,
+    )
+
+
+def _failure_classes(
+    workdir: Path, selection: Sequence[Prediction], domain: Domain
+) -> dict[str, int]:
+    """Count the selection-fold failures per entry class."""
+    classes: dict[str, int] = {}
+    entry_class = {
+        e["id"]: e.get("class") or split.expectation_kind(e["expect"])
+        for e in _read_json(workdir / VAL_SPLIT)["entries"]
+    }
+    for p in selection:
+        if _failing(p, domain):
+            cls = entry_class.get(p.id, metrics.expect_kind(p.expected))
+            classes[cls] = classes.get(cls, 0) + 1
+    return classes
+
+
+def _select_candidate(
+    workdir: Path, plan: _SelectPlan, name: str, val_path: Path, mc_path: Path
+) -> rules.CandidateSummary:
+    """Calibrate, fit the gate on the fit fold and probe one candidate; write its summary."""
+    fitted = calibrate_and_gate(
+        val_path,
+        mc_path,
+        plan.folds,
+        plan.ctx.domain,
+        grid=plan.grid,
+        mc_bar=plan.mc_bar,
+        bootstrap_resamples=int(plan.knobs["bootstrap_resamples"]),
+    )
+    here = plan.out / name
+    val_sha = _sha(val_path)
+    _write_select_fit(workdir, here, fitted, val_path, val_sha, plan.mc_bar)
+    report = _probe_candidate(workdir, plan, name, here)
+    classes = _failure_classes(workdir, fitted["selection"], plan.ctx.domain)
+    numbers = fitted["numbers"]
+    if numbers["ece"] is None:
+        raise _err(f"{name}: no selection-fold line has a distribution; ECE is undefined")
+    doc = {
+        "name": name,
+        **{k: v for k, v in numbers.items() if v is not None},
+        "permutation_change": metrics_rate(report),
+        "failure_classes": classes,
+        "gate_fold": "fit",
+        "gate_predictions_sha256": val_sha,
+        "predictions_sha256": val_sha,
+        **_train_fields(workdir, name),
+    }
+    summary_path = _write_json(here / SUMMARY_FILE, doc)
+    return rules.load_summary(summary_path)
+
+
 def stage_select(workdir: Path, knobs: dict[str, Any]) -> None:
     """Per candidate: calibrate -> gate fit (fit fold) -> probe; then the pre-registered rule.
 
@@ -1360,76 +1467,15 @@ def stage_select(workdir: Path, knobs: dict[str, Any]) -> None:
     mc_bar = registered.bars["mc_escalation"].bar
     out = workdir / SELECT_DIR
     selection_split = _selection_split(workdir, folds, out / "val-selection.json")
+    plan = _SelectPlan(ctx, registered, folds, grid, mc_bar, out, selection_split, knobs)
     summaries: list[rules.CandidateSummary] = []
     missing: list[str] = []
     for name in registered.candidates:
-        cand = workdir / CANDIDATES_DIR / _candidate_name(name)
-        try:
-            val_path = one_predictions_file(cand / VAL_DIR)
-            mc_path = one_predictions_file(cand / VAL_MC_DIR)
-        except CliError:
+        paths = _candidate_predictions(workdir, name)
+        if paths is None:
             missing.append(name)
             continue
-        fitted = calibrate_and_gate(
-            val_path,
-            mc_path,
-            folds,
-            ctx.domain,
-            grid=grid,
-            mc_bar=mc_bar,
-            bootstrap_resamples=int(knobs["bootstrap_resamples"]),
-        )
-        here = out / name
-        val_sha = _sha(val_path)
-        _write_json(here / "calibration.json", fitted["calibration"])
-        _write_json(
-            here / "gate.json",
-            gate_document(
-                fitted["thresholds"],
-                predictions=_rel(workdir, val_path),
-                predictions_sha256=val_sha,
-                objective="0 wrong mutating, then missing-candidate escalation >= the bar,"
-                " then most right proposals",
-                mc_bar=mc_bar,
-            ),
-        )
-        _write_json(here / "sweep.json", fitted["sweep"])
-        write_predictions(here / "selection.gated.predictions.jsonl", fitted["selection"])
-        run_dir = workdir / RUNS_DIR / name
-        revision_file = run_dir / "revision"
-        revision = revision_file.read_text().strip() if revision_file.is_file() else "unknown"
-        report = probe(
-            selection_split,
-            here / PROBE_FILE,
-            model=str(run_dir / "merged"),
-            revision=revision,
-            per_entry=registered.perms_per_entry,
-            progress_dir=workdir / JOBS_DIR,
-        )
-        classes: dict[str, int] = {}
-        entry_class = {
-            e["id"]: e.get("class") or split.expectation_kind(e["expect"])
-            for e in _read_json(workdir / VAL_SPLIT)["entries"]
-        }
-        for p in fitted["selection"]:
-            if _failing(p, ctx.domain):
-                cls = entry_class.get(p.id, metrics.expect_kind(p.expected))
-                classes[cls] = classes.get(cls, 0) + 1
-        numbers = fitted["numbers"]
-        if numbers["ece"] is None:
-            raise _err(f"{name}: no selection-fold line has a distribution; ECE is undefined")
-        doc = {
-            "name": name,
-            **{k: v for k, v in numbers.items() if v is not None},
-            "permutation_change": metrics_rate(report),
-            "failure_classes": classes,
-            "gate_fold": "fit",
-            "gate_predictions_sha256": val_sha,
-            "predictions_sha256": val_sha,
-            **_train_fields(workdir, name),
-        }
-        summary_path = _write_json(here / SUMMARY_FILE, doc)
-        summaries.append(rules.load_summary(summary_path))
+        summaries.append(_select_candidate(workdir, plan, name, *paths))
     if missing:
         raise _err(
             f"no validation predictions for pre-registered candidate(s): {', '.join(missing)}",

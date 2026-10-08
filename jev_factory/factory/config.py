@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import re
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -133,40 +133,62 @@ def _err(message: str, remediation: str = "", code: int = EXIT_USER_ERROR) -> Cl
     return CliError(code=code, message=message, remediation=remediation)
 
 
+def _coerce_text(kind: str, raw: Any) -> Any:
+    if not isinstance(raw, str):
+        raise ValueError("expected a string")
+    value: Any = raw
+    if kind == "path":
+        value = str(Path(raw).expanduser())
+    if kind == "envname" and not _ENV_NAME.match(raw):
+        # A pasted token would land here: say nothing about the value.
+        raise ValueError("expected an environment-variable NAME, not a value")
+    return value
+
+
+def _coerce_bool(kind: str, raw: Any) -> Any:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str) and raw.strip().lower() in _TRUE | _FALSE:
+        return raw.strip().lower() in _TRUE
+    raise ValueError("expected a boolean")
+
+
+def _coerce_int(kind: str, raw: Any) -> Any:
+    if isinstance(raw, bool):
+        raise ValueError("expected an integer")
+    return int(raw)
+
+
+def _coerce_float(kind: str, raw: Any) -> Any:
+    if isinstance(raw, bool):
+        raise ValueError("expected a number")
+    return float(raw)
+
+
+#: Kind -> converter; each raises ValueError/TypeError on a bad value.
+_COERCERS: dict[str, Callable[[str, Any], Any]] = {
+    "str": _coerce_text,
+    "path": _coerce_text,
+    "envname": _coerce_text,
+    "bool": _coerce_bool,
+    "int": _coerce_int,
+    "float": _coerce_float,
+}
+
+
 def _coerce(key: Key, raw: Any, origin: str) -> Any:
     """Convert ``raw`` to the key's type. Error text never echoes the value."""
     kind = key.kind
+    convert = _COERCERS.get(kind)
+    if convert is None:
+        raise _err(f"run config key {key.name!r} has unknown kind {kind!r}")
     try:
-        if kind in ("str", "path", "envname"):
-            if not isinstance(raw, str):
-                raise ValueError("expected a string")
-            value: Any = raw
-            if kind == "path":
-                value = str(Path(raw).expanduser())
-            if kind == "envname" and not _ENV_NAME.match(raw):
-                # A pasted token would land here: say nothing about the value.
-                raise ValueError("expected an environment-variable NAME, not a value")
-            return value
-        if kind == "bool":
-            if isinstance(raw, bool):
-                return raw
-            if isinstance(raw, str) and raw.strip().lower() in _TRUE | _FALSE:
-                return raw.strip().lower() in _TRUE
-            raise ValueError("expected a boolean")
-        if kind == "int":
-            if isinstance(raw, bool):
-                raise ValueError("expected an integer")
-            return int(raw)
-        if kind == "float":
-            if isinstance(raw, bool):
-                raise ValueError("expected a number")
-            return float(raw)
+        return convert(kind, raw)
     except (TypeError, ValueError) as exc:
         raise _err(
             f"run config key {key.name!r} from {origin}: {exc}",
             f"fix {key.name} ({kind}); see docs/run-config.example.toml",
         ) from None
-    raise _err(f"run config key {key.name!r} has unknown kind {kind!r}")  # pragma: no cover
 
 
 @dataclass(frozen=True)
@@ -209,6 +231,50 @@ class RunConfig:
         }
 
 
+def _read_run_file(path: str | os.PathLike[str] | None) -> dict[str, Any]:
+    if path is None:
+        return {}
+    try:
+        return tomllib.loads(Path(path).read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise _err(
+            f"cannot read run config file: {exc.strerror or 'unreadable'}",
+            "pass --config <run.toml> (copy docs/run-config.example.toml)",
+            EXIT_ENV_ERROR,
+        ) from None
+    except tomllib.TOMLDecodeError as exc:
+        raise _err(f"run config is not valid TOML: {exc}", "fix the TOML syntax") from None
+
+
+def _refuse_unknown_keys(cli_values: Mapping[str, Any], file_values: Mapping[str, Any]) -> None:
+    for origin, mapping in (("the CLI", cli_values), ("the run file", file_values)):
+        unknown = sorted(set(mapping) - set(_BY_NAME))
+        if unknown:
+            raise _err(
+                f"unknown run config key(s) in {origin}: {', '.join(unknown)}",
+                "valid keys are listed in docs/run-config.example.toml",
+            )
+
+
+_ORIGINS = {"cli": "the CLI", "file": "the run file"}
+
+
+def _given(
+    key: Key,
+    cli_values: Mapping[str, Any],
+    file_values: Mapping[str, Any],
+    env: Mapping[str, str],
+) -> tuple[str, Any] | None:
+    """Where *key* was set (``cli``/``file``/``env``) and its raw value, or None."""
+    if key.name in cli_values:
+        return "cli", cli_values[key.name]
+    if key.name in file_values:
+        return "file", file_values[key.name]
+    if env.get(key.env_var, "") != "":
+        return "env", env[key.env_var]
+    return None
+
+
 def load_config(
     path: str | os.PathLike[str] | None = None,
     *,
@@ -224,48 +290,23 @@ def load_config(
     """
     env = os.environ if environ is None else environ
     cli_values = {k: v for k, v in (cli or {}).items() if v is not None}
-    file_values: dict[str, Any] = {}
-    if path is not None:
-        p = Path(path)
-        try:
-            file_values = tomllib.loads(p.read_text(encoding="utf-8"))
-        except OSError as exc:
-            raise _err(
-                f"cannot read run config file: {exc.strerror or 'unreadable'}",
-                "pass --config <run.toml> (copy docs/run-config.example.toml)",
-                EXIT_ENV_ERROR,
-            ) from None
-        except tomllib.TOMLDecodeError as exc:
-            raise _err(f"run config is not valid TOML: {exc}", "fix the TOML syntax") from None
-    for origin, mapping in (("the CLI", cli_values), ("the run file", file_values)):
-        unknown = sorted(set(mapping) - set(_BY_NAME))
-        if unknown:
-            raise _err(
-                f"unknown run config key(s) in {origin}: {', '.join(unknown)}",
-                "valid keys are listed in docs/run-config.example.toml",
-            )
+    file_values = _read_run_file(path)
+    _refuse_unknown_keys(cli_values, file_values)
 
     values: dict[str, Any] = {}
     sources: dict[str, str] = {}
     missing: list[str] = []
     for key in KEYS:
-        if key.name in cli_values:
-            src, raw = "cli", cli_values[key.name]
-        elif key.name in file_values:
-            src, raw = "file", file_values[key.name]
-        elif env.get(key.env_var, "") != "":
-            src, raw = "env", env[key.env_var]
-        elif key.default is REQUIRED:
+        given = _given(key, cli_values, file_values, env)
+        if given is None and key.default is REQUIRED:
             missing.append(key.name)
-            continue
-        else:
+        elif given is None:
             values[key.name] = key.default
             sources[key.name] = "default"
-            continue
-        values[key.name] = _coerce(
-            key, raw, {"cli": "the CLI", "file": "the run file"}.get(src, "the environment")
-        )
-        sources[key.name] = src
+        else:
+            src, raw = given
+            values[key.name] = _coerce(key, raw, _ORIGINS.get(src, "the environment"))
+            sources[key.name] = src
     if missing:
         raise _err(
             f"run config is missing required key(s): {', '.join(missing)}",

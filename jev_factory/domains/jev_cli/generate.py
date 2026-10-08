@@ -101,6 +101,26 @@ def _required(action: argparse.Action) -> bool:
     return action.nargs in (None, "+")
 
 
+def _verb_problems(
+    name: str, parser: argparse.ArgumentParser, note: Annotation
+) -> list[CliDomainError]:
+    found: list[CliDomainError] = []
+    if _is_write_verb(parser) and note.read_only:
+        found.append(
+            CliDomainError("write_verb_read_only", f"{name!r} has --apply so it is mutating")
+        )
+    real = _arguments(parser)
+    declared = {a.name for a in note.args}
+    for arg in sorted(declared - set(real)):
+        found.append(CliDomainError("unknown_argument", f"{name!r} has no argument {arg!r}"))
+    for arg, action in sorted(real.items()):
+        if arg not in declared and _required(action):
+            found.append(
+                CliDomainError("unannotated_argument", f"{name!r} argument {arg!r} is required")
+            )
+    return found
+
+
 def _problems(
     verbs: list[tuple[tuple[str, ...], argparse.ArgumentParser, str]],
     annotations: Mapping[str, Annotation],
@@ -116,21 +136,8 @@ def _problems(
     for path, parser, _ in verbs:
         name = verb_name(path)
         note = annotations.get(name)
-        if note is None:
-            continue
-        if _is_write_verb(parser) and note.read_only:
-            found.append(
-                CliDomainError("write_verb_read_only", f"{name!r} has --apply so it is mutating")
-            )
-        real = _arguments(parser)
-        declared = {a.name for a in note.args}
-        for arg in sorted(declared - set(real)):
-            found.append(CliDomainError("unknown_argument", f"{name!r} has no argument {arg!r}"))
-        for arg, action in sorted(real.items()):
-            if arg not in declared and _required(action):
-                found.append(
-                    CliDomainError("unannotated_argument", f"{name!r} argument {arg!r} is required")
-                )
+        if note is not None:
+            found.extend(_verb_problems(name, parser, note))
     return found
 
 

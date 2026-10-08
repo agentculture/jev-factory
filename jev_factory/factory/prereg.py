@@ -130,19 +130,23 @@ def apply_defaults(doc: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def validate(doc: Any) -> Prereg:
-    """Validate a parsed pre-registration document; raise CliError on the first problem."""
-    if not isinstance(doc, dict):
-        raise _err("pre-registration must be a JSON object")
-    if doc.get("schema_version") != SCHEMA_VERSION:
-        raise _err(f"schema_version must be {SCHEMA_VERSION}")
-    record_id = doc.get("stock_baseline_record_id")
-    if not isinstance(record_id, str) or not record_id.strip():
+def _bar(name: str, direction: str, entry: Any) -> Bar:
+    if not isinstance(entry, dict):
+        raise _err(f"bar {name} must be an object")
+    for key in ("stock", "minimum", "bar"):
+        if not _is_rate(entry.get(key)):
+            raise _err(f"bar {name}.{key} must be a number in [0, 1]")
+    expected = compute_bar(name, entry["stock"], entry["minimum"])
+    if not math.isclose(entry["bar"], expected, abs_tol=1e-9):
         raise _err(
-            "stock_baseline_record_id is required",
-            "measure stock Qwen3.5-0.8B first and cite its record id",
+            f"bar {name}.bar is {entry['bar']} but the stricter of stock and minimum "
+            f"is {expected}",
+            "the bar must be the stricter of the stock-derived value and the minimum",
         )
-    bars_doc = doc.get("bars")
+    return Bar(name, entry["stock"], entry["minimum"], entry["bar"], direction)
+
+
+def _bars(bars_doc: Any) -> dict[str, Bar]:
     if not isinstance(bars_doc, dict):
         raise _err("bars must be an object")
     missing = [n for n in BAR_DIRECTIONS if n not in bars_doc]
@@ -151,37 +155,49 @@ def validate(doc: Any) -> Prereg:
     unknown = [n for n in bars_doc if n not in BAR_DIRECTIONS]
     if unknown:
         raise _err(f"unknown bars: {', '.join(sorted(unknown))}")
-    bars: dict[str, Bar] = {}
-    for name, direction in BAR_DIRECTIONS.items():
-        entry = bars_doc[name]
-        if not isinstance(entry, dict):
-            raise _err(f"bar {name} must be an object")
-        for key in ("stock", "minimum", "bar"):
-            if not _is_rate(entry.get(key)):
-                raise _err(f"bar {name}.{key} must be a number in [0, 1]")
-        expected = compute_bar(name, entry["stock"], entry["minimum"])
-        if not math.isclose(entry["bar"], expected, abs_tol=1e-9):
-            raise _err(
-                f"bar {name}.bar is {entry['bar']} but the stricter of stock and minimum "
-                f"is {expected}",
-                "the bar must be the stricter of the stock-derived value and the minimum",
-            )
-        bars[name] = Bar(name, entry["stock"], entry["minimum"], entry["bar"], direction)
+    return {
+        name: _bar(name, direction, bars_doc[name]) for name, direction in BAR_DIRECTIONS.items()
+    }
+
+
+def _record_id(doc: dict[str, Any]) -> str:
+    record_id = doc.get("stock_baseline_record_id")
+    if not isinstance(record_id, str) or not record_id.strip():
+        raise _err(
+            "stock_baseline_record_id is required",
+            "measure stock Qwen3.5-0.8B first and cite its record id",
+        )
+    return record_id
+
+
+def _perms(doc: dict[str, Any]) -> int:
     perms = doc.get("perms_per_entry")
     if not isinstance(perms, int) or isinstance(perms, bool) or perms < 1:
         raise _err("perms_per_entry must be a positive integer")
+    return perms
+
+
+def _rule_order(doc: dict[str, Any]) -> list[str]:
     order = doc.get("rule_order")
     if order != list(RULE_ORDER):
         raise _err(
             f"rule_order must be exactly {list(RULE_ORDER)}",
             "the lexicographic rule order is fixed; change it only via a deviation",
         )
+    return order
+
+
+def _tolerances(doc: dict[str, Any]) -> dict[str, Any]:
     tol = doc.get("tolerances")
     if not isinstance(tol, dict) or set(tol) != set(DEFAULT_TOLERANCES):
         raise _err(f"tolerances must define exactly {sorted(DEFAULT_TOLERANCES)}")
     for key, value in tol.items():
         if not _is_rate(value):
             raise _err(f"tolerances.{key} must be a number in [0, 1]")
+    return tol
+
+
+def _candidates(doc: dict[str, Any]) -> list[str]:
     cands = doc.get("candidates")
     if not isinstance(cands, list) or not cands:
         raise _err("candidates must be a non-empty list of names")
@@ -189,6 +205,21 @@ def validate(doc: Any) -> Prereg:
         raise _err("candidate names must be non-empty strings")
     if len(set(cands)) != len(cands):
         raise _err("candidate names must be unique")
+    return cands
+
+
+def validate(doc: Any) -> Prereg:
+    """Validate a parsed pre-registration document; raise CliError on the first problem."""
+    if not isinstance(doc, dict):
+        raise _err("pre-registration must be a JSON object")
+    if doc.get("schema_version") != SCHEMA_VERSION:
+        raise _err(f"schema_version must be {SCHEMA_VERSION}")
+    record_id = _record_id(doc)
+    bars = _bars(doc.get("bars"))
+    perms = _perms(doc)
+    order = _rule_order(doc)
+    tol = _tolerances(doc)
+    cands = _candidates(doc)
     return Prereg(
         bars=bars,
         perms_per_entry=perms,

@@ -97,30 +97,71 @@ def cite(name: str, value: float, source: Path | str, sha256: str | None = None)
     return {"name": name, "value": value, "source": str(source), "sha256": digest}
 
 
+def _is_hex64(value: Any) -> bool:
+    return isinstance(value, str) and bool(_HEX64.match(value))
+
+
+def _is_id(value: Any) -> bool:
+    return isinstance(value, str) and bool(_ID.match(value))
+
+
+def _citation_errors(where: str, c: Any) -> list[str]:
+    if not isinstance(c, dict) or set(c) != _CITED_KEYS:
+        return [f"{where} must have exactly the keys {sorted(_CITED_KEYS)}"]
+    errs: list[str] = []
+    if not _nonempty_str(c["name"]):
+        errs.append(f"{where}.name must be a non-empty string")
+    if not (_is_num(c["value"]) or c["value"] is None):
+        errs.append(f"{where}.value must be a finite number or null")
+    if not _nonempty_str(c["source"]):
+        errs.append(f"{where}.source must be a non-empty string")
+    if not _is_hex64(c["sha256"]):
+        errs.append(f"{where}.sha256 must be 64 lowercase hex characters")
+    return errs
+
+
 def _cited_errors(cited: Any) -> list[str]:
     if not isinstance(cited, list) or not cited:
         return ["cited must be a non-empty list of metric citations"]
     errs: list[str] = []
     for i, c in enumerate(cited):
-        where = f"cited[{i}]"
-        if not isinstance(c, dict) or set(c) != _CITED_KEYS:
-            errs.append(f"{where} must have exactly the keys {sorted(_CITED_KEYS)}")
-            continue
-        if not _nonempty_str(c["name"]):
-            errs.append(f"{where}.name must be a non-empty string")
-        if not (_is_num(c["value"]) or c["value"] is None):
-            errs.append(f"{where}.value must be a finite number or null")
-        if not _nonempty_str(c["source"]):
-            errs.append(f"{where}.source must be a non-empty string")
-        if not (isinstance(c["sha256"], str) and _HEX64.match(c["sha256"])):
-            errs.append(f"{where}.sha256 must be 64 lowercase hex characters")
+        errs.extend(_citation_errors(f"cited[{i}]", c))
     return errs
 
 
-def validate_record(rec: Any) -> list[str]:
-    """Return every schema problem with *rec* (empty when it is valid)."""
-    if not isinstance(rec, dict):
-        return ["a record must be a JSON object"]
+def _reasons_ok(reasons: Any) -> bool:
+    return isinstance(reasons, list) and bool(reasons) and all(_nonempty_str(r) for r in reasons)
+
+
+#: Per-field checks, in report order: (field, is-valid, problem). A field is
+#: checked only when present; ``cited`` sits between the two halves.
+_FIELD_CHECKS_HEAD: tuple[tuple[str, Any, str], ...] = (
+    ("schema_version", lambda v: v == SCHEMA_VERSION, f"schema_version must be {SCHEMA_VERSION}"),
+    ("id", _is_id, "id must look like D<n>"),
+    ("created", _nonempty_str, "created must be an ISO-8601 timestamp string"),
+    ("run", _nonempty_str, "run must be a non-empty string"),
+    ("verdict", lambda v: v in VERDICTS, f"verdict must be one of {list(VERDICTS)}"),
+    ("params", lambda v: isinstance(v, dict), "params must be an object"),
+    ("reasons", _reasons_ok, "reasons must be a non-empty list of non-empty strings"),
+)
+_FIELD_CHECKS_TAIL: tuple[tuple[str, Any, str], ...] = (
+    ("rule_version", _nonempty_str, "rule_version must be a non-empty string"),
+    ("prev_sha256", _is_hex64, "prev_sha256 must be 64 lowercase hex characters"),
+    (
+        "prereg_sha256",
+        lambda v: v is None or _is_hex64(v),
+        "prereg_sha256 must be 64 lowercase hex characters or null",
+    ),
+    ("details", lambda v: isinstance(v, dict), "details must be an object"),
+    ("decider", lambda v: v in DECIDERS, f"decider must be one of {list(DECIDERS)}"),
+)
+
+
+def _field_errors(rec: dict[str, Any], checks: tuple[tuple[str, Any, str], ...]) -> list[str]:
+    return [problem for key, ok, problem in checks if key in rec and not ok(rec[key])]
+
+
+def _shape_errors(rec: dict[str, Any]) -> list[str]:
     errs: list[str] = []
     missing = [k for k in _REQUIRED if k not in rec]
     if missing:
@@ -128,42 +169,16 @@ def validate_record(rec: Any) -> list[str]:
     unknown = sorted(set(rec) - set(_REQUIRED) - set(_OPTIONAL))
     if unknown:
         errs.append(f"unknown fields: {', '.join(unknown)}")
-    if "schema_version" in rec and rec["schema_version"] != SCHEMA_VERSION:
-        errs.append(f"schema_version must be {SCHEMA_VERSION}")
-    if "id" in rec and not (isinstance(rec["id"], str) and _ID.match(rec["id"])):
-        errs.append("id must look like D<n>")
-    if "created" in rec and not _nonempty_str(rec["created"]):
-        errs.append("created must be an ISO-8601 timestamp string")
-    if "run" in rec and not _nonempty_str(rec["run"]):
-        errs.append("run must be a non-empty string")
-    if "verdict" in rec and rec["verdict"] not in VERDICTS:
-        errs.append(f"verdict must be one of {list(VERDICTS)}")
-    if "params" in rec and not isinstance(rec["params"], dict):
-        errs.append("params must be an object")
-    if "reasons" in rec:
-        reasons = rec["reasons"]
-        if not (isinstance(reasons, list) and reasons and all(_nonempty_str(r) for r in reasons)):
-            errs.append("reasons must be a non-empty list of non-empty strings")
-    if "cited" in rec:
-        errs.extend(_cited_errors(rec["cited"]))
-    if "rule_version" in rec and not _nonempty_str(rec["rule_version"]):
-        errs.append("rule_version must be a non-empty string")
-    if "prev_sha256" in rec and not (
-        isinstance(rec["prev_sha256"], str) and _HEX64.match(rec["prev_sha256"])
-    ):
-        errs.append("prev_sha256 must be 64 lowercase hex characters")
-    psha = rec.get("prereg_sha256")
-    if psha is not None and not (isinstance(psha, str) and _HEX64.match(psha)):
-        errs.append("prereg_sha256 must be 64 lowercase hex characters or null")
-    if "details" in rec and not isinstance(rec["details"], dict):
-        errs.append("details must be an object")
+    return errs
+
+
+def _override_errors(rec: dict[str, Any]) -> list[str]:
     decider = rec.get("decider")
-    if "decider" in rec and decider not in DECIDERS:
-        errs.append(f"decider must be one of {list(DECIDERS)}")
+    errs: list[str] = []
     if decider in ("model", "human") and not _nonempty_str(rec.get("decider_ref")):
         errs.append(f"decider_ref is required when decider is {decider} (model bundle / who)")
     if "overrides" in rec:
-        if not (isinstance(rec["overrides"], str) and _ID.match(rec["overrides"])):
+        if not _is_id(rec["overrides"]):
             errs.append("overrides must be a record id (D<n>)")
         if decider != "human":
             errs.append("only a human record may override another record")
@@ -172,6 +187,17 @@ def validate_record(rec: Any) -> list[str]:
     if "deviation_id" in rec and not _nonempty_str(rec["deviation_id"]):
         errs.append("deviation_id must be a non-empty string")
     return errs
+
+
+def validate_record(rec: Any) -> list[str]:
+    """Return every schema problem with *rec* (empty when it is valid)."""
+    if not isinstance(rec, dict):
+        return ["a record must be a JSON object"]
+    errs = _shape_errors(rec) + _field_errors(rec, _FIELD_CHECKS_HEAD)
+    if "cited" in rec:
+        errs.extend(_cited_errors(rec["cited"]))
+    errs += _field_errors(rec, _FIELD_CHECKS_TAIL)
+    return errs + _override_errors(rec)
 
 
 def _parse(data: bytes, path: Path) -> list[dict[str, Any]]:
