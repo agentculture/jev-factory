@@ -22,6 +22,7 @@ Top-level keys::
 
 from __future__ import annotations
 
+import math
 import os
 import tomllib
 from dataclasses import dataclass, field
@@ -332,11 +333,13 @@ def _parse_case_set(table: Mapping, where: str) -> CaseSet:
 
 
 def _is_real(value: object) -> bool:
-    """An int or float that is not a bool."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    """A finite int or float that is not a bool (NaN and infinity pass no range check)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _parse_budget(provider: str, table: Mapping, where: str) -> Budget:
+    if not isinstance(table, Mapping):
+        raise ManifestError(f"{where} must be a table")
     if provider not in ALLOWED_PROVIDERS:
         raise ManifestError(
             f"{where}: unknown provider {provider!r} "

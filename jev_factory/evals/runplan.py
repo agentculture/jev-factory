@@ -454,7 +454,7 @@ def _saved_rows(entry: RunEntry, path: Path, data: bytes, wanted: set[str]) -> d
         except ValueError as exc:
             raise RunError(f"{entry.name}: {path} line {number} is not JSON") from exc
         case_id = row.get("id") if isinstance(row, dict) else None
-        if case_id not in wanted:
+        if not isinstance(case_id, str) or case_id not in wanted:
             continue
         if case_id in rows:
             raise RunError(f"{entry.name}: {path} has case {case_id!r} twice")

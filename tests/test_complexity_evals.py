@@ -260,11 +260,18 @@ def test_parse_budgets_checks_in_order_and_stops_at_the_first_bad_provider():
         _parse_budgets(raw, "b")
 
 
-def test_parse_budgets_non_table_entry_is_an_attribute_error():
-    # Current behaviour (reported, not fixed): a provider entry that is not a
-    # table escapes as AttributeError rather than ManifestError.
-    with pytest.raises(AttributeError):
+def test_parse_budgets_non_table_entry_is_a_manifest_error():
+    # Fixed after the d17 report: it used to escape as AttributeError (a CLI traceback).
+    with pytest.raises(ManifestError, match=r"budget\.local must be a table"):
         _parse_budgets({"local": 3}, "budget")
+
+
+@pytest.mark.parametrize("field", ["usd_cap", "requests_per_minute"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_parse_budgets_refuses_a_non_finite_number(field, value):
+    table = {"usd_cap": 1.0, "concurrency_cap": 1, field: value}
+    with pytest.raises(ManifestError, match=field):
+        _parse_budgets({"local": table}, "budget")
 
 
 # ---------------------------------------------------------------------------
@@ -930,6 +937,15 @@ def test_load_saved_with_no_row_for_the_set_is_none(tmp_path):
     entry, cs, cases, env, predictions = _saved_inputs(tmp_path)
     predictions.write_text('{"id": "other"}\n')
     assert _load_saved(entry, cs, cases, env) is None
+
+
+def test_load_saved_skips_a_row_whose_id_is_not_a_string(tmp_path):
+    # Fixed after the d17 report: an unhashable id raised TypeError from the set lookup.
+    entry, cs, cases, env, predictions = _saved_inputs(tmp_path)
+    good = predictions.read_text().splitlines()
+    predictions.write_text("\n".join(['{"id": [1]}', '{"id": {"a": 1}}', *good]) + "\n")
+    saved = _load_saved(entry, cs, cases, env)
+    assert [t.case_id for t in saved.traces] == [c.id for c in cases]
 
 
 def test_load_saved_refuses_an_unreadable_file(tmp_path):
