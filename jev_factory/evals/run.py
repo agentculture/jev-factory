@@ -158,6 +158,10 @@ NVSH_PROVENANCE = {
         "finalize runs the DeepEval layer unless deepeval=False (--no-deepeval), which is"
         " recorded in result.json; without deepeval installed a full run stops before any"
         " call with an environment error naming `uv run --group evals`",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }

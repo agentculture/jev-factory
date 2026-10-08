@@ -36,9 +36,13 @@ NVSH_PROVENANCE = {
     "upstream": "scripts/lfm-finetune/merge_variations.py",
     "commit": "9debdc6",
     "adaptations": [
-        "merge/add_supplement/excluded_texts/_normal and the CLI are kept as in nvsh"
-        " (:1-177); only docstring wording and the argparse prog change",
+        "merge/add_supplement/excluded_texts/_normal and the CLI were imported as in nvsh"
+        " (:1-177) with only docstring wording and the argparse prog changed; see d17",
         "tests ported from tests/test_lfm_finetune_merge_variations.py onto a toy-domain split",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }

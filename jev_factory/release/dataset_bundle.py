@@ -39,6 +39,10 @@ NVSH_PROVENANCE = {
         "scorer-train.json ships at the bundle root (not data/) so every bundle kind has the"
         " same required files; scorer_train is now required",
         "the argparse main() and the per-issue RUN_LOGS/GROUNDING tables are dropped",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }

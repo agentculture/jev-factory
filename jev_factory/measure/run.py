@@ -124,6 +124,10 @@ NVSH_PROVENANCE = {
         " once-ledger (nvsh only counted earlier final pages, lines 2767-2782)",
         "results go under --run-dir/measure/ instead of docs/benchmarks/; --details and"
         " the docker container guard are dropped; the GPU residency guard is added",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }

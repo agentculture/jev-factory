@@ -33,6 +33,10 @@ NVSH_PROVENANCE = {
         "the MEASURE_CTX environment-outranks-file exception generalised to one precedence rule",
         "tool paths, licence, hub prefix and issue refs made declared keys",
         "secrets are referenced by env-var name only (see secrets.py)",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }

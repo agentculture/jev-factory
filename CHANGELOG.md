@@ -66,9 +66,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the factory, not a template.
 - CI lint now runs `portability-lint.sh`, and pytest disables the deepeval
   plugin.
+- Code-quality pass (deviation d17): every SonarCloud cognitive-complexity
+  finding (52, plus 6 nested conditionals) is refactored into private helpers,
+  absorbed nvsh code included. Each function was covered first (432
+  characterization cases in `tests/test_complexity_*.py`) and checked against
+  its previous version on randomized inputs where pure; behaviour is
+  unchanged. Every composite `assert a and b` in the tests is split into one
+  assertion per condition. The provenance headers of the 27 absorbed modules
+  touched record the change.
 
 ### Fixed
 
+- The teacher reply scanner ended a JSON string at an escaped quote, so a
+  verdict whose reason held `\"}` was refused as malformed and lost.
+- Release-gate manifests: a budget entry that is not a table raised an
+  uncaught `AttributeError` (a CLI traceback), and NaN or infinite budget
+  numbers were accepted; both are `ManifestError`s now. A saved prediction row
+  with a non-string `id` no longer raises `TypeError`.
+- Three regexes (seed ids, `--every`, teacher replies) backtracked
+  quadratically on long input; they are linear now.
 - nvsh#58's stop/start race in measurement serving, a teacher-cache
   temp-file race, and the release gate's worktree guard (now uses
   `git rev-parse`, nvsh#71).

@@ -36,6 +36,10 @@ NVSH_PROVENANCE = {
         "scan_folder/write_scan no longer take a scan_secrets module argument",
         "check_no_symlinks moved here from hub_upload.py (bundle + hub both refuse links)",
         "the argparse main() is dropped; scan/verify are called by bundle and hub code",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }

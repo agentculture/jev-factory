@@ -76,6 +76,10 @@ NVSH_PROVENANCE = {
         " the pre-calibration distribution in raw_probabilities",
         "added select_calibration: the vector is kept only if it lowers selection-fold ECE",
         "evaluate reads jev_factory.core.predictions records and compute_calibration",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }

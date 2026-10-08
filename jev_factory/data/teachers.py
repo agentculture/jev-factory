@@ -46,6 +46,11 @@ NVSH_PROVENANCE = {
         "lines 925-975 parse_verdict hedge-word blacklist replaced by a JSON verdict schema",
         "roles configured by RunConfig keys and a secret env-var name, not NVSH_AUG_* env",
         "added the content-hash response cache, the Apache-2.0 list and the endpoint guard",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version; fixed: an escaped quote no longer ends a JSON string in "
+        "the reply scanner",
     ],
     "licence": "Apache-2.0",
 }

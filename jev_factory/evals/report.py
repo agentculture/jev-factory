@@ -72,6 +72,10 @@ NVSH_PROVENANCE = {
         "result.json and the page record whether the DeepEval layer ran (manifest.json"
         " 'deepeval'), so a run without it is visible",
         "page title and wording name the jev release gate instead of Tool-Jev/nvsh",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }

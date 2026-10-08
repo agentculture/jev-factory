@@ -97,6 +97,7 @@ From `scripts/lfm-finetune/gen_config.py` at `9debdc6` (Apache-2.0).
 - ported unchanged in behaviour: write/check/stock_copy and the CLI (main)
 - module docstring: nvsh Tier 2 / pipeline.sh wording made factory-generic; the usage lines run it as python -m jev_factory.backbones.causal_lm.gen_config
 - tests ported from tests/test_lfm_finetune_gen_config.py
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/backbones/causal_lm/quantize.py`
@@ -136,6 +137,7 @@ From `scripts/lfm-finetune/scorer.py` at `9debdc6` (Apache-2.0).
 - score :632-686 takes an injectable top-k callable (prompt, top) instead of the NextTokenScorer protocol and returns ScorerPrediction (the backbone-agnostic predictions record) instead of Scored
 - served path: nvsh/tiers/toolchat.py score_next_token body and the _shape_l/_shape_c logprob parsers become served_top_k with an injectable post
 - TransformersScorer :689-748 becomes InProcessTopK over any full-vocabulary log-probability function, scanning variants for the whole label alphabet once
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/backbones/causal_lm/stage_cache.py`
@@ -159,6 +161,7 @@ From `scripts/lfm-finetune/train.py` at `9debdc6` (Apache-2.0).
 - merge verification made total and testable: capture_load_warnings + check_load_warnings fail on any missing-adapter-key warning; sample_names + check_weights_changed compare a deterministic sample of adapted weights (not one probe) and fail when any equals the base; check_text_only refuses a vision-language class or language_model prefix; verify_merge runs them all and merge_adapter writes merge-report.json
 - new: plan_train/plan_heal/run_plan replace pipeline.sh's train-scorer and heal stages (:640-664, :762-780): prereg gate, frozen-set selection by sha256, dry-run by default, commands run through factory.gpu.run_gpu_stage; heal is 1 epoch lr 5e-5 bf16 on the same frozen set via train_scorer --heal, one round only
 - tests ported from tests/test_lfm_finetune_train.py (scorer-path helpers)
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/backbones/causal_lm/train_scorer.py`
@@ -172,6 +175,7 @@ From `scripts/lfm-finetune/train_scorer.py` at `9debdc6` (Apache-2.0).
 - main :623-736 split into prepare (prereg gate, frozen sha256 check, split reading; no heavy import) and _train; the tokenizer goes through train.text_tokenizer (processor.tokenizer for Qwen3.5); train_log records precision, heal, deviation id and the domain surface sha256; row-maps.json is named relative to the run dir
 - new --heal: 1 epoch, lr 5e-5, bf16 continuation (resolve_hyperparameters refuses other values); new --prereg/--lock-dir/--expect-sha256/--deviation/--domain
 - tests ported from tests/test_lfm_finetune_train_scorer.py and test_lfm_finetune_train_scorer_rows.py onto the toy domain
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/core/calibration.py`
@@ -186,6 +190,7 @@ From `scripts/lfm-finetune/calibration_fit.py` at `9debdc6` (Apache-2.0).
 - lines 508-520: apply returns Prediction records, changes probabilities only and keeps the pre-calibration distribution in raw_probabilities
 - added select_calibration: the vector is kept only if it lowers selection-fold ECE
 - evaluate reads jev_factory.core.predictions records and compute_calibration
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/core/gate.py`
@@ -214,8 +219,9 @@ From `scripts/lfm-finetune/leakage_check.py` at `9debdc6` (Apache-2.0).
 From `scripts/lfm-finetune/merge_variations.py` at `9debdc6` (Apache-2.0).
 
 ```text
-- merge/add_supplement/excluded_texts/_normal and the CLI are kept as in nvsh (:1-177); only docstring wording and the argparse prog change
+- merge/add_supplement/excluded_texts/_normal and the CLI were imported as in nvsh (:1-177) with only docstring wording and the argparse prog changed; see d17
 - tests ported from tests/test_lfm_finetune_merge_variations.py onto a toy-domain split
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/core/metrics.py`
@@ -242,6 +248,7 @@ From `scripts/lfm-finetune/metrics.py` at `9debdc6` (Apache-2.0).
 - MetricsError becomes PredictionError (metrics.MetricsError aliases it)
 - added optional offered, raw_scores, raw_probabilities and grounded fields, validated against candidates; to_dict/write_predictions added
 - control labels come from jev_factory.domain.model instead of nvsh.tiers.bench
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/core/split.py`
@@ -255,6 +262,7 @@ From `scripts/lfm-finetune/split.py` at `9debdc6` (Apache-2.0).
 - sys.path/_REPO_ROOT/importlib path loading removed in favour of package imports
 - new load_sealed/SealedSide: read a sealed held-out or test side as ids, counts and sha256 only (never entry text)
 - tests ported from tests/test_lfm_finetune_split.py (and _split_v2_readers' split.py parts) onto toy-domain fixtures
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/core/sweep_gate.py`
@@ -306,6 +314,7 @@ From `scripts/lfm-finetune/augment.py` at `9debdc6` (Apache-2.0).
 - decide_by defaults to reviewer_b (issue 46 d11), as teachers.py documents; the reviewer system text loses its 'start with yes or no' line because the client appends the JSON-verdict instruction
 - rederive_clean_slate (:1437-1543, a one-off offline migration of outputs written under a superseded rule) and the argparse main are not ported; the stage engine is the CLI
 - resume also reads an ItemLedger when one is given; progress lines are the ledger's
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/data/common.py`
@@ -335,6 +344,7 @@ From `scripts/lfm-finetune/draft_sources.py` at `9debdc6` (Apache-2.0).
 - draft_heldout.py lines 96-110 as_item and parse_json_list kept; --seed/--issue argv parsing became function arguments
 - draft_heldout.py lines 136-218 model load and generation moved into load_qwen_drafter (lazy transformers import) behind an injected drafter callable; asks are batched
 - draft_heldout.py lines 192-218 output is a Held-out split header, a per-seed id prefix, mode 0o444, only counts and sha256 are returned; raw-generations log dropped
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/data/targeted.py`
@@ -350,6 +360,7 @@ From `scripts/lfm-finetune/targeted_augment.py` at `9debdc6` (Apache-2.0).
 - roles, the seeded HTTP caller, retry policy and free-text verdict parsing (and the allowed-hedge lists they needed) are replaced by TeacherClient: JSON verdicts, JSON-list replies validated by the client so a bad one is retried uncached
 - a multi-round ask (k above the batch size) carries its batch number so the client cache never answers two rounds with one reply
 - the argparse main and --roles-from are not ported; the stage engine is the CLI
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/data/teachers.py`
@@ -362,6 +373,7 @@ From `scripts/lfm-finetune/augment.py` at `9debdc6` (Apache-2.0).
 - lines 925-975 parse_verdict hedge-word blacklist replaced by a JSON verdict schema
 - roles configured by RunConfig keys and a secret env-var name, not NVSH_AUG_* env
 - added the content-hash response cache, the Apache-2.0 list and the endpoint guard
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version; fixed: an escaped quote no longer ends a JSON string in the reply scanner
 ```
 
 ### `jev_factory/domain/model.py`
@@ -394,6 +406,7 @@ From `evals/tool_jev/__main__.py` at `9debdc6` (Apache-2.0).
 - the drive command (deviation d2: the unattended loop, its signals and Discord alerts) is deferred per c14; run/continue/status/smoke are kept
 - --no-deepeval runs a full pass with the exact corpus metrics only (recorded in result.json), so a no-secrets, no-deepeval environment can finish a run
 - NVSH_EVALS_* env vars -> JEV_EVALS_*
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/evals/cases.py`
@@ -438,6 +451,7 @@ From `evals/tool_jev/manifest.py` at `9debdc6` (Apache-2.0).
 - ALLOWED_PROVIDERS narrows to the ported adapters (openrouter, nvidia, local)
 - NVSH_EVALS_MANIFEST -> JEV_EVALS_MANIFEST
 - kept: [[candidate]]/[[baseline]] with per-case-set predictions and policies, [[reference]] roster uniqueness, [[case_set]] held-out consistency, [budget.*] usd_cap/concurrency_cap/requests_per_minute/timeout_seconds, [stops]
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version; fixed: a non-table budget entry and non-finite numbers are ManifestErrors
 ```
 
 ### `jev_factory/evals/metrics_bridge.py`
@@ -503,6 +517,7 @@ From `evals/tool_jev/providers/openai_compat.py` at `9debdc6` (Apache-2.0).
 - the four batch hooks raising NotImplementedError are dropped with the batch API
 - the local kind's default key env var is a neutral LOCAL_LLM_API_KEY
 - kept: base-URL validation, the injectable transport, RateLimiter, error-body classification, logprob distribution, usage parsing, reply_text truncation
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/evals/report.py`
@@ -515,6 +530,7 @@ From `evals/tool_jev/report.py` at `9debdc6` (Apache-2.0).
 - the 'Task done' column (deviation d9, Track A inspections) is dropped with Track A
 - result.json and the page record whether the DeepEval layer ran (manifest.json 'deepeval'), so a run without it is visible
 - page title and wording name the jev release gate instead of Tool-Jev/nvsh
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/evals/request.py`
@@ -539,6 +555,7 @@ From `evals/tool_jev/run.py` at `9debdc6` (Apache-2.0).
 - a reference's distribution is keyed by calibration labels ('(explain)', '(escalate)') like a saved predictions line, so the gate and the metrics read it
 - the worktree guard (_check_run_dir) uses trace.inside_git_worktree: git rev-parse via factory.workroot (nvsh#71 item 2)
 - finalize runs the DeepEval layer unless deepeval=False (--no-deepeval), which is recorded in result.json; without deepeval installed a full run stops before any call with an environment error naming `uv run --group evals`
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/evals/runplan.py`
@@ -552,6 +569,7 @@ From `evals/tool_jev/runplan.py` at `9debdc6` (Apache-2.0).
 - Model.rate/estimate drop the batch discount; the worst-case reservation (prompt size plus the whole output budget) is unchanged
 - policies may be a builtin name or a .json path under the private root
 - env vars NVSH_EVALS_* -> JEV_EVALS_*
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version; fixed: a saved prediction row with a non-string id is skipped, not a TypeError
 ```
 
 ### `jev_factory/evals/runstate.py`
@@ -591,6 +609,7 @@ From `scripts/lfm-finetune/pipeline.sh` at `9debdc6` (Apache-2.0).
 - the MEASURE_CTX environment-outranks-file exception generalised to one precedence rule
 - tool paths, licence, hub prefix and issue refs made declared keys
 - secrets are referenced by env-var name only (see secrets.py)
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/factory/gpu.py`
@@ -613,6 +632,7 @@ From `scripts/lfm-finetune/pipeline.sh` at `9debdc6` (Apache-2.0).
 - train-scorer's mtime choice of the training file (line 648) is replaced by the frozen sha256 (data.assemble.select_frozen)
 - Track A stages (skills, augment-skills, measure-skills, train) are dropped; the hard-coded hub prefix (lines 500, 508) comes from the run config/Domain
 - added stages the script never had: preregister, teachers-pilot, draft-heldout, draft-eval, snapshot, select, recalibrate, edge-check, dataset-bundle (d14), release-gate
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/factory/secrets.py`
@@ -673,6 +693,7 @@ From `scripts/lfm-finetune/permutation_probe.py` at `9debdc6` (Apache-2.0).
 - the request text is the entry's text (tier_lfm.request_message dropped); gold names use Domain.reason_for_class and the domain's EXPLAIN/ESCALATE names
 - --paraphrases defaults to the Domain's own paraphrases (at least 1 alternative each); a --paraphrases file keeps nvsh's at-least-2 rule
 - full_alphabet_labels is dropped: the adapter's InProcessTopK already reads every letter of the alphabet; _build_real_scorer goes through measure.run.build_scorer
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/measure/run.py`
@@ -687,6 +708,7 @@ From `scripts/lfm-finetune/measure.py` at `9debdc6` (Apache-2.0).
 - revision verification against the nvsh HF cache (lines 786-857) is dropped: a served revision is operator-supplied and a served GGUF's sha256 is recorded
 - a second final/held-out measurement without --deviation is refused through the once-ledger (nvsh only counted earlier final pages, lines 2767-2782)
 - results go under --run-dir/measure/ instead of docs/benchmarks/; --details and the docker container guard are dropped; the GPU residency guard is added
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/measure/serve.py`
@@ -700,6 +722,7 @@ From `scripts/lfm-finetune/serve_for_measure.sh` at `9debdc6` (Apache-2.0).
 - gen_config.py check (scripts/lfm-finetune/gen_config.py:check) is delegated to backbones/causal_lm/gen_config.check (greedy_problem only adds refusals for an unreadable or non-object file); uv run from the nvsh repo root is gone
 - vLLM's --tool-call-parser is passed only when configured (the scorer path reads /completions log-probabilities, never tool calls); --max-logprobs below READOUT_TOP is refused
 - MEASURE_* environment knobs become ServeSettings (from the run config or JEV_* variables); the run dir defaults to XDG_RUNTIME_DIR, else the system temp dir
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/measure/slices.py`
@@ -721,6 +744,7 @@ From `scripts/lfm-finetune/measure.py` at `9debdc6` (Apache-2.0).
 - _lookup_name's '.service' spelling becomes the kind's first declared suffix
 - the grounding runner is gone: Domain.ground reads the snapshot dict directly
 - the `measure.py snapshot` subcommand becomes python -m jev_factory.measure.snapshot
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/release/bundle.py`
@@ -733,6 +757,7 @@ From `scripts/lfm-finetune/release_bundle.py` at `9debdc6` (Apache-2.0).
 - calibration.json, gate.json and scorer-train.json are required; bundle.json records the domain surface sha256 (new)
 - GGUF metadata reader added; an absolute path or a symlink refuses the bundle (new)
 - the argparse main() is dropped
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/release/dataset_bundle.py`
@@ -744,6 +769,7 @@ From `scripts/lfm-finetune/dataset_bundle.py` at `9debdc6` (Apache-2.0).
 - CORPUS_FILE/SUPPLEMENT_FILE and the nvsh-specific card prose replaced by the Domain's name, card_text and the run config's licence and issue refs
 - scorer-train.json ships at the bundle root (not data/) so every bundle kind has the same required files; scorer_train is now required
 - the argparse main() and the per-issue RUN_LOGS/GROUNDING tables are dropped
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```
 
 ### `jev_factory/release/hub.py`
@@ -769,4 +795,5 @@ From `scripts/lfm-finetune/scan_bundle.py` at `9debdc6` (Apache-2.0).
 - scan_folder/write_scan no longer take a scan_secrets module argument
 - check_no_symlinks moved here from hub_upload.py (bundle + hub both refuse links)
 - the argparse main() is dropped; scan/verify are called by bundle and hub code
+- d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
 ```

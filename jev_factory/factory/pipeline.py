@@ -113,6 +113,10 @@ NVSH_PROVENANCE = {
         "added stages the script never had: preregister, teachers-pilot, draft-heldout,"
         " draft-eval, snapshot, select, recalibrate, edge-check, dataset-bundle (d14),"
         " release-gate",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }

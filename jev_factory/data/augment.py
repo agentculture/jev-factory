@@ -72,6 +72,10 @@ NVSH_PROVENANCE = {
         "rederive_clean_slate (:1437-1543, a one-off offline migration of outputs written under a"
         " superseded rule) and the argparse main are not ported; the stage engine is the CLI",
         "resume also reads an ItemLedger when one is given; progress lines are the ledger's",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }

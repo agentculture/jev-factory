@@ -90,6 +90,10 @@ NVSH_PROVENANCE = {
         " default, commands run through factory.gpu.run_gpu_stage; heal is 1 epoch lr 5e-5"
         " bf16 on the same frozen set via train_scorer --heal, one round only",
         "tests ported from tests/test_lfm_finetune_train.py (scorer-path helpers)",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }

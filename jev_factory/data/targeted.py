@@ -117,6 +117,10 @@ NVSH_PROVENANCE = {
         "a multi-round ask (k above the batch size) carries its batch number so the client cache"
         " never answers two rounds with one reply",
         "the argparse main and --roles-from are not ported; the stage engine is the CLI",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }

@@ -99,6 +99,10 @@ NVSH_PROVENANCE = {
         " (lazy transformers import) behind an injected drafter callable; asks are batched",
         "draft_heldout.py lines 192-218 output is a Held-out split header, a per-seed id"
         " prefix, mode 0o444, only counts and sha256 are returned; raw-generations log dropped",
+        "d17 (2026-10-08): restructured for SonarCloud code quality (cognitive "
+        "complexity split into private helpers, plus lint-level cleanups); behaviour "
+        "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
+        "the imported version",
     ],
     "licence": "Apache-2.0",
 }
