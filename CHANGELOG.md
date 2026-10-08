@@ -74,6 +74,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unchanged. Every composite `assert a and b` in the tests is split into one
   assertion per condition. The provenance headers of the 27 absorbed modules
   touched record the change.
+- The release builders take grouped inputs: `build_model_bundle(files=BundleFiles(...),
+  payload=ModelPayload(...))`, `model_card(build=BuildFacts(...))` and
+  `build_dataset_bundle`/`dataset_bundle.build(sources=DatasetSources(...))`;
+  outputs are byte-identical.
+- `prereg.Bar.bar` is renamed `Bar.threshold` (the file's `"bar"` key is
+  unchanged).
+- `core.split.main(exit_on_error=False)` raises `SplitRefused` instead of
+  exiting, and the pipeline's split stage error now states split's reason.
+- `capped.sh` uses `[[ ]]` tests, explicit returns and named locals
+  (behaviour unchanged).
 
 ### Fixed
 
