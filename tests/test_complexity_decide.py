@@ -406,9 +406,9 @@ def test_coerce_converts(kind, raw, expected):
     assert type(out) is type(expected)
 
 
-def test_coerce_expands_a_path(monkeypatch):
-    monkeypatch.setenv("HOME", "/home/someone")
-    assert config_mod._coerce(_key("path"), "~/x", "the CLI") == "/home/someone/x"
+def test_coerce_expands_a_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert config_mod._coerce(_key("path"), "~/x", "the CLI") == str(tmp_path / "x")
 
 
 @pytest.mark.parametrize(
