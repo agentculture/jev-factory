@@ -102,7 +102,8 @@ def test_verbs_are_read_only_except_the_write_verbs_and_all_have_descriptions() 
     domain = generate_domain()
     stages = [n for n in domain.names() if n.startswith("jev.run.")]
     writes = {"jev.init", "jev.decide", "jev.review", *stages}
-    assert stages and all(domain.is_mutating(n) for n in writes)
+    assert stages
+    assert all(domain.is_mutating(n) for n in writes)
     assert all(domain.read_only(n) for n in domain.names() if n not in writes)
     assert all(domain.get(n).description.strip() for n in domain.names())
 

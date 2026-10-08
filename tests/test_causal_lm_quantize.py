@@ -601,8 +601,10 @@ def test_the_trigger_is_logged_before_the_caller_can_heal(tmp_path: Path) -> Non
     # the trigger is on disk by the time the caller holds it: nothing has healed yet
     assert not (tmp_path / "heal").exists()
     (event,) = _events(log)
-    assert event["event"] == "heal_trigger" and event["candidate"] == "r3b"
-    assert event["loss_points"] == 10.0 and event["refused"] is False
+    assert event["event"] == "heal_trigger"
+    assert event["candidate"] == "r3b"
+    assert event["loss_points"] == 10.0
+    assert event["refused"] is False
     assert (trigger.heal_round, trigger.loss_points) == (1, 10.0)
 
 
@@ -614,7 +616,8 @@ def test_a_second_heal_round_is_refused_and_the_refusal_is_logged(tmp_path: Path
     with pytest.raises(quantize.QuantizeError, match="one round only"):
         quantize.heal_trigger(bf16, quant, log=log, candidate="r3b")
     first, second = _events(log)
-    assert second["refused"] is True and second["heal_round"] == 2
+    assert second["refused"] is True
+    assert second["heal_round"] == 2
     assert second["new_wrong_mutating_ids"] == ["x"]
     # refusals are not spent rounds: the count stays at one, and a third try refuses too
     bf16, quant = _summary(90.0), _summary(70.0)
@@ -784,12 +787,14 @@ def _calls(stage) -> list[list]:
 def test_the_plan_is_a_dry_run_that_writes_nothing(stage) -> None:
     plan = _plan(stage)
     result = quantize.run_quantize(plan)
-    assert result["applied"] is False and not stage["work"].exists()
+    assert result["applied"] is False
+    assert not stage["work"].exists()
     assert not stage["log"].exists()
     commands = result["plan"]["commands"]
     assert commands[0][-1] == "--no-mtp"  # declared MTP head, no mtp.* tensor
     assert commands[2][-1] == "Q4_K_M"
-    assert result["plan"]["gguf_no_mtp"] is True and result["plan"]["calibration_entries"] == 2
+    assert result["plan"]["gguf_no_mtp"] is True
+    assert result["plan"]["calibration_entries"] == 2
 
 
 def test_the_plan_needs_its_tool_paths_from_the_config(stage) -> None:
@@ -815,7 +820,8 @@ def test_the_stage_builds_bf16_then_imatrix_then_q4_k_m_and_records_the_commit(s
     work = stage["work"]
     assert [c[0] for c in _calls(stage)] == ["convert", "imatrix", "quantize"]
     convert = _calls(stage)[0][1]
-    assert "bf16" in convert and "--no-mtp" in convert
+    assert "bf16" in convert
+    assert "--no-mtp" in convert
     # the greedy generation config landed on the source before conversion
     assert json.loads((stage["model"] / "generation_config.json").read_text())["do_sample"] is False
     # train-side text only, one line per entry (newline collapsed) and JSONL for AWQ
@@ -902,7 +908,8 @@ def test_awq_runs_as_a_subprocess_of_the_awq_python_and_is_finished_after(stage)
     )  # fmt: skip
     result = quantize.run_quantize(plan, apply=True, run=run, env={})
     awq = next(c for c in calls if c[0] == "awq-python" and "--model-dir" in c)
-    assert awq[1] == str(quantize.AWQ_ONESHOT_SCRIPT) and awq[1].endswith("awq_oneshot.py")
+    assert awq[1] == str(quantize.AWQ_ONESHOT_SCRIPT)
+    assert awq[1].endswith("awq_oneshot.py")
     assert result["log"]["tool_versions"]["llm-compressor"] == "0.14.0"
     assert (
         json.loads((stage["work"] / "awq" / "generation_config.json").read_text())["do_sample"]
@@ -925,9 +932,12 @@ def test_gpu_run_sends_each_command_through_the_guarded_stage_runner(tmp_path) -
     assert run(["tool", "x"], 5.0) == (0, "outerr")
     assert run(["tool", "y"], 5.0, cwd=tmp_path) == (0, "outerr")
     plain, wrapped = seen
-    assert plain[0] == "quantize" and plain[2] == ["tool", "x"]
-    assert plain[3]["memory_max"] == "24G" and plain[3]["allow_foreign"] is False
-    assert wrapped[2][:2] == ["bash", "-c"] and wrapped[2][-3:] == [str(tmp_path), "tool", "y"][-3:]
+    assert plain[0] == "quantize"
+    assert plain[2] == ["tool", "x"]
+    assert plain[3]["memory_max"] == "24G"
+    assert plain[3]["allow_foreign"] is False
+    assert wrapped[2][:2] == ["bash", "-c"]
+    assert wrapped[2][-3:] == [str(tmp_path), "tool", "y"][-3:]
 
 
 def test_gpu_run_reports_a_watchdog_stop(tmp_path) -> None:
@@ -936,7 +946,8 @@ def test_gpu_run_reports_a_watchdog_stop(tmp_path) -> None:
 
     run = quantize.gpu_run(tmp_path, memory_max="24G", runner=lambda *a, **k: Done())
     code, output = run(["tool"], 1.0)
-    assert code == 3 and "watchdog" in output
+    assert code == 3
+    assert "watchdog" in output
 
 
 def test_gpu_run_really_runs_a_command_in_the_work_dir(tmp_path, monkeypatch) -> None:
@@ -953,7 +964,8 @@ def test_gpu_run_really_runs_a_command_in_the_work_dir(tmp_path, monkeypatch) ->
     work.mkdir()
     run = quantize.gpu_run(tmp_path, memory_max="8G")
     code, _ = run(["sh", "-c", "pwd > where.txt"], 30.0, cwd=work)
-    assert code == 0 and (work / "where.txt").read_text().strip() == str(work)
+    assert code == 0
+    assert (work / "where.txt").read_text().strip() == str(work)
 
 
 def test_provenance_header() -> None:

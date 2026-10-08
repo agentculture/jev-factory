@@ -171,7 +171,8 @@ def test_replay_localises_against_reference_numbers(tmp_path, frozen):
     assert "jev-CLI data or model" in same["localisation"]
     cfg["reference"] = {**base, "ece": (base["ece"] or 0) + 0.2}
     off = r3b_replay.replay(store, "D1", {**cfg, **_abs(frozen, cfg)})
-    assert "calibration" in off["localisation"] and "pipeline suspect" in off["localisation"]
+    assert "calibration" in off["localisation"]
+    assert "pipeline suspect" in off["localisation"]
 
 
 def _abs(tree: Path, cfg: dict) -> dict:
@@ -218,12 +219,15 @@ def test_no_default_config_or_stage_names_the_frozen_artifacts():
         hits += [f"{path.relative_to(ROOT)}: {n}" for n in needles if n in text]
     assert hits == [], "\n".join(hits)
     example = (ROOT / "docs" / "run-config.example.toml").read_text(encoding="utf-8")
-    assert "r3b" not in example and "frozen" not in example
+    assert "r3b" not in example
+    assert "frozen" not in example
 
 
 def test_replay_module_commits_no_path_or_host():
     source = (ROOT / "jev_factory" / "decide" / "r3b_replay.py").read_text(encoding="utf-8")
-    assert "/home/" not in source and "localhost" not in source and "http" not in source
+    assert "/home/" not in source
+    assert "localhost" not in source
+    assert "http" not in source
 
 
 def test_the_doc_describes_the_gated_procedure():

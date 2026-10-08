@@ -81,13 +81,15 @@ def test_load_seeds_carries_corpus_fields_and_needs_no_skills_fields(tmp_path):
     assert [s.source_id for s in seeds] == ["s1", "s2", "s3"]
     assert {s.side for s in seeds} == {"train"}
     assert seeds[0].corpus_fields == {"kind": "explicit", "source": "toy", "class": "operation"}
-    assert not hasattr(seeds[0], "skill_names") and not hasattr(seeds[0], "seed_format")
+    assert not hasattr(seeds[0], "skill_names")
+    assert not hasattr(seeds[0], "seed_format")
 
 
 def test_change_check_for_read_only_escalate_and_explain_not_for_mutating(tmp_path):
     lamp_on, status, escalate = aug.load_seeds(seed_file(tmp_path), DOMAIN)
     assert not lamp_on.needs_change_check
-    assert status.needs_change_check and escalate.needs_change_check
+    assert status.needs_change_check
+    assert escalate.needs_change_check
     assert aug.needs_change_check({"explain": True, "answer": "x"}, DOMAIN)
     assert aug.needs_change_check({"operation": "nope", "args": {}}, DOMAIN)
 
@@ -159,8 +161,10 @@ def test_each_variation_number_asks_for_a_different_phrasing_style(tmp_path):
 
 def test_the_expected_answer_is_described_in_words_not_json(tmp_path):
     text = aug.answer_in_words({"operation": "lamp_on", "args": {"room": "kitchen"}}, DOMAIN)
-    assert "propose this change" in text and "room kitchen" in text
-    assert "lamp_on" not in text and "{" not in text
+    assert "propose this change" in text
+    assert "room kitchen" in text
+    assert "lamp_on" not in text
+    assert "{" not in text
     assert "read-only check" in aug.answer_in_words(
         {"operation": "lamp_status", "args": {}}, DOMAIN
     )
@@ -224,9 +228,12 @@ def test_asks_for_handoff(text, found):
 def test_accepted_variation_inherits_side_answer_source_and_records_teachers(tmp_path):
     counts, gateway, acc, rej = run(tmp_path)
     accepted = read(acc)
-    assert counts.accepted == 3 and counts.errors == 0 and not rej.exists()
+    assert counts.accepted == 3
+    assert counts.errors == 0
+    assert not rej.exists()
     first = next(r for r in accepted if r["source_id"] == "s1")
-    assert first["id"] == "s1~v1" and first["side"] == "train"
+    assert first["id"] == "s1~v1"
+    assert first["side"] == "train"
     assert first["expect"] == ENTRIES[0]["expect"]
     assert (first["kind"], first["source"], first["class"]) == ("explicit", "toy", "operation")
     assert first["text"] == "rewrite of: Turn on the kitchen lights"
@@ -253,19 +260,23 @@ def test_correction_is_one_reviewer_b_free_text_call_before_the_verdicts(tmp_pat
 def test_reviewer_b_decides_by_default_and_reviewer_a_is_recorded(tmp_path):
     gateway = FakeGateway(generator=paraphrase, reject=lambda role, user: role == "reviewer_a")
     counts, _, acc, rej = run(tmp_path, gateway)
-    assert counts.accepted == 3 and counts.rejected_by_a == 3 and not rej.exists()
+    assert counts.accepted == 3
+    assert counts.rejected_by_a == 3
+    assert not rej.exists()
     assert read(acc)[0]["verdicts"]["reviewer_a"]["accept"] is False
 
 
 def test_decide_by_both_rejects_when_either_reviewer_says_no(tmp_path):
     gateway = FakeGateway(generator=paraphrase, reject=lambda role, user: role == "reviewer_a")
     counts, _, acc, rej = run(tmp_path, gateway, decide_by="both")
-    assert counts.accepted == 0 and not acc.exists()
+    assert counts.accepted == 0
+    assert not acc.exists()
     assert len(read(rej)) == 3
     only_b = FakeGateway(generator=paraphrase, reject=lambda role, user: role == "reviewer_b")
     (tmp_path / "b").mkdir()
     counts, _, _, _ = run(tmp_path / "b", only_b, decide_by="both")
-    assert counts.accepted == 0 and counts.rejected_by_b == 3
+    assert counts.accepted == 0
+    assert counts.rejected_by_b == 3
 
 
 def test_a_reject_keeps_the_reason_and_every_verdict(tmp_path):
@@ -289,13 +300,15 @@ def test_no_argument_ambiguous_and_but_in_a_reason_do_not_reject(tmp_path):
         ),
     )
     counts, _, acc, _ = run(tmp_path, gateway)
-    assert counts.accepted == 3 and len(read(acc)) == 3
+    assert counts.accepted == 3
+    assert len(read(acc)) == 3
 
 
 def test_deterministic_guards_reject_whatever_the_reviewers_said(tmp_path):
     gateway = FakeGateway(generator=lambda user: "please run lamp_on now")
     counts, _, acc, rej = run(tmp_path, gateway)
-    assert counts.accepted == 0 and not acc.exists()
+    assert counts.accepted == 0
+    assert not acc.exists()
     verdicts = read(rej)[0]["verdicts"]
     assert verdicts["identifier_check"]["accept"] is False
     assert verdicts["reviewer_b"]["accept"] is True
@@ -310,7 +323,9 @@ def test_handoff_wording_is_rejected(tmp_path):
 def test_an_empty_generator_reply_is_an_error_and_retried_on_resume(tmp_path):
     empty = FakeGateway(generator=lambda user: "")
     counts, _, acc, rej = run(tmp_path, empty)
-    assert counts.errors == 3 and not acc.exists() and not rej.exists()
+    assert counts.errors == 3
+    assert not acc.exists()
+    assert not rej.exists()
     counts, _, acc, _ = run(tmp_path, FakeGateway(generator=paraphrase))
     assert counts.accepted == 3  # nothing was written, so all three were attempted again
 
@@ -318,8 +333,10 @@ def test_an_empty_generator_reply_is_an_error_and_retried_on_resume(tmp_path):
 def test_a_malformed_verdict_is_an_error_not_a_reject(tmp_path):
     gateway = FakeGateway(generator=paraphrase, reviewer_reply=lambda role, user: "no way")
     counts, _, acc, rej = run(tmp_path, gateway)
-    assert counts.errors == 3 and counts.rejected_by_b == 0
-    assert not acc.exists() and not rej.exists()
+    assert counts.errors == 3
+    assert counts.rejected_by_b == 0
+    assert not acc.exists()
+    assert not rej.exists()
 
 
 def test_resume_skips_ids_already_written_and_limit_caps_new_ones(tmp_path):
@@ -360,13 +377,16 @@ def test_tasks_are_planned_round_robin_across_seeds(tmp_path):
 def test_dry_run_counts_attempts_and_calls_nothing(tmp_path):
     gateway = FakeGateway(generator=paraphrase)
     counts, _, acc, rej = run(tmp_path, gateway, per_source=2, dry_run=True)
-    assert counts.generated == 6 and gateway.calls == [] and not acc.exists()
+    assert counts.generated == 6
+    assert gateway.calls == []
+    assert not acc.exists()
 
 
 def test_workers_write_whole_records_exactly_once(tmp_path):
     counts, _, acc, _ = run(tmp_path, per_source=4, workers=4)
     ids = [r["id"] for r in read(acc)]
-    assert len(ids) == len(set(ids)) == 12 and counts.accepted == 12
+    assert len(ids) == len(set(ids)) == 12
+    assert counts.accepted == 12
 
 
 def test_an_unknown_decide_by_rule_is_refused(tmp_path):
@@ -418,7 +438,8 @@ def test_rereview_calls_only_reviewer_b_and_is_a_clean_slate(tmp_path):
     acc, rej = tmp_path / "a.jsonl", tmp_path / "r.jsonl"
     counts = aug.run_rereview([stored(tmp_path)], DOMAIN, client, acc, rej)
     assert gateway.roles_called() == {"reviewer_b"}
-    assert counts.processed == counts.accepted == 2 and counts.errors == 0
+    assert counts.processed == counts.accepted == 2
+    assert counts.errors == 0
     flipped = next(r for r in read(acc) if r["id"] == "s2~v1")
     assert flipped["prior_verdicts"]["reviewer_b"]["accept"] is False
     assert flipped["verdicts"]["reviewer_b"]["accept"] is True

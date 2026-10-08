@@ -266,7 +266,8 @@ def test_judge_requires_both_reviewers_to_accept(tmp_path: Path) -> None:
     out = D.judge(
         DOMAIN, "please run lamp_status", {"operation": "lamp_status", "args": {}}, None, client
     )
-    assert out["accepted"] is False and out["errored"] is False
+    assert out["accepted"] is False
+    assert out["errored"] is False
     assert out["votes"]["reviewer_a"]["accept"] is True
     assert out["votes"]["reviewer_b"]["accept"] is False
 
@@ -301,7 +302,8 @@ def test_errored_candidates_are_counted_apart_from_rejects(tmp_path: Path) -> No
         json.loads(line)["id"]
         for line in (tmp_path / "out" / "review.jsonl").read_text().splitlines()
     ]
-    assert ids and all("-error-" in i for i in ids)
+    assert ids
+    assert all("-error-" in i for i in ids)
 
 
 def test_reviewer_words_in_the_reason_do_not_flip_the_verdict(tmp_path: Path) -> None:
@@ -326,7 +328,8 @@ def test_dedupe_drops_exact_match_against_the_seed_corpus() -> None:
     kept = D.dedupe_candidates(
         [D.Candidate("explain", "Which lights are on?", {})], ["Which lights are on?"], rejects
     )
-    assert kept == [] and rejects == {"dedupe_exact": 1}
+    assert kept == []
+    assert rejects == {"dedupe_exact": 1}
 
 
 def test_dedupe_drops_near_duplicates_and_within_draft_repeats() -> None:
@@ -334,7 +337,8 @@ def test_dedupe_drops_near_duplicates_and_within_draft_repeats() -> None:
     near = "please switch on the lamp in the kitchen right away"
     rejects: dict[str, int] = {}
     kept = D.dedupe_candidates([D.Candidate("a", near, {})], [base], rejects)
-    assert kept == [] and rejects == {"dedupe_near": 1}
+    assert kept == []
+    assert rejects == {"dedupe_near": 1}
     rejects = {}
     twice = [D.Candidate("a", "Show me the lamps", {}), D.Candidate("a", "Show me the lamps", {})]
     assert len(D.dedupe_candidates(twice, [], rejects)) == 1
@@ -346,7 +350,8 @@ def test_dedupe_keeps_genuinely_different_text() -> None:
     kept = D.dedupe_candidates(
         [D.Candidate("e", "What does dimming mean?", {})], ["Which lights are on?"], rejects
     )
-    assert len(kept) == 1 and rejects == {}
+    assert len(kept) == 1
+    assert rejects == {}
 
 
 def test_the_default_dedupe_source_is_the_domain_seed_corpus(tmp_path: Path) -> None:
@@ -375,7 +380,8 @@ def test_ids_are_stable_across_identical_runs(tmp_path: Path) -> None:
         doc = json.loads((tmp_path / d / "draft.json").read_text())
         return [e["id"] for e in doc["entries"]]
 
-    assert ids("1") == ids("2") and ids("1")
+    assert ids("1") == ids("2")
+    assert ids("1")
     assert a["sha256"] == b["sha256"]
 
 
@@ -411,11 +417,13 @@ def test_decline_entries_carry_the_class(tmp_path: Path) -> None:
 def test_header_records_pool_seed_models_counts_hash_and_domain(tmp_path: Path) -> None:
     _draft(tmp_path, seed=7)
     header = _doc(tmp_path)["header"]
-    assert header["pool"] == "eval" and header["seed"] == 7
+    assert header["pool"] == "eval"
+    assert header["seed"] == 7
     assert header["models"] == {n: c.model for n, c in ROLES.items()}
     assert header["domain"] == DOMAIN.name
     assert header["surface_sha256"] == DOMAIN.surface_sha256()
-    assert "kept" in header["counts"] and len(header["sha256"]) == 64
+    assert "kept" in header["counts"]
+    assert len(header["sha256"]) == 64
     assert header["sampling"]["per_call_seed"] is True
 
 
@@ -430,7 +438,8 @@ def test_only_reasons_refuses_an_unknown_reason() -> None:
     with pytest.raises(ValueError, match="unknown decline reason"):
         D.check_reasons(DOMAIN, ["multi_step", "nonsense"])
     assert D.check_reasons(DOMAIN, None) == tuple(r.name for r in DOMAIN.reasons)
-    assert D.split_reasons("a, b,") == ["a", "b"] and D.split_reasons(None) is None
+    assert D.split_reasons("a, b,") == ["a", "b"]
+    assert D.split_reasons(None) is None
 
 
 def test_run_draft_return_value_carries_no_entry_text(tmp_path: Path) -> None:
@@ -442,7 +451,8 @@ def test_run_draft_return_value_carries_no_entry_text(tmp_path: Path) -> None:
 def test_the_review_log_keeps_text_for_the_eval_pool(tmp_path: Path) -> None:
     _draft(tmp_path)
     rows = [json.loads(x) for x in (tmp_path / "out" / "review.jsonl").read_text().splitlines()]
-    assert rows and all("text" in r for r in rows)
+    assert rows
+    assert all("text" in r for r in rows)
 
 
 def test_the_teacher_pool_no_longer_drafts_the_heldout() -> None:
@@ -583,15 +593,18 @@ def test_only_counts_and_sha256_are_reported(
 ) -> None:
     result = _heldout(tmp_path)
     blob = json.dumps(result)
-    assert SECRET_TEXT not in blob and "an answer" not in blob
+    assert SECRET_TEXT not in blob
+    assert "an answer" not in blob
     assert set(result) == {"path", "entries", "by_kind", "sha256", "snapshot", "rejects"}
-    assert len(result["sha256"]) == 64 and result["entries"] > 0
+    assert len(result["sha256"]) == 64
+    assert result["entries"] > 0
     assert result["sha256"] == D.sha256_file(Path(result["path"]))
     assert sum(result["by_kind"].values()) == result["entries"]
     captured = capsys.readouterr()
     assert SECRET_TEXT not in captured.out + captured.err
     side = D.load_sealed(Path(result["path"]))
-    assert SECRET_TEXT not in repr(side) and side.sha256 == result["sha256"]
+    assert SECRET_TEXT not in repr(side)
+    assert side.sha256 == result["sha256"]
 
 
 def test_a_sealed_draft_is_never_overwritten(tmp_path: Path) -> None:
@@ -600,7 +613,8 @@ def test_a_sealed_draft_is_never_overwritten(tmp_path: Path) -> None:
     drafter = FakeDrafter(per_batch=1)
     with pytest.raises(CliError) as err:
         _heldout(tmp_path, drafter)
-    assert SECRET_TEXT not in str(err.value) and "refusing to overwrite" in str(err.value)
+    assert SECRET_TEXT not in str(err.value)
+    assert "refusing to overwrite" in str(err.value)
     assert Path(result["path"]).read_bytes() == before
 
 
@@ -612,7 +626,8 @@ def test_the_heldout_drafter_sees_only_the_table(tmp_path: Path) -> None:
     corpus = [t for t in D.load_dev_texts(DOMAIN) if t not in definitions]
     assert corpus
     for system, user in drafter.prompts:
-        assert "Operations:" in user and '"expect"' not in user
+        assert "Operations:" in user
+        assert '"expect"' not in user
         assert all(text not in system + user for text in corpus)
     assert DOMAIN.persona in drafter.prompts[0][0]
 
@@ -645,12 +660,14 @@ def test_heldout_drops_seed_corpus_repeats_and_bad_args(tmp_path: Path) -> None:
         DOMAIN, tmp_path / "ho", 1, drafter, teachers={}, per_op=1, escalate=0, explain=0
     )
     assert result["entries"] == 1
-    assert result["rejects"]["duplicate"] == 1 and result["rejects"]["invalid_op_args"] == 1
+    assert result["rejects"]["duplicate"] == 1
+    assert result["rejects"]["invalid_op_args"] == 1
 
 
 def test_an_unparsable_heldout_reply_is_counted_without_quoting_it(tmp_path: Path) -> None:
     result = _heldout(tmp_path, lambda s, u: f"{SECRET_TEXT} not json")
-    assert result["entries"] == 0 and result["rejects"]["parse"] > 0
+    assert result["entries"] == 0
+    assert result["rejects"]["parse"] > 0
     assert SECRET_TEXT not in json.dumps(result)
 
 
@@ -712,14 +729,16 @@ def test_review_dedupes_against_the_seed_corpus(tmp_path: Path) -> None:
     text = D.load_dev_texts(DOMAIN)[0]
     src = _write_draft(tmp_path / "draft.json", [{**ENTRY_A, "text": text}])
     result = D.run_review(DOMAIN, src, tmp_path / "out", _client(tmp_path))
-    assert result["entries"] == 0 and result["rejects"]["dedupe_exact"] == 1
+    assert result["entries"] == 0
+    assert result["rejects"]["dedupe_exact"] == 1
 
 
 def test_review_log_never_carries_text(tmp_path: Path) -> None:
     src = _write_draft(tmp_path / "draft.json", [ENTRY_A])
     D.run_review(DOMAIN, src, tmp_path / "out", _client(tmp_path), dev_texts=[])
     lines = (tmp_path / "out" / "review.jsonl").read_text().splitlines()
-    assert lines and all("text" not in json.loads(x) for x in lines)
+    assert lines
+    assert all("text" not in json.loads(x) for x in lines)
 
 
 def test_review_refuses_the_sealed_held_out_corpus(tmp_path: Path) -> None:

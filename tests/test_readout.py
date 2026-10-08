@@ -106,7 +106,8 @@ def test_missing_label_is_incomplete_and_never_renormalised():
 def test_complete_readout_is_normalised():
     served = {"A": math.log(0.2), " B": math.log(0.2), "\tC": math.log(0.6)}
     result = ro.readout(served, LABELS)
-    assert result.complete and result.missing == ()
+    assert result.complete
+    assert result.missing == ()
     assert sum(result.distribution.values()) == pytest.approx(1.0)
     assert result.choice == "explain"
 
@@ -149,7 +150,8 @@ def test_in_process_and_served_paths_share_one_distribution():
         )
     served = ro.readout(served_map, LABELS)
 
-    assert in_process.complete and served.complete
+    assert in_process.complete
+    assert served.complete
     for name in LABELS:
         assert in_process.distribution[name] == pytest.approx(served.distribution[name], abs=1e-6)
     assert in_process.mass == pytest.approx(served.mass, abs=1e-6)

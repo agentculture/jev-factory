@@ -248,7 +248,8 @@ def test_a_result_missing_labels_is_incomplete_not_renormalised() -> None:
     result = score(fake)
     assert result.probabilities == {}
     assert result.candidates is None
-    assert result.incomplete and "missing" in result.incomplete
+    assert result.incomplete
+    assert "missing" in result.incomplete
     assert set(result.missing) == set(POOL) - {"lamp_status"}
     assert result.choice == "lamp_status"
     assert result.confidence == pytest.approx(0.01)
@@ -362,7 +363,8 @@ def test_a_choice_argument_matches_any_declared_spelling() -> None:
 
 def test_two_choices_named_are_ambiguous_not_a_pick() -> None:
     result = sc.ground_arguments(DOMAIN, DOMAIN.get("set_scene"), "bright or reading", WORLD)
-    assert isinstance(result, str) and "ambiguous" in result
+    assert isinstance(result, str)
+    assert "ambiguous" in result
 
 
 def test_an_argument_nothing_grounds_is_reported_not_guessed() -> None:
@@ -376,7 +378,8 @@ def test_an_argument_nothing_grounds_is_reported_not_guessed() -> None:
 
 def test_two_grounded_values_are_ambiguous_not_a_pick() -> None:
     result = sc.ground_arguments(DOMAIN, DOMAIN.get("lamp_on"), "kitchen or bedroom", WORLD)
-    assert isinstance(result, str) and "ambiguous" in result
+    assert isinstance(result, str)
+    assert "ambiguous" in result
 
 
 def test_an_operation_with_no_arguments_needs_no_lookup() -> None:
@@ -407,14 +410,16 @@ def test_a_failed_lookup_is_reported() -> None:
 
     domain = replace(DOMAIN, ground_kinds=(replace(DOMAIN.ground_kinds[0], lookup=lookup),))
     result = sc.ground_arguments(domain, domain.get("lamp_on"), "kitchen")
-    assert isinstance(result, str) and "could not list rooms" in result
+    assert isinstance(result, str)
+    assert "could not list rooms" in result
 
 
 def test_a_free_text_argument_with_no_ground_kind_is_never_generated() -> None:
     op = Operation("note", "Leave a note.", False, (ArgSpec("text", "str"),))
     domain = replace(DOMAIN, operations=DOMAIN.operations + (op,))
     result = sc.ground_arguments(domain, op, "remember milk", WORLD)
-    assert isinstance(result, str) and "text" in result
+    assert isinstance(result, str)
+    assert "text" in result
 
 
 # -- served top-k endpoint (injected post, no server) --
@@ -499,7 +504,8 @@ def test_in_process_and_served_paths_give_the_same_distribution() -> None:
     in_process = sc.InProcessTopK(tokenizer, logprobs_fn)
     local = score(in_process)
     assert prompts == ["prompt text"]
-    assert local.incomplete is None and local.missing == ()
+    assert local.incomplete is None
+    assert local.missing == ()
 
     served_logprobs: dict[str, float] = {}
     for index, value in enumerate(ro.log_softmax(logits)):
@@ -551,4 +557,5 @@ def test_a_domain_can_carry_the_control_text_its_model_was_trained_on():
     assert Domain.from_dict(own.to_dict()).control_descriptions == own.control_descriptions
     bad = replace(DOMAIN, control_descriptions={"answer": "x", "escalate": " "})
     found = " ".join(str(p) for p in problems(bad))
-    assert "'answer', not a control" in found and "'escalate' is empty" in found
+    assert "'answer', not a control" in found
+    assert "'escalate' is empty" in found

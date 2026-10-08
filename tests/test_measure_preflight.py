@@ -108,7 +108,8 @@ def test_refuses_a_different_served_context(url, monkeypatch):
     monkeypatch.setattr(_ModelsHandler, "max_model_len", 2048)
     with pytest.raises(pf.PreflightError) as excinfo:
         pf.preflight_models(url, "good-model", ctx=4096)
-    assert "2048" in str(excinfo.value) and "4096" in str(excinfo.value)
+    assert "2048" in str(excinfo.value)
+    assert "4096" in str(excinfo.value)
 
 
 def test_refuses_when_the_served_context_cannot_be_read(url):

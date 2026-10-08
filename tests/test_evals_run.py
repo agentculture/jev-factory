@@ -72,7 +72,8 @@ def test_smoke_runs_with_the_fake_provider_and_no_secrets(tmp_path, monkeypatch)
     smoke = json.loads((run_dir / runner.SMOKE_FILE).read_text())
     row = smoke["models"][REF]
     assert (row["calls"], row["flag"], row["invalid"]) == (3, "OK", 0)
-    assert smoke["cases"] == 3 and smoke["full_run_cases"] == 5
+    assert smoke["cases"] == 3
+    assert smoke["full_run_cases"] == 5
     assert row["projected_full_run_usd"] == pytest.approx(row["cost_usd"] * 5 / 3, abs=1e-4)
     assert fakes.get(REF).sent == ["c-1", "c-2", "c-3"]
     assert any(line.startswith(f"smoke {REF}: OK") for line in lines)
@@ -86,21 +87,27 @@ def test_full_run_with_the_fake_provider_scores_raw_and_harness_rows(tmp_path):
     rows = {(r["subject"], r["variant"]): r for r in result["rows"]}
     model_only = rows[("cand.toy-test", "model-only")]
     harness = rows[("cand.toy-test", "model+harness")]
-    assert model_only["harness_policy"] is None and model_only["wrong_mutations"] == 1
+    assert model_only["harness_policy"] is None
+    assert model_only["wrong_mutations"] == 1
     assert harness["harness_policy"] == "mutating-strict-example"
     assert harness["wrong_mutations"] == 0
     (reference,) = result["reference_rows"]
     assert reference["subject"] == "openrouter.vendor-fake-sync.toy-test"
-    assert reference["policy"] == "raw" and reference["right"] == {"n": 2, "N": 2}
-    assert reference["wrong_mutations"] == 0 and reference["ece"] is not None
+    assert reference["policy"] == "raw"
+    assert reference["right"] == {"n": 2, "N": 2}
+    assert reference["wrong_mutations"] == 0
+    assert reference["ece"] is not None
     assert result["deepeval"] is False
     page = (run_dir / runner.PAGE_FILE).read_text()
-    assert "model+harness" in page and "turn on the lamps" not in page
+    assert "model+harness" in page
+    assert "turn on the lamps" not in page
     assert sorted(fakes.get(REF).sent) == ["c-1", "c-2", "c-3", "c-4", "c-5-nocand"]
     traces = [json.loads(x) for x in (run_dir / "traces" / f"{reference['subject']}.jsonl").open()]
     first = traces[0]["raw"]
-    assert first["outcome"] == "propose" and first["arguments"] == {"room": "kitchen"}
-    assert "(explain)" in first["candidates"] and "explain" not in first["candidates"]
+    assert first["outcome"] == "propose"
+    assert first["arguments"] == {"room": "kitchen"}
+    assert "(explain)" in first["candidates"]
+    assert "explain" not in first["candidates"]
     status = runner.status(run_dir)
     assert status["status"] == "complete"
     assert status["providers"]["openrouter"]["done"] == 5
@@ -120,14 +127,16 @@ def test_the_gate_code_has_no_nvsh_import():
             if any(name.split(".")[0] in ("nvsh", "evals") for name in names):
                 offenders.append(str(path.relative_to(ROOT)))
     assert offenders == []
-    assert (EVALS / "run.py").is_file() and (EVALS / "policies" / "raw.json").is_file()
+    assert (EVALS / "run.py").is_file()
+    assert (EVALS / "policies" / "raw.json").is_file()
 
 
 def test_deferred_features_are_not_imported():
     present = {p.stem for p in EVALS.rglob("*.py")}
     for deferred in ("track_a_loop", "judge", "alerts", "drive", "anthropic", "openai"):
         assert deferred not in present
-    assert not (EVALS / "docker").exists() and not (EVALS / "rubric").exists()
+    assert not (EVALS / "docker").exists()
+    assert not (EVALS / "rubric").exists()
 
 
 @pytest.mark.behavioral("o31")
@@ -140,7 +149,8 @@ def test_deepeval_is_imported_lazily_and_only_from_the_evals_group():
         "print('ok')\n"
     )
     proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT)
-    assert proc.returncode == 0 and proc.stdout.strip() == "ok", proc.stderr
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "ok", proc.stderr
 
 
 def test_a_full_run_without_deepeval_installed_is_an_environment_error(tmp_path, monkeypatch):
@@ -149,7 +159,8 @@ def test_a_full_run_without_deepeval_installed_is_an_environment_error(tmp_path,
     fakes = Fakes()
     code, lines = _main(["run"], manifest, run_dir, env, fakes)
     assert code == runner.EXIT_ENV
-    assert "uv run --group evals" in lines[-1] and "--no-deepeval" in lines[-1]
+    assert "uv run --group evals" in lines[-1]
+    assert "--no-deepeval" in lines[-1]
     assert fakes.made == {}  # refused before any provider was built or called
 
 
@@ -200,7 +211,8 @@ def test_a_call_in_flight_at_a_crash_is_resent_with_an_uncertain_charge(tmp_path
     code, lines = _main(["continue", "--no-deepeval"], manifest, run_dir, env, fakes)
     assert code == runner.EXIT_OK, lines
     state = json.loads((run_dir / runner.RUN_FILE).read_text())
-    assert len(state["uncertain_charges"]) == 1 and state["reserved"] == {}
+    assert len(state["uncertain_charges"]) == 1
+    assert state["reserved"] == {}
     assert fakes.get(REF).sent.count("c-2") == 2
     assert any("uncertain charge" in line for line in lines)
 
@@ -265,9 +277,8 @@ def test_truncation_stop_stops_only_the_cut_model(tmp_path):
     assert code == runner.EXIT_STOPPED
     stop = json.loads((run_dir / runner.RUN_FILE).read_text())["stops"]["models"]
     assert stop["local/fake-cut"]["kind"] == "truncation"
-    assert stop["local/fake-cut"]["truncated"] >= 3 and "max_output_tokens=64" in (
-        stop["local/fake-cut"]["message"]
-    )
+    assert stop["local/fake-cut"]["truncated"] >= 3
+    assert "max_output_tokens=64" in (stop["local/fake-cut"]["message"])
     # concurrency_cap 2: at most one more call was already in flight when the stop landed.
     assert 3 <= len(fakes.get("local/fake-cut").sent) <= 4
     assert len(fakes.get(REF).sent) == 5
@@ -281,7 +292,8 @@ def test_a_truncated_reply_is_invalid_under_every_policy(tmp_path):
     assert code == runner.EXIT_OK, lines
     result = json.loads((run_dir / runner.RESULT_FILE).read_text())
     cut = next(r for r in result["reference_rows"] if r["subject"].startswith("local."))
-    assert cut["right"]["n"] == 0 and cut["coverage"]["n"] == 0
+    assert cut["right"]["n"] == 0
+    assert cut["coverage"]["n"] == 0
     smoke_dir = tmp_path / "smoke"
     code, _ = _main(["smoke", "--cases", "2"], manifest, smoke_dir, env, fakes)
     smoke = json.loads((smoke_dir / runner.SMOKE_FILE).read_text())
@@ -318,7 +330,8 @@ def test_status_cli_prints_counts_and_json(tmp_path):
     out = []
     assert main(["status", "--run-dir", str(run_dir), "--json"], out=out.append) == 0
     doc = json.loads(out[0])
-    assert doc["models"][REF]["done"] == 5 and doc["mode"] == "full"
+    assert doc["models"][REF]["done"] == 5
+    assert doc["mode"] == "full"
     out = []
     assert main(["status", "--run-dir", str(run_dir)], out=out.append) == 0
     assert out[0].startswith("run r1 (2026-09-30) [full]: complete")
@@ -332,23 +345,27 @@ def test_smoke_scope_is_kept_on_continue_and_expanded_on_request(tmp_path):
     assert _main(["continue", "--no-deepeval"], manifest, run_dir, env, fakes)[0] == 0
     assert fakes.get(REF).sent == ["c-1", "c-2"]
     code, lines = _main(["run", "--no-deepeval"], manifest, run_dir, env, fakes)
-    assert code == runner.EXIT_USER and "--expand" in lines[-1]
+    assert code == runner.EXIT_USER
+    assert "--expand" in lines[-1]
     code, lines = _main(["smoke", "--cases", "3"], manifest, run_dir, env, fakes)
     assert code == runner.EXIT_USER
     code, lines = _main(["run", "--no-deepeval", "--expand"], manifest, run_dir, env, fakes)
     assert code == runner.EXIT_OK, lines
     assert sorted(fakes.get(REF).sent) == ["c-1", "c-2", "c-3", "c-4", "c-5-nocand"]
     code, lines = _main(["smoke", "--cases", "2"], manifest, run_dir, env, fakes)
-    assert code == runner.EXIT_USER and "full run" in lines[-1]
+    assert code == runner.EXIT_USER
+    assert "full run" in lines[-1]
 
 
 def test_run_refuses_a_second_start_and_continue_needs_a_run(tmp_path):
     code, _lines, manifest, run_dir, env, fakes = _run(tmp_path)
     assert code == 0
     code, lines = _main(["run", "--no-deepeval"], manifest, run_dir, env, fakes)
-    assert code == runner.EXIT_USER and "continue" in lines[-1]
+    assert code == runner.EXIT_USER
+    assert "continue" in lines[-1]
     code, lines = _main(["continue", "--no-deepeval"], manifest, tmp_path / "empty", env, fakes)
-    assert code == runner.EXIT_USER and "holds no run" in lines[-1]
+    assert code == runner.EXIT_USER
+    assert "holds no run" in lines[-1]
 
 
 @pytest.mark.behavioral("o32")
@@ -360,7 +377,8 @@ def test_run_dir_inside_a_git_worktree_is_refused_and_an_empty_git_dir_is_not(tm
     repo = tmp_path / "repo"
     subprocess.run([git, "init", "-q", str(repo)], check=True)
     code, lines = _main(["run", "--no-deepeval"], manifest, repo / "run", env, Fakes())
-    assert code == runner.EXIT_USER and "git worktree" in lines[-1]
+    assert code == runner.EXIT_USER
+    assert "git worktree" in lines[-1]
     plain = tmp_path / "plain"
     (plain / ".git").mkdir(parents=True)
     code, lines = _main(["run", "--no-deepeval"], manifest, plain / "run", env, Fakes())
@@ -374,7 +392,8 @@ def test_configuration_errors_are_user_or_environment_errors(tmp_path):
     assert _main(["run", "--no-deepeval"], manifest, run_dir, {}, fakes)[0] == runner.EXIT_ENV
     manifest.write_text(manifest.read_text().replace("count = 5", "count = 6"))
     code, lines = _main(["run", "--no-deepeval"], manifest, run_dir, env, fakes)
-    assert code == runner.EXIT_USER and "the file has 5" in lines[-1]
+    assert code == runner.EXIT_USER
+    assert "the file has 5" in lines[-1]
     state = (
         json.loads((run_dir / runner.RUN_FILE).read_text() or "{}")
         if (run_dir / runner.RUN_FILE).exists()
@@ -393,14 +412,17 @@ def test_unknown_policy_domain_and_world_are_refused(tmp_path):
     text = manifest.read_text()
     manifest.write_text(text.replace('"mutating-strict-example"', '"nope"'))
     code, lines = _main(["run", "--no-deepeval"], manifest, run_dir, env, Fakes())
-    assert code == runner.EXIT_USER and "unknown policy" in lines[-1]
+    assert code == runner.EXIT_USER
+    assert "unknown policy" in lines[-1]
     manifest.write_text(text.replace("tests.fixtures.toy_domain", "no.such.domain"))
     code, lines = _main(["run", "--no-deepeval"], manifest, run_dir, env, Fakes())
-    assert code == runner.EXIT_USER and "domain" in lines[-1]
+    assert code == runner.EXIT_USER
+    assert "domain" in lines[-1]
     (Path(env["JEV_EVALS_PRIVATE_ROOT"]) / "world.json").write_text('{"home": 3}')
     manifest.write_text(text)
     code, lines = _main(["run", "--no-deepeval"], manifest, run_dir, env, Fakes())
-    assert code == runner.EXIT_USER and "world snapshot" in lines[-1]
+    assert code == runner.EXIT_USER
+    assert "world snapshot" in lines[-1]
 
 
 def test_a_policy_file_under_the_private_root_is_a_harness_row(tmp_path):
@@ -424,7 +446,8 @@ def test_training_overlap_refuses_to_score_a_checkpoint(tmp_path):
         )
     )
     code, lines = _main(["run", "--no-deepeval"], manifest, run_dir, env, Fakes())
-    assert code == runner.EXIT_USER and "c-2" in lines[-1]
+    assert code == runner.EXIT_USER
+    assert "c-2" in lines[-1]
 
 
 def test_json_output_is_one_document(tmp_path):
@@ -436,7 +459,8 @@ def test_json_output_is_one_document(tmp_path):
         env=env,
         out=out.append,
     )
-    assert code == 0 and len(out) == 1
+    assert code == 0
+    assert len(out) == 1
     assert json.loads(out[0])["status"] == "complete"
 
 
@@ -449,7 +473,8 @@ def test_default_factory_builds_the_adapter_without_reading_keys(monkeypatch):
     provider = runner.default_factory(
         ref, budget, {"JEV_EVALS_BASE_URL_LOCAL": "http://127.0.0.1:9/v1"}
     )
-    assert provider.capabilities.logprobs and provider.host == "127.0.0.1"
+    assert provider.capabilities.logprobs
+    assert provider.host == "127.0.0.1"
     assert runner.shared_limiter("local", 30) is runner.shared_limiter("local", 30)
     assert runner.provider_reasoning("openrouter", "none") == "none"
     assert runner.provider_reasoning("local", "none") is None
@@ -467,7 +492,8 @@ def test_classify_exception_maps_adapter_failures():
         == "network_loss"
     )
     unexpected = runner.classify_exception(ValueError("x"), "local")
-    assert unexpected.reason == "unexpected_error:ValueError" and unexpected.retryable
+    assert unexpected.reason == "unexpected_error:ValueError"
+    assert unexpected.retryable
 
     class HTTPish(Exception):
         status = 429

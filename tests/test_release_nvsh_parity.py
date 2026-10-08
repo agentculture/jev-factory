@@ -161,7 +161,8 @@ def test_merged_config_is_never_modified_only_the_bundle_copy(tmp_path):
     shipped = json.loads((tmp_path / "out" / "config.json").read_text())
     assert shipped == {"architectures": ["X"], "mtp_num_hidden_layers": 0}
     card = (tmp_path / "out" / "README.md").read_text()
-    assert "from 2 to 0" in card and "no `mtp.*` tensor" in card
+    assert "from 2 to 0" in card
+    assert "no `mtp.*` tensor" in card
 
 
 def test_a_sharded_checkpoint_is_read_through_its_index(tmp_path):
@@ -243,8 +244,10 @@ def test_every_results_report_is_quoted(tmp_path):
     edge = _report(tmp_path / "edge-orin.md", "edge run a3 q4", 32)
     _build(tmp_path, inp, results=[first, edge], results_heading="## Metrics")
     card = (tmp_path / "out" / "README.md").read_text()
-    assert "### final run a3" in card and "### edge run a3 q4" in card
-    assert "From `final.md`" in card and "From `edge-orin.md`" in card
+    assert "### final run a3" in card
+    assert "### edge run a3 q4" in card
+    assert "From `final.md`" in card
+    assert "From `edge-orin.md`" in card
     assert "| Right proposals | 31 of 32 |" in card
     assert "| Right proposals | 32 of 32 |" in card
     # only the table under the heading is quoted: not the bench table, notes or command
@@ -256,7 +259,8 @@ def test_every_results_report_is_quoted(tmp_path):
 def test_results_section_picks_the_heading_and_refuses_when_missing(tmp_path):
     report = _report(tmp_path / "r.md", "a run", 29)
     caption, first = results_section(report)
-    assert caption == "a run" and "Bench row" in first
+    assert caption == "a run"
+    assert "Bench row" in first
     caption, table = results_section(report, "## Metrics")
     assert table.splitlines() == [
         "| Metric | value |",
@@ -413,7 +417,8 @@ def test_dataset_manifest_records_origin_source_teachers_and_transformation(tmp_
     )
     variation = manifest["dev-a~v1"]
     assert variation["transformed"] is True
-    assert variation["source"] == "seed" and variation["source_id"] == "dev-a"
+    assert variation["source"] == "seed"
+    assert variation["source_id"] == "dev-a"
     assert variation["teachers"] == {
         "GENERATOR": "Teacher Worker 35B",
         "CORRECTOR": "Teacher Cortex 27B",
@@ -423,11 +428,13 @@ def test_dataset_manifest_records_origin_source_teachers_and_transformation(tmp_
     for rid, row in manifest.items():
         assert {"split", "origin", "source", "source_id", "teachers", "transformed"} <= set(row)
         if rid != "dev-a~v1":
-            assert row["transformed"] is False and row["teachers"] == {}
+            assert row["transformed"] is False
+            assert row["teachers"] == {}
             assert row["source_id"] == rid
     assert manifest["sup-01"]["source"] == "supplement-2026-09-23"
     assert manifest["dev-a"]["source_file"] == DOMAIN.seed_corpus.name
-    assert manifest["dev-t1"]["split"] == "test" and manifest["dev-v1"]["split"] == "validation"
+    assert manifest["dev-t1"]["split"] == "test"
+    assert manifest["dev-v1"]["split"] == "validation"
     for split in ("train", "validation", "test"):
         for line in (out / "data" / f"{split}.jsonl").read_text().splitlines():
             record = json.loads(line)
@@ -696,7 +703,8 @@ def test_several_rejected_files_are_summed(tmp_path):
     second = tmp_path / "rereview-rejected.jsonl"
     second.write_text(json.dumps({"id": "dev-a~v3"}) + "\n\n" + json.dumps({"id": "x"}) + "\n")
     counts = ds.build(**{**kwargs, "rejected": [kwargs["rejected"], second]})
-    assert counts["rejected"] == 3 and counts["accepted"] == 1
+    assert counts["rejected"] == 3
+    assert counts["accepted"] == 1
     assert "Of 4\n  reviewed rewrites, 1 were accepted (25%)" in _card(tmp_path)
 
 
@@ -797,9 +805,11 @@ def test_scan_payload_keys_and_shape(tmp_path):
     scan.write_scan(folder)
     payload = json.loads((folder / "scan.json").read_text())
     assert set(payload) == {"hash", "findings", "clean", "binaries"}
-    assert isinstance(payload["hash"], str) and len(payload["hash"]) == 64
+    assert isinstance(payload["hash"], str)
+    assert len(payload["hash"]) == 64
     int(payload["hash"], 16)
-    assert payload["clean"] is False and payload["binaries"] == ["m.safetensors"]
+    assert payload["clean"] is False
+    assert payload["binaries"] == ["m.safetensors"]
     assert payload["findings"]
     for finding in payload["findings"]:
         assert set(finding) == {"path", "line", "kind", "detail"}
@@ -812,7 +822,8 @@ def test_jsonl_finding_carries_the_physical_line_number(tmp_path):
     hits = [
         f for f in scan.scan_folder(folder) if f["kind"] == "redact" and f["detail"] == "hf_token"
     ]
-    assert len(hits) == 1 and hits[0]["line"] == 3
+    assert len(hits) == 1
+    assert hits[0]["line"] == 3
 
 
 def test_json_scan_recurses_through_nested_objects_and_arrays(tmp_path):

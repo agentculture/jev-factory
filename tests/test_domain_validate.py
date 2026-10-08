@@ -101,7 +101,8 @@ def test_rejects_unknown_arg_kind():
     with pytest.raises(v.UnknownArgKind) as exc:
         v.validate(domain)
     assert exc.value.code == "unknown_arg_kind"
-    assert "'int'" in str(exc.value) and "dim" in str(exc.value)
+    assert "'int'" in str(exc.value)
+    assert "dim" in str(exc.value)
 
 
 @pytest.mark.behavioral("o25")
@@ -115,7 +116,8 @@ def test_error_classes_are_named_and_share_a_base():
     ):
         assert issubclass(cls, v.DomainError)
         assert issubclass(cls, ValueError)
-        assert cls.code and cls.code == cls.code.lower()
+        assert cls.code
+        assert cls.code == cls.code.lower()
 
 
 # --- further structural checks ------------------------------------------------

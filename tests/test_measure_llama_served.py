@@ -208,6 +208,7 @@ def test_a_cpu_served_gguf_needs_no_free_gpu_and_a_gpu_served_one_does(tmp_path)
         )
 
     gpu = measure("gpu")
-    assert gpu.returncode == 2 and "4242" in gpu.stderr
+    assert gpu.returncode == 2
+    assert "4242" in gpu.stderr
     cpu = measure("cpu", JEV_MEASURE_GPU_LAYERS="0")
     assert cpu.returncode == 0, cpu.stdout + cpu.stderr

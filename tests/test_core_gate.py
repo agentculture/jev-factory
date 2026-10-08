@@ -266,7 +266,8 @@ def test_decide_prediction_uses_the_record_offered_order():
         }
     )
     decision = gate.decide_prediction(prediction, gate.Thresholds(), DOMAIN)
-    assert decision is not None and decision.label == READ_ONLY_OP_2
+    assert decision is not None
+    assert decision.label == READ_ONLY_OP_2
 
 
 # ---------------------------------------------------------------------------

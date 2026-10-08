@@ -90,7 +90,8 @@ def test_randomised_orders_letters_and_subsets_vary_across_rows(tmp_path, train)
     assert len({p.order for p in perms}) > 4
     assert len({tuple(sorted(p.labels.values())) for p in perms}) > 4
     sizes = {len(p.order) for p in perms}
-    assert len(sizes) > 1 and max(sizes) == len(DOMAIN.candidates())
+    assert len(sizes) > 1
+    assert max(sizes) == len(DOMAIN.candidates())
     assert min(sizes) >= asm.DEFAULT_MIN_SUBSET
 
 
@@ -133,8 +134,10 @@ def test_nocand_rows_drop_the_operation_and_force_escalate(tmp_path, train):
     for entry in operations:
         row = rows[entry["id"] + "-nocand"]
         assert entry["expect"]["operation"] not in row["permutation"]["order"]
-        assert row["gold"] == "escalate" and row["expect"] == {"escalate": True}
-        assert row["text"] == entry["text"] and row["source_id"] == entry["id"]
+        assert row["gold"] == "escalate"
+        assert row["expect"] == {"escalate": True}
+        assert row["text"] == entry["text"]
+        assert row["source_id"] == entry["id"]
         assert row["gold"] in row["permutation"]["order"]
 
 
@@ -204,10 +207,13 @@ def test_merges_variations_and_supplement_and_drops_duplicates(tmp_path, train, 
         cfg=asm.AssembleConfig(missing_candidate_rate=0),
     )
     ids = [r["id"] for r in rows_of(tmp_path)]
-    assert "toy-01-v1" in ids and "sup-1" in ids
-    assert "toy-01-v2" not in ids and "toy-01-v3" not in ids
+    assert "toy-01-v1" in ids
+    assert "sup-1" in ids
+    assert "toy-01-v2" not in ids
+    assert "toy-01-v3" not in ids
     assert freeze["counts"]["kept"] == 1
-    assert freeze["counts"]["duplicate"] == 1 and freeze["counts"]["leaked"] == 1
+    assert freeze["counts"]["duplicate"] == 1
+    assert freeze["counts"]["leaked"] == 1
     assert freeze["counts"]["supplement"] == 1
 
 
@@ -331,7 +337,8 @@ def test_select_frozen_picks_by_sha256_never_by_mtime(tmp_path, train):
     frozen.unlink()
     os.utime(decoy, (now + 500, now + 500))
     choice = asm.select_frozen(freeze_path, search=[elsewhere])
-    assert choice.path == moved and choice.deviation_id is None
+    assert choice.path == moved
+    assert choice.deviation_id is None
 
 
 @pytest.mark.behavioral("o28")
@@ -345,7 +352,8 @@ def test_a_change_after_freeze_needs_a_deviation_id(tmp_path, train):
     with pytest.raises(CliError, match="deviation"):
         asm.verify_freeze(freeze_path)
     choice = asm.select_frozen(freeze_path, deviation_id="d7")
-    assert choice.path == frozen and choice.deviation_id == "d7"
+    assert choice.path == frozen
+    assert choice.deviation_id == "d7"
     assert asm.verify_freeze(freeze_path, "d7") == ["scorer_train"]
 
 

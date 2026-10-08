@@ -111,8 +111,10 @@ def test_roles_carry_default_budgets_timeouts_and_effort(tmp_path):
         "Qwen3.8-27B",
     ]
     rec = roles["reviewer_b"].record()
-    assert rec["timeout"] == 300.0 and rec["reasoning_effort"] == "low"
-    assert SECRET not in json.dumps(rec) and SECRET not in repr(roles["reviewer_b"])
+    assert rec["timeout"] == 300.0
+    assert rec["reasoning_effort"] == "low"
+    assert SECRET not in json.dumps(rec)
+    assert SECRET not in repr(roles["reviewer_b"])
 
 
 def test_request_uses_role_budget_key_and_effort(tmp_path, gateway):
@@ -120,11 +122,14 @@ def test_request_uses_role_budget_key_and_effort(tmp_path, gateway):
     client = _client(tmp_path, g.url, teacher_reasoning_effort="high")
     out = client.generate("sys", "usr")
     body = g.requests[0]
-    assert out.status == "ok" and out.text == "hello"
-    assert body["max_tokens"] == 12000 and body["model"] == "worker"
+    assert out.status == "ok"
+    assert out.text == "hello"
+    assert body["max_tokens"] == 12000
+    assert body["model"] == "worker"
     assert body["chat_template_kwargs"] == {"reasoning_effort": "high"}
     assert g.auth[0] == f"Bearer {SECRET}"
-    assert out.role["model_name"] == "Qwen3.6-35B-A3B" and out.role["max_tokens"] == 12000
+    assert out.role["model_name"] == "Qwen3.6-35B-A3B"
+    assert out.role["max_tokens"] == 12000
 
 
 def test_missing_gateway_key_is_an_env_error(tmp_path):
@@ -154,7 +159,8 @@ def test_missing_gateway_key_is_an_env_error(tmp_path):
 )
 def test_verdict_parses_from_json(text, accepted, reason_has):
     ok, reason = T.parse_verdict(text)
-    assert ok is accepted and reason_has in reason
+    assert ok is accepted
+    assert reason_has in reason
 
 
 @pytest.mark.behavioral("o20")
@@ -181,7 +187,9 @@ def test_reviewer_retries_twice_then_records_an_error(tmp_path, gateway):
     client = _client(tmp_path, g.url)
     out = client.review("reviewer_a", "judge", "q")
     assert len(g.requests) == 3  # one send, two retries
-    assert out.status == "error" and out.accepted is None and out.attempts == 3
+    assert out.status == "error"
+    assert out.accepted is None
+    assert out.attempts == 3
     assert "empty" in out.error
     # an error is never cached, so a later run asks again
     assert list((tmp_path / "cache").glob("*.json")) == []
@@ -191,18 +199,24 @@ def test_reviewer_retries_twice_then_records_an_error(tmp_path, gateway):
 def test_reviewer_recovers_on_retry(tmp_path, gateway):
     g = gateway(replies=["", "not json", '{"verdict": "yes", "reason": "fine but ambiguous"}'])
     out = _client(tmp_path, g.url).review("reviewer_b", "judge", "q")
-    assert out.status == "ok" and out.accepted is True and out.attempts == 3
+    assert out.status == "ok"
+    assert out.accepted is True
+    assert out.attempts == 3
     assert "JSON" in g.requests[0]["messages"][0]["content"]
 
 
 def test_transient_http_retried_and_4xx_not(tmp_path, gateway):
     g = gateway(replies=[503, '{"verdict": "no", "reason": "x"}'])
     out = _client(tmp_path, g.url).review("reviewer_a", "s", "u")
-    assert out.status == "ok" and out.accepted is False and len(g.requests) == 2
+    assert out.status == "ok"
+    assert out.accepted is False
+    assert len(g.requests) == 2
     g2 = gateway(replies=[401])
     (tmp_path / "b").mkdir()
     out2 = _client(tmp_path / "b", g2.url).review("reviewer_a", "s", "u")
-    assert out2.status == "error" and len(g2.requests) == 1 and "401" in out2.error
+    assert out2.status == "error"
+    assert len(g2.requests) == 1
+    assert "401" in out2.error
 
 
 def test_error_text_never_carries_the_key(tmp_path):
@@ -213,7 +227,8 @@ def test_error_text_never_carries_the_key(tmp_path):
 
     client._caller = boom
     out = client.generate("s", "u")
-    assert out.status == "error" and SECRET not in json.dumps(out.to_record())
+    assert out.status == "error"
+    assert SECRET not in json.dumps(out.to_record())
 
 
 # --- criterion 3 / o22: Apache-only, banned endpoints ------------------------
@@ -243,7 +258,8 @@ def test_extra_apache_teacher_is_accepted_and_named_in_provenance(tmp_path):
         teacher_reviewer_a_model="mine",
     )
     rec = T.load_roles(cfg, environ={KEYVAR: "k"})["reviewer_a"].record()
-    assert rec["model_name"] == "My Apache Model" and rec["licence"] == "Apache-2.0"
+    assert rec["model_name"] == "My Apache Model"
+    assert rec["licence"] == "Apache-2.0"
     assert rec["role"] == "reviewer_a"
 
 
@@ -280,8 +296,10 @@ def test_cached_request_is_not_resent_by_a_new_client(tmp_path, gateway):
     assert first.review("reviewer_a", "s", "u").cached is False
     second = _client(tmp_path, g.url)
     out = second.review("reviewer_a", "s", "u")
-    assert out.cached is True and out.accepted is True
-    assert second.sent == 0 and len(g.requests) == 1
+    assert out.cached is True
+    assert out.accepted is True
+    assert second.sent == 0
+    assert len(g.requests) == 1
     # a different role or prompt is a different request
     second.review("reviewer_b", "s", "u")
     assert len(g.requests) == 2
@@ -324,5 +342,6 @@ def test_killed_run_resumes_at_next_item_and_resends_nothing_cached(tmp_path, ga
     c2 = _client(tmp_path, g.url)
     done = ItemLedger(jobdir, "review", len(items)).run(items, work(c2))
     assert len(g.requests) == 6  # only item4 and item5 were new
-    assert c2.sent == 2 and len(done) == 6  # item3 was served from the cache
+    assert c2.sent == 2  # item3 was served from the cache
+    assert len(done) == 6
     assert _counts(read_progress(jobdir, "review")) == {"done": 6, "total": 6}

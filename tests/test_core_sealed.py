@@ -39,7 +39,8 @@ def test_sealed_loader_exposes_only_ids_counts_and_sha256(tmp_path) -> None:
 @pytest.mark.behavioral("o10")
 def test_test_side_loader_is_the_same_text_free_view(tmp_path) -> None:
     side = split_module.load_sealed(_sealed(tmp_path, "test.json"))
-    assert SEALED_TEXT not in repr(side) and side.count == 3
+    assert SEALED_TEXT not in repr(side)
+    assert side.count == 3
 
 
 @pytest.mark.behavioral("o10")

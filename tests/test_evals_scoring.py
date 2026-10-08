@@ -47,7 +47,8 @@ def _traces(subject="cand.toy-test") -> list[Trace]:
 def test_trace_round_trips_and_keeps_candidate_order(tmp_path):
     traces = _traces()
     decided = [t.with_policy("raw", "propose", "") for t in traces]
-    assert traces[0].final == {} and decided[0].raw is traces[0].raw
+    assert traces[0].final == {}
+    assert decided[0].raw is traces[0].raw
     path = tmp_path / "t" / "cand.jsonl"
     write_traces(path, decided)
     back = read_traces(path)
@@ -107,7 +108,8 @@ def test_guard_uses_git_rev_parse_and_refuses_a_real_worktree(tmp_path, monkeypa
 
     monkeypatch.setattr("jev_factory.factory.workroot.subprocess.run", spy)
     inside_git_worktree(tmp_path)
-    assert calls and calls[0][-2:] == ["rev-parse", "--is-inside-work-tree"]
+    assert calls
+    assert calls[0][-2:] == ["rev-parse", "--is-inside-work-tree"]
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +130,8 @@ def test_strict_policy_gates_a_weak_mutating_pick_on_the_mutating_set():
     strict = policies.load_policy(policies.builtin_policy_path(STRICT))
     row = candidate_predictions()[1]
     decision, reason, *_ = policies.apply(strict, row, list(row["candidates"]), DOMAIN)
-    assert decision == "abstain_uncertain" and reason == "floor"
+    assert decision == "abstain_uncertain"
+    assert reason == "floor"
     confident = candidate_predictions()[0]
     assert policies.apply(strict, confident, list(confident["candidates"]), DOMAIN)[0] == (
         "propose"
@@ -171,12 +174,18 @@ def test_bridge_passes_core_metrics_through_and_adds_its_own():
     assert out["wrong_mutating"]["total"] == 1
     assert out["metrics_compute"]["right_proposals"]["n"] == 1
     top_k = out["top_k_accuracy"]
-    assert top_k[1]["N"] == 2 and top_k[3]["n"] == 1 and top_k[5]["n"] == 2
+    assert top_k[1]["N"] == 2
+    assert top_k[3]["n"] == 1
+    assert top_k[5]["n"] == 2
     assert out["missing_candidate"]["n"] == 1
-    assert out["log_loss"]["n"] == 5 and out["log_loss"]["mean"] > 0
+    assert out["log_loss"]["n"] == 5
+    assert out["log_loss"]["mean"] > 0
     row = out["rows"][1]
-    assert row["slice"] == "read_only" and row["wrong_mutating"] is True
-    assert row["top1_correct"] is False and 0 <= row["entropy"] <= 1 and row["margin"] >= 0
+    assert row["slice"] == "read_only"
+    assert row["wrong_mutating"] is True
+    assert row["top1_correct"] is False
+    assert 0 <= row["entropy"] <= 1
+    assert row["margin"] >= 0
 
 
 def test_bridge_reports_not_measurable_without_a_distribution():
@@ -250,7 +259,8 @@ def test_deepeval_wrappers_when_the_evals_group_is_installed(tmp_path):
     metrics = deepeval_layer.build_metrics(DOMAIN)
     assert [m.__name__ for m in metrics] == list(deepeval_layer.METRIC_NAMES)
     case = deepeval_layer.build_test_case(_traces()[1], STRICT, DOMAIN)
-    assert case.input == "case:c-2" and case.actual_output == "abstain_uncertain"
+    assert case.input == "case:c-2"
+    assert case.actual_output == "abstain_uncertain"
     outcome = deepeval_layer.evaluate_traces(
         _traces(), STRICT, DOMAIN, results_folder=tmp_path / "de"
     )
@@ -298,13 +308,16 @@ def test_report_rows_answer_model_and_harness_separately_and_deterministically(t
     model_only, harness = result["rows"]
     assert (model_only["variant"], model_only["harness_policy"]) == ("model-only", None)
     assert (harness["variant"], harness["harness_policy"]) == ("model+harness", STRICT)
-    assert model_only["wrong_mutations"] == 1 and harness["wrong_mutations"] == 0
-    assert result["deepeval"] is False and result["reference_rows"] == []
+    assert model_only["wrong_mutations"] == 1
+    assert harness["wrong_mutations"] == 0
+    assert result["deepeval"] is False
+    assert result["reference_rows"] == []
     assert harness["slices"]["permutation"] == "not_run"
     assert "| cand.toy-test (model+harness) | mutating-strict-example |" in page
     assert "DeepEval per-case layer: did not run" in page
     for case in CASES:
-        assert case["text"] not in page and case["id"] not in json.dumps(result)
+        assert case["text"] not in page
+        assert case["id"] not in json.dumps(result)
     assert report.generate(run_dir) == (result, page)
 
 
@@ -347,4 +360,5 @@ def test_missing_candidate_rows_report_their_escalation_rate_beside_their_share(
     ]
     out = metrics_bridge.missing_candidate_summary(rows)
     assert (out["n"], out["N"], out["escalated"]) == (3, 4, 2)
-    assert out["rate"] == 0.75 and abs(out["escalation_rate"] - 2 / 3) < 1e-9
+    assert out["rate"] == 0.75
+    assert abs(out["escalation_rate"] - 2 / 3) < 1e-9

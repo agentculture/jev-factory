@@ -419,7 +419,8 @@ def test_pooled_change_rate_and_markdown():
     trials = sum(k["trials"] for k in report["kinds"])
     assert rate == sum(k["changes"] for k in report["kinds"]) / trials
     text = probe.render_markdown(report)
-    assert "| order |" in text and "bootstrap over entries" in text
+    assert "| order |" in text
+    assert "bootstrap over entries" in text
 
 
 # -- CLI --

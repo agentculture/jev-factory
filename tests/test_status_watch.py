@@ -27,10 +27,12 @@ def test_progress_files_carry_timing_and_give_a_rate_and_an_eta(tmp_path):
     progress.advance(2)
     record = detach.read_progress(tmp_path, "augment")
     assert (record["done"], record["total"], record["start_done"]) == (6, 10, 4)
-    assert record["pid"] == os.getpid() and record["updated"] >= record["started"]
+    assert record["pid"] == os.getpid()
+    assert record["updated"] >= record["started"]
     timed = {"done": 6, "total": 10, "start_done": 4, "started": 100.0, "updated": 160.0}
     rate, eta = detach.rate_and_eta(timed)  # 2 items this session in 60 s
-    assert rate == pytest.approx(2 / 60) and eta == pytest.approx(120.0)
+    assert rate == pytest.approx(2 / 60)
+    assert eta == pytest.approx(120.0)
     assert detach.rate_and_eta({"done": 3, "total": 6}) == (None, None)  # an old file
 
 
@@ -77,10 +79,13 @@ def test_watch_updates_every_interval_until_nothing_runs(tmp_path):
     out = io.StringIO()
     rc = status.watch(tmp_path, 1800, sleep=advance, clock=lambda: next(clock), stream=out)
     blocks = out.getvalue().strip().split("\n[")
-    assert rc == 0 and slept == [1800, 1800] and len(blocks) == 3
+    assert rc == 0
+    assert slept == [1800, 1800]
+    assert len(blocks) == 3
     assert "augment: running, 3/10 items, 1.0/min, ETA 7m00s" in blocks[0]
     assert "since last update: augment: +4 items" in blocks[1]
-    assert "final update" in blocks[2] and "augment: running -> complete" in blocks[2]
+    assert "final update" in blocks[2]
+    assert "augment: running -> complete" in blocks[2]
 
 
 def test_watch_with_json_emits_one_update_per_line(tmp_path):
@@ -89,7 +94,8 @@ def test_watch_with_json_emits_one_update_per_line(tmp_path):
     assert status.watch(tmp_path, 1800, json_mode=True, sleep=lambda s: None, stream=out) == 0
     (line,) = out.getvalue().splitlines()
     upd = json.loads(line)
-    assert upd["running"] is False and upd["jobs"][0]["job"] == "draft"
+    assert upd["running"] is False
+    assert upd["jobs"][0]["job"] == "draft"
     assert upd["jobs"][0]["rate_per_min"] == pytest.approx(6.0)
 
 
@@ -101,4 +107,6 @@ def test_every_without_watch_is_a_user_error(tmp_path, capsys):
 def test_a_one_shot_status_lists_jobs_that_belong_to_no_stage(tmp_path):
     _progress(tmp_path / "jobs", "measure-final-test", 2, 8, started=0.0, updated=1.0, pid=1)
     text = status.render(status.collect(tmp_path))
-    assert "jobs:" in text and "measure-final-test" in text and "2/8 items" in text
+    assert "jobs:" in text
+    assert "measure-final-test" in text
+    assert "2/8 items" in text

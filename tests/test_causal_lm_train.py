@@ -183,7 +183,8 @@ def test_the_weight_sample_is_deterministic_and_keeps_the_first_and_last() -> No
     sample = tr.sample_names(names, k=6, seed=3)
     assert sample == tr.sample_names(list(reversed(names)), k=6, seed=3)
     assert len(sample) == 6
-    assert sorted(names)[0] in sample and sorted(names)[-1] in sample
+    assert sorted(names)[0] in sample
+    assert sorted(names)[-1] in sample
     assert tr.sample_names(names[:3], k=8) == sorted(names[:3])
     assert tr.sample_names([], k=8) == []
 
@@ -451,7 +452,8 @@ def test_the_train_plan_runs_the_scorer_trainer_then_the_verified_merge(work) ->
     assert "--heal" not in train_cmd
     assert merge_cmd[:3] == ("/opt/train/bin/python", "-m", tr.TRAIN_MODULE)
     assert merge_cmd[merge_cmd.index("--merge-only") + 1] == str(plan.run_dir / "adapter")
-    assert plan.hyperparameters["epochs"] == 3 and plan.hyperparameters["lr"] == 2e-4
+    assert plan.hyperparameters["epochs"] == 3
+    assert plan.hyperparameters["lr"] == 2e-4
 
 
 def _fake_runner(calls: list, *, status: int = 0, write: bool = True):

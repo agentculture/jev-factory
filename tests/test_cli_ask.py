@@ -87,7 +87,8 @@ def test_ask_proposes_a_read_only_verb_with_its_probability(tmp_path, monkeypatc
     rc, out, err = run_cli(capsys, "ask", "who am i", "--bundle", str(bundle), "--json")
     doc = json.loads(out)
     assert rc == 0
-    assert doc["outcome"] == "propose" and doc["operation"] == READ_ONLY
+    assert doc["outcome"] == "propose"
+    assert doc["operation"] == READ_ONLY
     assert doc["executed"] is False
     assert 0.8 < doc["probability"] <= 1.0
     assert doc["surface_mismatch"] is None
@@ -100,7 +101,8 @@ def test_ask_prints_exactly_one_outcome_in_text_mode(tmp_path, monkeypatch, caps
     rc, out, _ = run_cli(capsys, "ask", "what is a jev model", "--bundle", str(bundle))
     assert rc == 0
     first = out.splitlines()[0].split()[0]
-    assert first == "explain" and len(out.splitlines()[0].split()) == 2  # outcome, then p=...
+    assert first == "explain"
+    assert len(out.splitlines()[0].split()) == 2  # outcome, then p=...
 
 
 @pytest.mark.behavioral("o34")
@@ -113,7 +115,8 @@ def test_ask_applies_calibration_and_gate_from_the_bundle(tmp_path, monkeypatch,
     patch_scorer(monkeypatch, {"explain": 0.5, READ_ONLY: 0.45})
     _, out, _ = run_cli(capsys, "ask", "who am i", "--bundle", str(bundle), "--json")
     doc = json.loads(out)
-    assert doc["outcome"] == "abstain_uncertain" and doc["reason"] == "floor"
+    assert doc["outcome"] == "abstain_uncertain"
+    assert doc["reason"] == "floor"
     # without the vector the argmax stays explain
     plain = make_bundle(tmp_path, name="plain")
     _, out, _ = run_cli(capsys, "ask", "who am i", "--bundle", str(plain), "--json")
@@ -126,7 +129,8 @@ def test_ask_escalates(tmp_path, monkeypatch, capsys):
     patch_scorer(monkeypatch, {"escalate": 0.95})
     _, out, _ = run_cli(capsys, "ask", "reformat my disk", "--bundle", str(bundle), "--json")
     doc = json.loads(out)
-    assert doc["outcome"] == "escalate" and doc["operation"] is None
+    assert doc["outcome"] == "escalate"
+    assert doc["operation"] is None
 
 
 @pytest.mark.behavioral("o34")
@@ -136,11 +140,14 @@ def test_ask_grounds_arguments_deterministically(tmp_path, monkeypatch, capsys):
     _, out, _ = run_cli(capsys, "ask", "tell me about whoami", "--bundle", str(bundle), "--json")
     doc = json.loads(out)
     assert doc["operation"] == "jev.explain"
-    assert doc["arguments"] == {"path": "whoami"} and doc["grounded"] is True
+    assert doc["arguments"] == {"path": "whoami"}
+    assert doc["grounded"] is True
     # a word the catalog does not know is never invented by the model
     _, out, _ = run_cli(capsys, "ask", "tell me about zzzz", "--bundle", str(bundle), "--json")
     doc = json.loads(out)
-    assert doc["grounded"] is False and doc["arguments"] is None and doc["grounding"]
+    assert doc["grounded"] is False
+    assert doc["arguments"] is None
+    assert doc["grounding"]
 
 
 @pytest.mark.behavioral("o34")
@@ -158,9 +165,11 @@ def test_ask_refuses_an_incomplete_bundle(tmp_path, monkeypatch, capsys):
     (bundle / "gate.json").unlink()
     patch_scorer(monkeypatch, {READ_ONLY: 0.9})
     rc, _, err = run_cli(capsys, "ask", "x", "--bundle", str(bundle))
-    assert rc == 1 and "gate.json" in err
+    assert rc == 1
+    assert "gate.json" in err
     rc, _, err = run_cli(capsys, "ask", "x", "--bundle", str(tmp_path / "nope"))
-    assert rc == 1 and "hint:" in err
+    assert rc == 1
+    assert "hint:" in err
 
 
 @pytest.mark.behavioral("o36")
@@ -169,10 +178,13 @@ def test_ask_reports_a_surface_hash_mismatch(tmp_path, monkeypatch, capsys):
     patch_scorer(monkeypatch, {READ_ONLY: 0.9})
     rc, out, err = run_cli(capsys, "ask", "who am i", "--bundle", str(bundle), "--json")
     doc = json.loads(out)
-    assert rc == 0 and "surface" in doc["surface_mismatch"] and "0" * 64 in doc["surface_mismatch"]
+    assert rc == 0
+    assert "surface" in doc["surface_mismatch"]
+    assert "0" * 64 in doc["surface_mismatch"]
     assert "surface" in err  # also a diagnostic on stderr, never mixed into stdout
     rc, _, err = run_cli(capsys, "ask", "who am i", "--bundle", str(bundle), "--strict-surface")
-    assert rc == 2 and "surface" in err
+    assert rc == 2
+    assert "surface" in err
 
 
 @pytest.mark.behavioral("o36")
@@ -180,7 +192,9 @@ def test_a_matching_bundle_reports_no_mismatch(tmp_path, monkeypatch, capsys):
     bundle = make_bundle(tmp_path)
     patch_scorer(monkeypatch, {READ_ONLY: 0.9})
     rc, out, err = run_cli(capsys, "ask", "who am i", "--bundle", str(bundle), "--json")
-    assert rc == 0 and json.loads(out)["surface_mismatch"] is None and err == ""
+    assert rc == 0
+    assert json.loads(out)["surface_mismatch"] is None
+    assert err == ""
 
 
 # ---------------------------------------------------------------------------
@@ -206,8 +220,11 @@ def test_ask_with_a_mutating_proposal_only_prints(tmp_path, monkeypatch, capsys)
     before = sorted(p.name for p in tmp_path.rglob("*"))
     rc, out, _ = run_cli(capsys, "ask", "split the data", "--bundle", str(bundle), "--json")
     doc = json.loads(out)
-    assert rc == 0 and doc["outcome"] == "propose" and doc["operation"] == MUTATING
-    assert doc["executed"] is False and "--apply" not in json.dumps(doc)
+    assert rc == 0
+    assert doc["outcome"] == "propose"
+    assert doc["operation"] == MUTATING
+    assert doc["executed"] is False
+    assert "--apply" not in json.dumps(doc)
     assert sorted(p.name for p in tmp_path.rglob("*")) == before  # wrote nothing
 
 
@@ -282,7 +299,8 @@ def test_model_driven_verbs_cannot_reach_a_writer(module):
 
 def test_the_verb_is_annotated_read_only_and_in_the_domain():
     op = DOMAIN.get("jev.ask")
-    assert op is not None and op.read_only is True
+    assert op is not None
+    assert op.read_only is True
     assert {a.name for a in op.args} == {"request", "bundle"}
     assert "ask" in _build_parser().format_help()
 
@@ -292,4 +310,5 @@ def test_build_scorer_needs_a_server_or_a_checkpoint(tmp_path):
     args = ask.argparse.Namespace(server=None, model=None)
     with pytest.raises(CliError) as caught:
         ask.build_scorer(args, bundle)
-    assert caught.value.code == 2 and "--server" in caught.value.remediation
+    assert caught.value.code == 2
+    assert "--server" in caught.value.remediation

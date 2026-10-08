@@ -826,7 +826,8 @@ def test_make_folds_is_disjoint_seeded_and_grouped() -> None:
     ids = [f"e{i}" for i in range(12)] + ["e0~v1", "e0~v2"]
     groups = {"e0~v1": "e0", "e0~v2": "e0"}
     fit, sel = module.make_folds(ids, 7, group_of=groups)
-    assert sorted(fit + sel) == sorted(ids) and not set(fit) & set(sel)
+    assert sorted(fit + sel) == sorted(ids)
+    assert not set(fit) & set(sel)
     assert module.make_folds(list(reversed(ids)), 7, group_of=groups) == (fit, sel)
     side = {i in fit for i in ("e0", "e0~v1", "e0~v2")}
     assert len(side) == 1
@@ -845,4 +846,5 @@ def test_make_folds_never_splits_a_source_across_fit_and_selection() -> None:
     groups = {f"s{i}~v{j}": f"s{i}" for i in range(10) for j in range(3)}
     fit, sel = module.make_folds(list(groups), 5, group_of=groups)
     assert {groups[i] for i in fit}.isdisjoint({groups[i] for i in sel})
-    assert len(fit) + len(sel) == 30 and len(fit) == 21
+    assert len(fit) + len(sel) == 30
+    assert len(fit) == 21

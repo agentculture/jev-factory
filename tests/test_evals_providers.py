@@ -52,8 +52,10 @@ def _request(**kwargs):
 )
 def test_status_codes_classify_as_pending_stops(status, reason, retryable):
     c = errors.classify_transport("openai_compat", status_code=status)
-    assert c.outcome is Outcome.PENDING and c.stop
-    assert c.reason == reason and c.retryable is retryable
+    assert c.outcome is Outcome.PENDING
+    assert c.stop
+    assert c.reason == reason
+    assert c.retryable is retryable
     assert c.rejected is (not retryable)
 
 
@@ -63,7 +65,8 @@ def test_named_error_type_wins_over_status_and_unknown_stays_pending():
     )
     assert c.reason == "request_rejected:unsupported_parameter"
     unknown = errors.classify_transport("openai_compat", status_code=418)
-    assert unknown.outcome is Outcome.PENDING and unknown.retryable
+    assert unknown.outcome is Outcome.PENDING
+    assert unknown.retryable
     assert unknown.reason == "unrecognized_infra_condition:http_418"
     with pytest.raises(KeyError):
         errors.classify_transport("nope", status_code=400)
@@ -80,11 +83,13 @@ def test_answer_classification_is_structural():
 
 def test_stop_messages_name_the_kind_of_stop():
     rejected = errors.stop_message("m", errors.rejected("bad"), 3)
-    assert "request rejected" in rejected and "3 call(s)" in rejected
+    assert "request rejected" in rejected
+    assert "3 call(s)" in rejected
     transient = errors.stop_message(
         "p", errors.classify_transport("openai_compat", status_code=429), 2
     )
-    assert "transient" in transient and "2 call(s)" in transient
+    assert "transient" in transient
+    assert "2 call(s)" in transient
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +103,8 @@ def test_heldout_split_is_refused_before_any_send(split):
     request = CallRequest(case_id="h", split=split, case_text="sealed")
     with pytest.raises(base.HeldoutSplitRefused):
         provider.submit_sync(request)
-    assert provider.received == [] and provider.remaining_script() == 1
+    assert provider.received == []
+    assert provider.remaining_script() == 1
 
 
 def test_every_outgoing_text_passes_the_jev_redactor():
@@ -113,7 +119,8 @@ def test_every_outgoing_text_passes_the_jev_redactor():
     )
     provider.submit_sync(request)
     sent = provider.received[0]
-    assert secret not in sent.case_text and "<REDACTED:openai_key>" in sent.case_text
+    assert secret not in sent.case_text
+    assert "<REDACTED:openai_key>" in sent.case_text
     assert "<REDACTED:authorization_header>" in sent.prompt
 
 
@@ -171,7 +178,8 @@ def test_fake_rereads_its_raw_answer_and_reply_text():
     request = _request()
     result = provider.submit_sync(request)
     again = provider.result_from_raw(request, result.raw)
-    assert again.answer == "D" and again.response_id == result.response_id
+    assert again.answer == "D"
+    assert again.response_id == result.response_id
     assert provider.reply_text(result.raw).truncated
     not_an_answer = json.dumps({"kind": "402"}).encode()
     with pytest.raises(ValueError):
@@ -257,8 +265,11 @@ def test_payload_is_the_canonical_content_and_answer_is_parsed():
     assert "Authorization" not in headers
     assert payload["messages"][0] == {"role": "system", "content": request.prompt}
     assert payload["messages"][1] == {"role": "user", "content": request.case_text}
-    assert payload["max_tokens"] == 512 and "logprobs" not in payload
-    assert result.outcome is Outcome.OK and result.answer == "D" and result.candidates is None
+    assert payload["max_tokens"] == 512
+    assert "logprobs" not in payload
+    assert result.outcome is Outcome.OK
+    assert result.answer == "D"
+    assert result.candidates is None
     assert result.usage == {"prompt_tokens": 10, "completion_tokens": 2, "reasoning_tokens": 1}
     assert result.returned_model == "vendor/model-2026"
     assert provider.host == "localhost"

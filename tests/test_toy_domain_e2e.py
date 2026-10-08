@@ -65,7 +65,8 @@ def toy_run(tmp_path):
 def test_the_toy_domain_is_a_valid_non_jev_domain_with_a_mutating_half():
     ops = ps.DOMAIN.operations
     assert ps.DOMAIN.name != "jev-cli"
-    assert len(ops) >= 3 and any(not op.read_only for op in ops)
+    assert len(ops) >= 3
+    assert any(not op.read_only for op in ops)
 
 
 @pytest.mark.behavioral("o6")
@@ -73,10 +74,12 @@ def test_validate_split_assemble_select_and_decide_run_end_to_end_on_cpu(toy_run
     workdir, ctx, runner = toy_run
     # validate: the config stage validated the domain and recorded its surface.
     config = json.loads((workdir / "config.json").read_text())
-    assert config["domain"] == "toy-lamps" and config["mutating"] == 2
+    assert config["domain"] == "toy-lamps"
+    assert config["mutating"] == 2
     # split: grouped sides plus seeded fit/selection folds.
     folds = json.loads((workdir / "splits" / "folds.json").read_text())
-    assert folds["fit_ids"] and folds["selection_ids"]
+    assert folds["fit_ids"]
+    assert folds["selection_ids"]
     assert not set(folds["fit_ids"]) & set(folds["selection_ids"])
     # assemble: frozen by sha256, scorer rows with -nocand rows.
     freeze = json.loads((workdir / "data" / "freeze.json").read_text())
@@ -97,8 +100,10 @@ def test_validate_split_assemble_select_and_decide_run_end_to_end_on_cpu(toy_run
     assert [m for m, _ in runner.calls] == ["jev_factory.measure.probe"] * 2
     # decide: one record, the rule's verdict, every metric cited with a sha256.
     record = pipeline.decide(workdir, ctx)
-    assert record["verdict"] == "ship_candidate" and record["params"] == {"candidate": "r1"}
-    assert record["decider"] == "rule" and record["id"] == "D1"
+    assert record["verdict"] == "ship_candidate"
+    assert record["params"] == {"candidate": "r1"}
+    assert record["decider"] == "rule"
+    assert record["id"] == "D1"
     assert all(len(c["sha256"]) == 64 for c in record["cited"])
     assert records.load(workdir / "decisions.jsonl") == [record]
 
@@ -108,7 +113,8 @@ def test_the_bad_candidate_is_filtered_by_the_rule_not_by_hand(toy_run):
     workdir, _ctx, _runner = toy_run
     good = json.loads((workdir / "select" / "r1" / "summary.json").read_text())
     bad = json.loads((workdir / "select" / "r2" / "summary.json").read_text())
-    assert good["wrong_mutating"] == 0 and good["permutation_change"] == 0.0
+    assert good["wrong_mutating"] == 0
+    assert good["permutation_change"] == 0.0
     assert bad["permutation_change"] > good["permutation_change"]
     trail = json.loads((workdir / "select" / "selection.json").read_text())["trail"]
     survivors = {step["step"]: step["survivors"] for step in trail}
@@ -120,7 +126,8 @@ def test_every_stage_of_the_chain_left_a_complete_manifest(toy_run):
     workdir, _ctx, _runner = toy_run
     for name in CPU_CHAIN + ("select",):
         man = json.loads((workdir / "manifests" / f"{name}.json").read_text())
-        assert man["status"] == "complete" and man["stage"] == name
+        assert man["status"] == "complete"
+        assert man["stage"] == name
         assert man["knobs"]["_domain"]["name"] == "toy-lamps"
 
 

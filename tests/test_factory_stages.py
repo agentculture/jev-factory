@@ -51,9 +51,13 @@ def test_manifest_fields(tmp_path):
     man = stages.run_stage(wd, "a", {"k": 1}, registry=reg)
     on_disk = json.loads((wd / "manifests" / "a.json").read_text())
     assert on_disk == man
-    assert man["stage"] == "a" and man["jev_factory_version"] == __version__
-    assert man["status"] == "complete" and man["rc"] == 0 and man["knobs"] == {"k": 1}
-    assert len(man["inputs"]["seed.txt"]) == 64 and len(man["outputs"]["a.out"]) == 64
+    assert man["stage"] == "a"
+    assert man["jev_factory_version"] == __version__
+    assert man["status"] == "complete"
+    assert man["rc"] == 0
+    assert man["knobs"] == {"k": 1}
+    assert len(man["inputs"]["seed.txt"]) == 64
+    assert len(man["outputs"]["a.out"]) == 64
     assert man["started"] <= man["finished"]
 
 
@@ -98,7 +102,9 @@ def test_knob_change_is_stale_and_failure_recorded(tmp_path):
     assert stages.staleness(wd, "a", {"a": {"k": 2}}, registry=reg) == "knobs changed"
     reg.register(Stage("d", lambda w, k: 1 / 0, (), (), ()))
     man = stages.run_stage(wd, "d", registry=reg)
-    assert man["status"] == "failed" and man["rc"] == 1 and "ZeroDivisionError" in man["error"]
+    assert man["status"] == "failed"
+    assert man["rc"] == 1
+    assert "ZeroDivisionError" in man["error"]
     assert stages.staleness(wd, "d", registry=reg) == "last run failed"
 
 
@@ -120,7 +126,8 @@ def test_a_stage_never_skips_or_builds_on_an_upstream_whose_last_run_failed(tmp_
     for name in ("b", "c"):  # fresh by their own inputs, but their producer failed
         assert stages.staleness(wd, name, registry=failing) is not None
         man = stages.run_stage(wd, name, registry=failing)
-        assert not man.get("skipped") and man["status"] == "failed"
+        assert not man.get("skipped")
+        assert man["status"] == "failed"
         assert "upstream stage a's last run failed" in man["error"]
     assert calls == ["a", "b", "c"]  # nothing ran on the failed producer's leftovers
 
@@ -128,12 +135,15 @@ def test_a_stage_never_skips_or_builds_on_an_upstream_whose_last_run_failed(tmp_
 def test_missing_input_fails_without_running(tmp_path):
     wd, calls, reg = _setup(tmp_path)
     man = stages.run_stage(wd, "b", registry=reg)
-    assert man["status"] == "failed" and man["rc"] == 2 and calls == []
+    assert man["status"] == "failed"
+    assert man["rc"] == 2
+    assert calls == []
 
 
 def test_registry_order_downstream_cycles_and_listing(tmp_path):
     _, _, reg = _setup(tmp_path)
-    assert reg.downstream("a") == ["b", "c"] and reg.downstream("c") == []
+    assert reg.downstream("a") == ["b", "c"]
+    assert reg.downstream("c") == []
     assert [s["stage"] for s in stages.list_stages(reg)] == ["a", "b", "c"]
     cyc = Registry()
     cyc.register(Stage("x", lambda w, k: None, deps=("y",)))
@@ -153,7 +163,8 @@ def test_directory_hash_tracks_content(tmp_path):
     (d / "f").write_text("1")
     h1 = stages.sha256_path(d)
     (d / "f").write_text("2")
-    assert stages.sha256_path(d) != h1 and stages.sha256_path(tmp_path / "nope") is None
+    assert stages.sha256_path(d) != h1
+    assert stages.sha256_path(tmp_path / "nope") is None
 
 
 def _wait(jobdir, name, states, timeout=20):
@@ -169,7 +180,8 @@ def _wait(jobdir, name, states, timeout=20):
 def test_detached_records_real_rc_and_pid(tmp_path):
     pid = detach.start_detached(tmp_path, "ok", [sys.executable, "-c", "raise SystemExit(0)"])
     st = _wait(tmp_path, "ok", {"done"})
-    assert st["rc"] == 0 and st["pid"] == pid
+    assert st["rc"] == 0
+    assert st["pid"] == pid
     detach.start_detached(tmp_path, "bad", [sys.executable, "-c", "raise SystemExit(7)"])
     assert _wait(tmp_path, "bad", {"done"})["rc"] == 7
     assert detach.job_status(tmp_path, "none")["state"] == "absent"
@@ -191,7 +203,8 @@ def test_killed_job_has_no_done_marker(tmp_path):
     assert detach.job_status(tmp_path, "k")["state"] == "running"
     os.killpg(pid, signal.SIGKILL)
     st = _wait(tmp_path, "k", {"died", "done"})
-    assert st["state"] == "died" and st["rc"] is None
+    assert st["state"] == "died"
+    assert st["rc"] is None
 
 
 @pytest.mark.behavioral("o37")

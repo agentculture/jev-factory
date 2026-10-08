@@ -65,7 +65,8 @@ def test_the_tree_follows_dotted_verb_names_then_the_controls_and_reasons():
     nodes = {n["id"]: n for n in core.verb_tree(domain)}
     assert nodes[domain.name]["parent"] is None
     assert nodes["jev.run.dataset-bundle"]["parent"] == "jev.run"
-    assert nodes["jev.run"]["kind"] == "operation" and nodes["jev.run"]["read_only"] is True
+    assert nodes["jev.run"]["kind"] == "operation"
+    assert nodes["jev.run"]["read_only"] is True
     assert nodes["jev.run.train"]["read_only"] is False
     assert nodes["jev.cli.overview"]["parent"] == "jev.cli"
     assert nodes["explain"]["parent"] == domain.name
@@ -95,11 +96,14 @@ def test_a_decision_takes_before_from_the_seed_and_appends_one_line(toy):
     path = core.review_path(Path(toy.seed_corpus))
     assert path.name == "seed.review.jsonl"
     record = _decide(toy, {"action": "approve", "entry_id": "toy-01", "note": " fine "})
-    assert record["before"] == _entry(toy, "toy-01") and record["after"] is None
-    assert record["note"] == "fine" and record["at"] == AT
+    assert record["before"] == _entry(toy, "toy-01")
+    assert record["after"] is None
+    assert record["note"] == "fine"
+    assert record["at"] == AT
     _decide(toy, {"action": "reject", "entry_id": "toy-02"})
     lines = path.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 2 and json.loads(lines[0])["action"] == "approve"
+    assert len(lines) == 2
+    assert json.loads(lines[0])["action"] == "approve"
 
 
 @pytest.mark.parametrize(
@@ -143,7 +147,8 @@ def test_a_proposal_gets_an_operator_source_and_can_be_revised_or_withdrawn(toy)
     }
     record = _decide(toy, {"action": "propose", "entry_id": "toy-90", "after": after})
     assert record["after"]["source"] == "operator-review-2026-10-02"
-    assert record["after"]["id"] == "toy-90" and record["before"] is None
+    assert record["after"]["id"] == "toy-90"
+    assert record["before"] is None
     with pytest.raises(core.ReviewError, match="propose it again"):
         _decide(toy, {"action": "approve", "entry_id": "toy-90"})
     revised = dict(after, text="is the hall lamp on right now")
@@ -151,7 +156,8 @@ def test_a_proposal_gets_an_operator_source_and_can_be_revised_or_withdrawn(toy)
     assert _plan(toy).changes[0]["after"]["text"] == "is the hall lamp on right now"
     _decide(toy, {"action": "reject", "entry_id": "toy-90"})
     plan = _plan(toy)
-    assert plan.changes == [] and plan.counts.get("withdrawn") == 1
+    assert plan.changes == []
+    assert plan.counts.get("withdrawn") == 1
     assert "rejected" not in plan.counts
 
 
@@ -183,7 +189,8 @@ def test_the_plan_removes_edits_and_adds_and_approval_changes_nothing(toy):
         ("add", "toy-91"),
     ]
     ids = [e["id"] for e in plan.seed["entries"]]
-    assert "toy-02" not in ids and ids[-1] == "toy-91"
+    assert "toy-02" not in ids
+    assert ids[-1] == "toy-91"
     assert ids.index("toy-03") == 1  # an edit keeps the entry's place
     assert plan.counts == {"approved": 1, "rejected": 1, "edited": 1, "proposed": 1, "pending": 13}
 
@@ -200,7 +207,8 @@ def test_applying_is_idempotent(toy):
     _decide(toy, {"action": "edit", "entry_id": "toy-03", "after": edited})
     Path(toy.seed_corpus).write_text(core.dump_seed(_plan(toy).seed), encoding="utf-8")
     again = _plan(toy)
-    assert again.ok and again.changes == []
+    assert again.ok
+    assert again.changes == []
 
 
 def test_a_seed_changed_since_the_decision_is_a_conflict_not_an_overwrite(toy):
@@ -213,7 +221,8 @@ def test_a_seed_changed_since_the_decision_is_a_conflict_not_an_overwrite(toy):
             entry["text"] += " (changed by hand)"
     Path(toy.seed_corpus).write_text(core.dump_seed(raw), encoding="utf-8")
     plan = _plan(toy)
-    assert not plan.ok and plan.changes == []
+    assert not plan.ok
+    assert plan.changes == []
     assert any("toy-03: edited, but the seed entry changed" in c for c in plan.conflicts)
     assert any("toy-04: approved, but the seed entry changed" in c for c in plan.conflicts)
 
@@ -225,7 +234,8 @@ def test_next_ids_follow_the_seed_style_and_skip_taken_ids(toy):
     raw = json.loads(Path(jev.seed_corpus).read_text(encoding="utf-8"))
     jev_ids = core.next_ids(raw, jev)
     assert re.fullmatch(r"jcs-op-\d{3}", jev_ids["operation"])
-    assert jev_ids["explain"].startswith("jcs-ex-") and jev_ids["escalate"].startswith("jcs-dc-")
+    assert jev_ids["explain"].startswith("jcs-ex-")
+    assert jev_ids["escalate"].startswith("jcs-dc-")
 
 
 def test_dump_seed_matches_the_committed_seed_format():
@@ -248,11 +258,13 @@ def test_the_default_is_a_dry_run_that_writes_nothing(cli_toy, capsys):
     before = Path(cli_toy.seed_corpus).read_bytes()
     assert cli_main(["review", "toy", "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
-    assert result["applied"] is False and result["changes"][0]["entry_id"] == "toy-02"
+    assert result["applied"] is False
+    assert result["changes"][0]["entry_id"] == "toy-02"
     assert Path(cli_toy.seed_corpus).read_bytes() == before
     assert cli_main(["review", "toy"]) == 0
     text = capsys.readouterr().out
-    assert "remove toy-02" in text and "dry run: nothing was written" in text
+    assert "remove toy-02" in text
+    assert "dry run: nothing was written" in text
 
 
 def test_apply_writes_the_seed_and_a_rerun_changes_nothing(cli_toy, capsys):
@@ -326,8 +338,10 @@ def _call(port, method, path, body=None, token=None, host=None):
 def test_the_site_serves_the_page_with_its_token_and_a_strict_csp(site):
     app, port = site
     status, ctype, body, res = _call(port, "GET", "/")
-    assert status == 200 and ctype.startswith("text/html")
-    assert app.token.encode() in body and b"__JEV_REVIEW_KEY__" not in body
+    assert status == 200
+    assert ctype.startswith("text/html")
+    assert app.token.encode() in body
+    assert b"__JEV_REVIEW_KEY__" not in body
     assert "connect-src 'self'" in res.getheader("Content-Security-Policy")
 
 
@@ -347,7 +361,8 @@ def test_the_state_carries_the_tree_entries_and_statuses(site):
     app, port = site
     status, _, body, _ = _call(port, "GET", "/api/state", token=app.token)
     state = json.loads(body)
-    assert status == 200 and state["domain"] == app.domain.name
+    assert status == 200
+    assert state["domain"] == app.domain.name
     assert {n["id"] for n in state["nodes"]} >= {"lamp_status", "explain", "escalate:injection"}
     assert len(state["entries"]) == 16
     assert {e["status"] for e in state["entries"]} == {"pending"}
@@ -363,7 +378,8 @@ def test_a_decision_through_the_api_is_appended_and_shows_in_the_state(site):
         {"action": "reject", "entry_id": "toy-02", "note": "dup"},
         token=app.token,
     )
-    assert status == 200 and json.loads(body) == {"recorded": True, "action": "reject"}
+    assert status == 200
+    assert json.loads(body) == {"recorded": True, "action": "reject"}
     state = json.loads(_call(port, "GET", "/api/state", token=app.token)[2])
     rejected = [e for e in state["entries"] if e["status"] == "rejected"]
     assert [e["entry"]["id"] for e in rejected] == ["toy-02"]
@@ -375,7 +391,8 @@ def test_a_bad_decision_or_body_through_the_api_is_a_400_and_records_nothing(sit
     app, port = site
     bad = {"action": "edit", "entry_id": "toy-01", "after": {"text": "x"}}
     status, _, body, _ = _call(port, "POST", "/api/decision", bad, token=app.token)
-    assert status == 400 and "missing field" in json.loads(body)["error"]
+    assert status == 400
+    assert "missing field" in json.loads(body)["error"]
     assert _call(port, "POST", "/api/decision", [1], token=app.token)[0] == 400
     assert _call(port, "POST", "/api/nowhere", {}, token=app.token)[0] == 404
     assert not app.review_file.exists()
@@ -385,7 +402,8 @@ def test_check_reports_problems_without_recording(site):
     app, port = site
     entry = {"id": "toy-50", "kind": "explicit", "text": "x", "expect": {"operation": "nope"}}
     status, _, body, _ = _call(port, "POST", "/api/check", {"entry": entry}, token=app.token)
-    assert status == 200 and json.loads(body)["problems"]
+    assert status == 200
+    assert json.loads(body)["problems"]
     assert not app.review_file.exists()
 
 
@@ -409,7 +427,8 @@ def test_serve_flushes_the_url_before_it_blocks(cli_toy, monkeypatch):
         server_address = (server.HOST, 4321)
 
         def serve_forever(self):
-            assert Out.flushed_with and "http://127.0.0.1:4321/" in Out.flushed_with
+            assert Out.flushed_with
+            assert "http://127.0.0.1:4321/" in Out.flushed_with
             raise KeyboardInterrupt
 
         def server_close(self):

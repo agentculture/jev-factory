@@ -72,7 +72,8 @@ def test_a_changed_file_fails_verify(tmp_path):
 def test_redact_is_idempotent_and_typed():
     raw = f"Authorization: Bearer abcdefgh12345 and {_SK}".encode()
     once = scan.redact(raw)
-    assert b"abcdefgh12345" not in once and _SK.encode() not in once
+    assert b"abcdefgh12345" not in once
+    assert _SK.encode() not in once
     assert b"<REDACTED:" in once
     assert scan.redact(once) == once
 

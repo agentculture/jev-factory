@@ -133,7 +133,8 @@ def test_strip_removes_the_argument_value_and_its_noun() -> None:
         stripped, reason = T.strip_argument(
             "Turn on the kitchen lights", arg("lamp_on"), "kitchen", pick, TOY
         )
-        assert reason == "" and stripped is not None
+        assert reason == ""
+        assert stripped is not None
         assert "kitchen" not in stripped.lower()
     stripped, _ = T.strip_argument("is the kitchen room lit", arg("room_status"), "kitchen", 0, TOY)
     assert stripped == "is the room lit"  # "the kitchen room" is one span, vague ref is "the room"
@@ -141,7 +142,8 @@ def test_strip_removes_the_argument_value_and_its_noun() -> None:
 
 def test_strip_handles_a_choice_value_with_underscores() -> None:
     stripped, _ = T.strip_argument("night light mode", arg("set_scene"), "night_light", 0, TOY)
-    assert stripped is not None and "night light" not in stripped.lower()
+    assert stripped is not None
+    assert "night light" not in stripped.lower()
     assert "a different scene" in stripped
 
 
@@ -161,15 +163,20 @@ def test_strip_reports_no_span_too_short_and_value_remains() -> None:
 def test_a_dotted_value_matches_its_bare_stem() -> None:
     svc = ArgSpec(name="service", kind="str")
     stripped, _ = T.strip_argument("Is vllm.service running?", svc, "vllm.service", 0, TOY)
-    assert stripped is not None and "vllm" not in stripped.lower()
+    assert stripped is not None
+    assert "vllm" not in stripped.lower()
     stripped, _ = T.strip_argument("restart docker", svc, "docker.service", 0, TOY)
-    assert stripped is not None and "docker" not in stripped.lower()
+    assert stripped is not None
+    assert "docker" not in stripped.lower()
 
 
 def test_span_nouns_and_vague_refs_derive_from_the_domain() -> None:
     nouns = T.span_nouns(TOY, arg("lamp_on"))
-    assert "room" in nouns and "rooms" in nouns and "scene" in nouns
-    assert "service" not in nouns and "container" not in nouns  # nothing nvsh-specific
+    assert "room" in nouns
+    assert "rooms" in nouns
+    assert "scene" in nouns
+    assert "service" not in nouns  # nothing nvsh-specific
+    assert "container" not in nouns
     assert set(T.VAGUE_REFS) == {"str", "choice"}
     grounded = ArgSpec(name="place", kind="str", ground="room")
     assert T.arg_noun(grounded, TOY) == "room"  # the ground kind's noun beats the arg name
@@ -192,11 +199,13 @@ def test_missing_argument_units_are_deterministic_and_link_their_original() -> N
     a, b = {}, {}
     first = T.missing_argument_units(TRAIN, 5, 7, a, TOY)
     second = T.missing_argument_units(TRAIN, 5, 7, b, TOY)
-    assert [u.items[0].text for u in first] == [u.items[0].text for u in second] and first
+    assert [u.items[0].text for u in first] == [u.items[0].text for u in second]
+    assert first
     originals = {e["id"]: e for e in TRAIN}
     for unit in first:
         (item,) = unit.items
-        assert item.expect == {"escalate": True} and item.cls == "decline:missing_argument"
+        assert item.expect == {"escalate": True}
+        assert item.cls == "decline:missing_argument"
         assert unit.group == originals[item.extra["pair_of"]]["source_id"]
         value = next(iter(originals[item.extra["pair_of"]]["expect"]["args"].values()))
         assert value.replace("_", " ") not in item.text.lower()
@@ -217,7 +226,8 @@ def test_missing_argument_recipe_writes_escalate_entries_and_needs_no_generator(
     summary, doc, gateway = run(tmp_path, ["missing-argument"], per_recipe=5)
     assert doc["entries"]
     for entry in doc["entries"]:
-        assert entry["id"].startswith("tgt-marg-") and entry["source"] == "tgt-missing-argument"
+        assert entry["id"].startswith("tgt-marg-")
+        assert entry["source"] == "tgt-missing-argument"
         assert entry["expect"] == {"escalate": True}
         assert entry["class"] == "decline:missing_argument"
         assert entry["source_id"] == entry["pair_of"]
@@ -233,7 +243,8 @@ def test_a_reviewer_b_rejection_drops_the_item_and_is_recorded(tmp_path) -> None
     summary, doc, _ = run(tmp_path, ["missing-argument"], gateway, per_recipe=5)
     assert doc["entries"] == []
     counts = summary["recipes"]["missing-argument"]
-    assert counts["kept"] == 0 and counts["rejected"]["reviewer_b"] >= 1
+    assert counts["kept"] == 0
+    assert counts["rejected"]["reviewer_b"] >= 1
 
 
 def test_decide_by_both_also_asks_reviewer_a(tmp_path) -> None:
@@ -245,8 +256,10 @@ def test_a_malformed_verdict_is_an_error_reason_never_a_reject(tmp_path) -> None
     gateway = FakeGateway(reviewer_reply=lambda role, user: "it seems fine")
     summary, doc, _ = run(tmp_path, ["missing-argument"], gateway, per_recipe=5)
     rejected = summary["recipes"]["missing-argument"]["rejected"]
-    assert doc["entries"] == [] and rejected["error"] >= 1
-    assert "reviewer_b" not in rejected and "reviewer" not in rejected
+    assert doc["entries"] == []
+    assert rejected["error"] >= 1
+    assert "reviewer_b" not in rejected
+    assert "reviewer" not in rejected
 
 
 def test_diagnosis_explain_pairs_share_a_source_id(tmp_path) -> None:
@@ -257,7 +270,8 @@ def test_diagnosis_explain_pairs_share_a_source_id(tmp_path) -> None:
         "answer": "It lowers the power the lamp draws.",
     }
     assert explain["class"] == "explain:question"
-    assert diagnose["expect"] == {"escalate": True} and diagnose["class"] == "decline:diagnosis"
+    assert diagnose["expect"] == {"escalate": True}
+    assert diagnose["class"] == "decline:diagnosis"
     assert explain["source_id"] == diagnose["source_id"]
     assert explain["source_id"].startswith("tgt-dx-p")
     assert {e["source"] for e in doc["entries"]} == {"tgt-diagnosis-explain"}
@@ -313,7 +327,8 @@ def test_power_set_rejects_invalid_or_off_target_args(tmp_path) -> None:
     summary, doc, _ = run(tmp_path, ["power-set"], FakeGateway(generator=bad), per_recipe=3)
     rejected = summary["recipes"]["power-set"]["rejected"]
     n = len(T.choice_targets(DOMAIN))
-    assert doc["entries"] == [] and rejected["invalid_args"] >= 2 * n
+    assert doc["entries"] == []
+    assert rejected["invalid_args"] >= 2 * n
     assert rejected["wrong_value"] >= 1
 
 
@@ -321,7 +336,8 @@ def test_disambiguation_keeps_a_validated_gold_with_its_confusable(tmp_path) -> 
     _, doc, gateway = run(tmp_path, ["disambiguation"])
     (entry,) = doc["entries"]
     assert entry["expect"] == {"operation": "room_status", "args": {"room": "kitchen"}}
-    assert entry["confusable"] == "lamp_on" and entry["id"].startswith("tgt-disamb-")
+    assert entry["confusable"] == "lamp_on"
+    assert entry["id"].startswith("tgt-disamb-")
     assert any(T.MOST_NATURAL_MARKER in u for u in gateway.users("reviewer_b"))
 
 
@@ -340,14 +356,17 @@ def test_disambiguation_rejects_invalid_args_and_a_bad_confusable(tmp_path) -> N
     summary, doc, _ = run(tmp_path, ["disambiguation"], FakeGateway(generator=bad), per_recipe=3)
     rejected = summary["recipes"]["disambiguation"]["rejected"]
     assert doc["entries"] == []
-    assert rejected["invalid_args"] == 1 and rejected["invalid_confusable"] == 2
+    assert rejected["invalid_args"] == 1
+    assert rejected["invalid_confusable"] == 2
 
 
 def test_hard_negative_is_an_explain_entry(tmp_path) -> None:
     _, doc, _ = run(tmp_path, ["hard-negative"])
     (entry,) = doc["entries"]
-    assert entry["expect"]["explain"] is True and entry["expect"]["answer"]
-    assert entry["class"] == "explain:question" and entry["mentions"] == "lamp_on"
+    assert entry["expect"]["explain"] is True
+    assert entry["expect"]["answer"]
+    assert entry["class"] == "explain:question"
+    assert entry["mentions"] == "lamp_on"
     assert entry["id"].startswith("tgt-hneg-")
 
 
@@ -366,7 +385,8 @@ def test_the_name_the_subject_rule_is_in_the_hard_negative_prompt() -> None:
 def test_prompts_carry_the_domain_table_and_topics() -> None:
     _, user = T.dx_prompt(TOY, 4)
     assert "lamp_on: Turn on the lamps in one named room." in user
-    assert "what a lighting scene is" in user and TOY.description in user
+    assert "what a lighting scene is" in user
+    assert TOY.description in user
     assert "Jetson" not in user
 
 
@@ -417,7 +437,8 @@ def test_a_generator_failure_is_counted_not_raised(tmp_path) -> None:
 
     summary, doc, _ = run(tmp_path, ["hard-negative"], FakeGateway(generator=boom))
     rejected = summary["recipes"]["hard-negative"]["rejected"]
-    assert rejected["error"] == len(DOMAIN.operations) and doc["entries"] == []
+    assert rejected["error"] == len(DOMAIN.operations)
+    assert doc["entries"] == []
 
 
 def test_an_unparseable_generator_reply_is_retried_then_an_error(tmp_path) -> None:
@@ -430,7 +451,8 @@ def test_an_unparseable_generator_reply_is_retried_then_an_error(tmp_path) -> No
 def test_more_than_one_round_carries_its_batch_number(tmp_path) -> None:
     _, _, gateway = run(tmp_path, ["diagnosis-explain"], per_recipe=7)
     users = gateway.users("generator")
-    assert len(users) == 2 and len(set(users)) == 2  # never the same request twice
+    assert len(users) == 2
+    assert len(set(users)) == 2  # never the same request twice
     assert "Batch 2 of 2" in users[1]
 
 
@@ -494,15 +516,18 @@ def test_output_is_accepted_by_merge_with_pairs_kept_grouped(tmp_path) -> None:
     by_id = {e["id"]: e for e in merged["entries"]}
     for entry in doc["entries"]:
         assert by_id[entry["id"]]["source_id"] == entry["source_id"]
-        assert entry["kind"] == "explicit" and entry["source"].startswith("tgt-")
+        assert entry["kind"] == "explicit"
+        assert entry["source"].startswith("tgt-")
 
 
 def test_output_carries_counts_sha256_and_a_train_header(tmp_path) -> None:
     summary, doc, _ = run(tmp_path, ["diagnosis-explain"])
     meta = doc["targeted"]
     assert meta["sha256"] == summary["sha256"] == T.sha256_of_entries(doc["entries"])
-    assert meta["counts"] == summary["recipes"] and meta["seed"] == 53
-    assert meta["domain"] == DOMAIN.name and meta["teachers"]["reviewer_b"]["role"] == "reviewer_b"
+    assert meta["counts"] == summary["recipes"]
+    assert meta["seed"] == 53
+    assert meta["domain"] == DOMAIN.name
+    assert meta["teachers"]["reviewer_b"]["role"] == "reviewer_b"
     assert "Split 'train' of " in doc["header"]
     assert not {"test", "held-out", "val"} & set(doc["header"].lower().split())
 
@@ -522,8 +547,11 @@ def test_every_recipe_records_its_reject_reasons_per_unit(tmp_path) -> None:
     )
     rows = [json.loads(line) for line in review.read_text(encoding="utf-8").splitlines()]
     dx = next(r for r in rows if r["recipe"] == "diagnosis-explain")
-    assert dx["accepted"] is False and dx["reason"] == "reviewer" and dx["votes"]
+    assert dx["accepted"] is False
+    assert dx["reason"] == "reviewer"
+    assert dx["votes"]
     hneg = next(r for r in rows if r["recipe"] == "hard-negative")
-    assert hneg["accepted"] is True and hneg["reason"] is None
+    assert hneg["accepted"] is True
+    assert hneg["reason"] is None
     assert summary["recipes"]["diagnosis-explain"]["rejected"] == {"reviewer_b": 1}
     assert summary["recipes"]["hard-negative"]["rejected"] == {}

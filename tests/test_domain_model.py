@@ -183,7 +183,8 @@ def test_reason_for_class_rolls_unknown_up_to_default():
 )
 def test_validate_args_codes(name, args, code):
     problem = DOMAIN.validate_args(name, args)
-    assert problem is not None and problem.code == code
+    assert problem is not None
+    assert problem.code == code
 
 
 def test_validate_args_accepts_valid_calls():
@@ -211,9 +212,11 @@ def test_ground_against_world_snapshot_uses_world_spelling():
 
 def test_ground_declines_unknown_and_ambiguous():
     missing = DOMAIN.ground("lamp_on", {"room": "garage"}, world=WORLD)
-    assert isinstance(missing, GroundDecline) and missing.code == "no_such_room"
+    assert isinstance(missing, GroundDecline)
+    assert missing.code == "no_such_room"
     ambiguous = DOMAIN.ground("lamp_on", {"room": "study"}, world=WORLD)
-    assert isinstance(ambiguous, GroundDecline) and ambiguous.code == "ambiguous"
+    assert isinstance(ambiguous, GroundDecline)
+    assert ambiguous.code == "ambiguous"
 
 
 def test_ground_without_grounded_args_needs_no_world():
@@ -223,11 +226,14 @@ def test_ground_without_grounded_args_needs_no_world():
 
 def test_ground_lookup_failures_never_raise():
     no_world = DOMAIN.ground("lamp_on", {"room": "kitchen"})
-    assert isinstance(no_world, GroundDecline) and no_world.code == "lookup_failed"
+    assert isinstance(no_world, GroundDecline)
+    assert no_world.code == "lookup_failed"
     bad_type = DOMAIN.ground("lamp_on", {"room": 7}, world=WORLD)
-    assert isinstance(bad_type, GroundDecline) and bad_type.code == "lookup_failed"
+    assert isinstance(bad_type, GroundDecline)
+    assert bad_type.code == "lookup_failed"
     unknown = DOMAIN.ground("nope", {"room": "kitchen"}, world=WORLD)
-    assert isinstance(unknown, GroundDecline) and unknown.code == "unknown_operation"
+    assert isinstance(unknown, GroundDecline)
+    assert unknown.code == "unknown_operation"
 
 
 def test_ground_uses_live_lookup_and_suffix_canonicalisation():
@@ -283,13 +289,15 @@ def test_ground_live_lookup_that_raises_is_a_failed_lookup():
         world_schema=(WorldField("services", "list"),),
     )
     got = dom.ground("s", {"service": "x"})
-    assert isinstance(got, GroundDecline) and got.code == "lookup_failed"
+    assert isinstance(got, GroundDecline)
+    assert got.code == "lookup_failed"
 
 
 def test_ground_message_is_scrubbed():
     got = DOMAIN.ground("lamp_on", {"room": "gar\nage\x00" + "x" * 80}, world=WORLD)
     assert isinstance(got, GroundDecline)
-    assert "\n" not in got.message and "\x00" not in got.message
+    assert "\n" not in got.message
+    assert "\x00" not in got.message
     assert len(got.message) < 80
 
 

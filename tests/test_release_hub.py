@@ -57,10 +57,12 @@ def test_apply_creates_private_forces_private_fetches_back_and_compares(tmp_path
         "repo_info",
     ]
     assert hub.calls[0] == ("HfApi", True)
-    assert hub.calls[1][2]["private"] is True and hub.calls[1][2]["exist_ok"] is True
+    assert hub.calls[1][2]["private"] is True
+    assert hub.calls[1][2]["exist_ok"] is True
     assert hub.calls[2][2]["private"] is True
     assert hub.calls[4][2]["revision"] == "c0ffee"
-    assert result["private"] is True and result["applied"] is True
+    assert result["private"] is True
+    assert result["applied"] is True
     assert result["files"] == 8  # README, weights, tokenizer, 4 required files, scan.json
     out = capsys.readouterr()
     assert TOKEN not in out.out + out.err
@@ -122,7 +124,8 @@ def test_no_visibility_to_public_call_is_ever_made(tmp_path):
             assert call[2]["private"] is True
     source = inspect.getsource(hub_module)
     assert "private=False" not in source
-    assert "make_public" not in source and "visibility=" not in source
+    assert "make_public" not in source
+    assert "visibility=" not in source
     # a hub reporting public after the upload fails rather than being "fixed" to public
     public_hub = FakeHub(tmp_path / "rp", private=False)
     bundle = scanned_bundle(tmp_path / "p")

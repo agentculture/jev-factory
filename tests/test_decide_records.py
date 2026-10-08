@@ -111,7 +111,8 @@ def test_schema_rejects_bad_records(tmp_path, mutate, fragment):
     bad = json.loads(json.dumps(rec))
     mutate(bad)
     errs = records.validate_record(bad)
-    assert errs and any(fragment in e for e in errs), errs
+    assert errs, errs
+    assert any(fragment in e for e in errs), errs
 
 
 def test_append_refuses_invalid_record_and_writes_nothing(tmp_path):

@@ -67,7 +67,8 @@ def test_register_record_and_reopen(tmp_path):
             ledger.mark_invalid(key, "")
     with Ledger(tmp_path) as again:
         assert again.entry(key).state == DONE
-        assert again.entry(other).state == INVALID and again.entry(other).reason == "malformed"
+        assert again.entry(other).state == INVALID
+        assert again.entry(other).reason == "malformed"
         assert again.cached(key).raw == b"D"
 
 
@@ -119,7 +120,8 @@ def test_leftover_temps_are_removed_and_results_are_deterministic(tmp_path):
         other = ledger.register(spec("c-2"))
         ledger.mark_invalid(other, "malformed", answer("?"))
         ledger.return_to_pending([other], reason="regrade")
-        assert ledger.entry(other).state == PENDING and ledger.cached(other) is None
+        assert ledger.entry(other).state == PENDING
+        assert ledger.cached(other) is None
         assert json.loads(first)["calls"][key]["state"] == DONE
     with Ledger(tmp_path) as again:
         again.mark_invalid(other, "malformed", answer("?"))
@@ -139,7 +141,8 @@ def test_billing_counts_each_attempt_once_and_moves_a_torn_tail_aside(tmp_path):
         handle.write('{"kind": "answer", "cost')
     assert len(billing.entries(tolerant=True)) == 1
     aside = billing.repair(now=5.0)
-    assert aside is not None and aside.name == "billing.torn.5"
+    assert aside is not None
+    assert aside.name == "billing.torn.5"
     assert len(billing.entries()) == 1
 
 

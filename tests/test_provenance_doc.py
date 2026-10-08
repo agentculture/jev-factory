@@ -16,7 +16,8 @@ DOC = ROOT / "docs" / "nvsh-import-provenance.md"
 
 def _generator():
     spec = importlib.util.spec_from_file_location("gen_provenance_doc_under_test", GENERATOR)
-    assert spec is not None and spec.loader is not None
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -50,7 +51,8 @@ def test_every_entry_names_its_nvsh_path_commit_adaptations_and_licence():
     entries = gen.collect()
     assert entries
     text = DOC.read_text(encoding="utf-8")
-    assert COMMIT in text and LICENCE in text
+    assert COMMIT in text
+    assert LICENCE in text
     for module, value in entries:
         assert value["upstream"].strip(), module
         assert value["commit"] == COMMIT, module

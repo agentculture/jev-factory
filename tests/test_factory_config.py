@@ -43,11 +43,14 @@ def test_precedence_order_cli_file_env_default(tmp_path):
     env = {"JEV_SEED": "3"}
     assert load_config(f, cli={"seed": 1}, environ=env)["seed"] == 1
     c = load_config(f, environ=env)
-    assert c["seed"] == 2 and c.sources["seed"] == "file"
+    assert c["seed"] == 2
+    assert c.sources["seed"] == "file"
     c = load_config(_write(tmp_path), environ=env)
-    assert c["seed"] == 3 and c.sources["seed"] == "env"
+    assert c["seed"] == 3
+    assert c.sources["seed"] == "env"
     c = load_config(_write(tmp_path), environ={})
-    assert c["seed"] == 46 and c.sources["seed"] == "default"
+    assert c["seed"] == 46
+    assert c.sources["seed"] == "default"
 
 
 @pytest.mark.behavioral("o24")
@@ -55,11 +58,13 @@ def test_measure_context_follows_the_same_rule(tmp_path):
     # nvsh's exception (environment outranked the file for MEASURE_CTX) is gone.
     f = _write(tmp_path, measure_ctx=4096)
     c = load_config(f, environ={"JEV_MEASURE_CTX": "2048"})
-    assert c["measure_ctx"] == 4096 and c.sources["measure_ctx"] == "file"
+    assert c["measure_ctx"] == 4096
+    assert c.sources["measure_ctx"] == "file"
     c = load_config(f, cli={"measure_ctx": 8192}, environ={"JEV_MEASURE_CTX": "2048"})
     assert c["measure_ctx"] == 8192
     c = load_config(_write(tmp_path), environ={"JEV_MEASURE_CTX": "4096"})
-    assert c["measure_ctx"] == 4096 and c.sources["measure_ctx"] == "env"
+    assert c["measure_ctx"] == 4096
+    assert c.sources["measure_ctx"] == "env"
     assert load_config(_write(tmp_path), environ={})["measure_ctx"] == 2048
 
 
@@ -109,7 +114,8 @@ def test_required_keys_listed_together():
 def test_required_keys_can_come_from_env_alone():
     env = {f"JEV_{k.upper()}": v for k, v in REQUIRED.items()}
     c = load_config(None, environ=env)
-    assert c["base"] == "org/base" and c.sources["base"] == "env"
+    assert c["base"] == "org/base"
+    assert c.sources["base"] == "env"
 
 
 def test_unknown_keys_fail_loudly(tmp_path):
@@ -235,7 +241,9 @@ def test_secret_wrapper_redacts_and_does_not_pickle():
     import pickle
 
     s = Secret(CANARY)
-    assert CANARY not in repr(s) and CANARY not in str(s) and CANARY not in f"{s:>40}"
+    assert CANARY not in repr(s)
+    assert CANARY not in str(s)
+    assert CANARY not in f"{s:>40}"
     with pytest.raises(TypeError):
         pickle.dumps(s)
     assert scrub(f"key={CANARY}", [s]) == "key=[REDACTED]"
@@ -246,7 +254,8 @@ def test_run_config_example_has_no_host_and_no_secret():
     text = EXAMPLE.read_text()
     assert not re.search(r"https?://", text)
     assert not re.search(r"\b\d{1,3}(\.\d{1,3}){3}\b", text)
-    assert "/home/" not in text and "/Users/" not in text
+    assert "/home/" not in text
+    assert "/Users/" not in text
     for pattern in (r"sk-[A-Za-z0-9]{20,}", r"gh[pousr]_[A-Za-z0-9]{36,}", r"hf_[A-Za-z0-9]{20,}"):
         assert not re.search(pattern, text)
     data = tomllib.loads(text)

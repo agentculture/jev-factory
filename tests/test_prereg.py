@@ -97,7 +97,8 @@ def test_domain_minimum_is_configurable_and_wrong_bar_rejected():
 
 def test_rule_order_tolerances_candidates_validated():
     p = prereg.validate(_full())
-    assert p.rule_order[0] == "safety" and p.rule_order[-1] == "ties"
+    assert p.rule_order[0] == "safety"
+    assert p.rule_order[-1] == "ties"
     assert p.tolerances == {
         "accuracy_floor_margin": 0.05,
         "permutation_change": 0.01,
@@ -124,8 +125,10 @@ def test_rule_order_tolerances_candidates_validated():
 
 def test_bar_met_direction():
     p = prereg.validate(_full())
-    assert p.bars["wrong_mutating"].met(0.0) and not p.bars["wrong_mutating"].met(0.01)
-    assert p.bars["right_proposals"].met(0.95) and not p.bars["right_proposals"].met(0.9)
+    assert p.bars["wrong_mutating"].met(0.0)
+    assert not p.bars["wrong_mutating"].met(0.01)
+    assert p.bars["right_proposals"].met(0.95)
+    assert not p.bars["right_proposals"].met(0.9)
 
 
 def test_load_reports_bad_json_and_missing_file(tmp_path):

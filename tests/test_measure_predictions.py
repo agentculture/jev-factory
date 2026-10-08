@@ -93,7 +93,8 @@ def test_no_choice_is_no_label_mass_or_a_tier_error():
     assert _line(_scored(None)).invalid_reason == "no_label_mass"
     line = _line(_scored(None), call_error=True)
     assert (line.outcome, line.invalid_reason) == ("invalid", "tier_error")
-    assert line.candidates is None and line.raw_scores is None
+    assert line.candidates is None
+    assert line.raw_scores is None
 
 
 def test_an_incomplete_readout_keeps_its_choice_but_no_distribution():

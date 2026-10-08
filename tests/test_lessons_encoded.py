@@ -60,7 +60,8 @@ def test_every_cited_test_exists() -> None:
 
 def test_the_doc_leaks_no_path_host_or_nvsh_doc_pointer() -> None:
     text = DOC.read_text(encoding="utf-8")
-    assert "/home/" not in text and "../nvsh" not in text
+    assert "/home/" not in text
+    assert "../nvsh" not in text
     assert "github.com/agentculture/nvsh/blob" not in text
 
 
@@ -85,7 +86,8 @@ def test_learn_names_the_three_readers_and_the_domain_author_path(capsys) -> Non
         "docs/lessons-encoded.md",
     ):
         assert needle in text, needle
-    assert "playbook" not in text and "../nvsh" not in text
+    assert "playbook" not in text
+    assert "../nvsh" not in text
 
 
 def test_learn_json_carries_the_audiences(capsys) -> None:
@@ -106,9 +108,12 @@ def test_explain_has_a_domain_module_entry_and_no_nvsh_doc_pointers(capsys) -> N
         assert needle in body
     assert main(["explain", "domain"]) == 0
     for key, text in ENTRIES.items():
-        assert "playbook" not in text and "../nvsh" not in text, key
+        assert "playbook" not in text, key
+        assert "../nvsh" not in text, key
     root = ENTRIES[()]
-    assert "operator" in root and "mesh agent" in root and "domain author" in root
+    assert "operator" in root
+    assert "mesh agent" in root
+    assert "domain author" in root
 
 
 @pytest.mark.parametrize(

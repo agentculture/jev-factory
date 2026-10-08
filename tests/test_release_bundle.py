@@ -127,7 +127,9 @@ def test_a_relative_imatrix_path_and_a_gguf_bundle_pass(tmp_path):
     out = tmp_path / "out"
     assert (out / "model-q4_k_m.gguf").is_file()
     card = (out / "README.md").read_text()
-    assert "llama-server" in card and "--jinja" in card and "quantized from" in card
+    assert "llama-server" in card
+    assert "--jinja" in card
+    assert "quantized from" in card
     assert not (out / "model.safetensors").exists()  # a gguf bundle ships the gguf only
 
 
@@ -143,7 +145,8 @@ def test_an_unreadable_gguf_refuses_the_bundle(tmp_path):
 def test_gguf_metadata_reads_strings_numbers_and_skips_arrays(tmp_path):
     path = write_gguf(tmp_path / "m.gguf", {"n": 7, "tokenizer.ggml.tokens": ["a", "b"]})
     meta = gguf_metadata(path)
-    assert meta["general.architecture"] == "qwen3" and meta["n"] == 7
+    assert meta["general.architecture"] == "qwen3"
+    assert meta["n"] == 7
     assert meta["tokenizer.ggml.tokens"] is None
 
 
@@ -168,12 +171,14 @@ def test_the_model_bundle_carries_everything_and_the_card_comes_from_domain_and_
     assert (out / "gate.json").read_bytes() == inp.gate.read_bytes()
     card = (out / "README.md").read_text()
     assert DOMAIN.card_text in card
-    assert "license: apache-2.0" in card and "derivative work" in card
+    assert "license: apache-2.0" in card
+    assert "derivative work" in card
     assert "ece" in card  # the results table is quoted
     assert json.loads((out / "config.json").read_text())["mtp_num_hidden_layers"] == 0
     assert len(revision) == 40
     info = json.loads((out / "bundle.json").read_text())
-    assert info["hub_prefix"] == "example-org/toy-lamps-jev-" and info["kind"] == "model"
+    assert info["hub_prefix"] == "example-org/toy-lamps-jev-"
+    assert info["kind"] == "model"
 
 
 def test_licence_and_hub_prefix_follow_the_run_config(tmp_path):
@@ -181,7 +186,8 @@ def test_licence_and_hub_prefix_follow_the_run_config(tmp_path):
     (inp.snapshot / "LICENSE").write_text("MIT License\n", encoding="utf-8")
     _build(tmp_path, inp, config=make_config(licence="MIT", hub_prefix="acme/fam-"))
     info = json.loads((tmp_path / "out" / "bundle.json").read_text())
-    assert info["licence"] == "MIT" and info["hub_prefix"] == "acme/fam-"
+    assert info["licence"] == "MIT"
+    assert info["hub_prefix"] == "acme/fam-"
     assert "license: mit" in (tmp_path / "out" / "README.md").read_text()
     # an Apache claim over a base licence file that is not Apache is refused
     inp2 = make_inputs(tmp_path / "b")
@@ -220,7 +226,9 @@ def test_a_bundle_records_the_jev_cli_surface_hash_and_ask_reports_a_mismatch(tm
     assert info["surface_sha256"] in (out / "README.md").read_text()
     assert surface_mismatch(out) is None  # same CLI: no report
     message = surface_mismatch(out, current_sha256="0" * 64)  # the CLI's surface moved
-    assert message and info["surface_sha256"] in message and "0" * 64 in message
+    assert message
+    assert info["surface_sha256"] in message
+    assert "0" * 64 in message
     # a bundle trained on another domain's surface differs from the running CLI's
     other = tmp_path / "o2"
     inp2 = make_inputs(other)
@@ -252,7 +260,8 @@ def test_a_built_bundle_scans_clean_and_uploads_through_the_fake_hub(tmp_path):
         hub=hub,
         environ={"HF_TOKEN": TOKEN},
     )
-    assert result["private"] is True and result["applied"] is True
+    assert result["private"] is True
+    assert result["applied"] is True
 
 
 # ---- dataset bundle --------------------------------------------------------------
@@ -311,15 +320,21 @@ def _build_dataset(tmp: Path, **overrides):
 def test_the_dataset_bundle_carries_the_required_files_and_the_surface_hash(tmp_path):
     counts = _build_dataset(tmp_path)
     out = tmp_path / "ds"
-    assert counts["train"] == 2 and counts["variation"] == 1 and counts["redacted_hosts"] == 1
+    assert counts["train"] == 2
+    assert counts["variation"] == 1
+    assert counts["redacted_hosts"] == 1
     for name in ("calibration.json", "gate.json", "scorer-train.json", "bundle.json", "LICENSE"):
         assert (out / name).is_file()
     info = json.loads((out / "bundle.json").read_text())
-    assert info["surface_sha256"] == DOMAIN.surface_sha256() and info["kind"] == "dataset"
+    assert info["surface_sha256"] == DOMAIN.surface_sha256()
+    assert info["kind"] == "dataset"
     train = (out / "data" / "train.jsonl").read_text()
-    assert "192.168.1.50" not in train and "192.0.2.50" in train  # private address redacted
+    assert "192.168.1.50" not in train  # private address redacted
+    assert "192.0.2.50" in train
     card = (out / "README.md").read_text()
-    assert DOMAIN.card_text in card and "Teacher Model" in card and "issue #1" in card
+    assert DOMAIN.card_text in card
+    assert "Teacher Model" in card
+    assert "issue #1" in card
     assert scan.write_scan(out)["clean"] is True
     check_bundle(out)
 
@@ -380,7 +395,8 @@ def test_the_notice_states_the_quantization_and_the_mtp_change(tmp_path):
     gguf = write_gguf(tmp_path / "model-q4_k_m.gguf")
     _build(tmp_path, inp, kind="gguf", gguf=gguf)
     notice = (tmp_path / "out" / "NOTICE").read_text()
-    assert "Q4_K_M GGUF quantization" in notice and "llama.cpp" in notice
+    assert "Q4_K_M GGUF quantization" in notice
+    assert "llama.cpp" in notice
     shutil.rmtree(tmp_path / "out")
     _build(tmp_path, inp)  # bf16: the declared MTP head is zeroed in the bundle copy
     notice = (tmp_path / "out" / "NOTICE").read_text()
@@ -397,7 +413,9 @@ def test_the_card_names_the_logprob_window_and_a_text_only_gguf(tmp_path):
     shutil.rmtree(tmp_path / "out")
     _build(tmp_path, inp, kind="gguf", gguf=write_gguf(tmp_path / "model-q4_k_m.gguf"))
     card = (tmp_path / "out" / "README.md").read_text()
-    assert "text-only" in card and "no `--mmproj`" in card and "--temp 0 --top-k 1" in card
+    assert "text-only" in card
+    assert "no `--mmproj`" in card
+    assert "--temp 0 --top-k 1" in card
 
 
 def test_a_dataset_bundle_refuses_a_licence_file_that_is_not_apache(tmp_path):
@@ -460,5 +478,6 @@ def test_targeted_rows_are_published_as_supplement_with_their_teachers(tmp_path)
     _build_dataset(tmp_path, train_augmented=plus, supplement_teachers=drafted)
     manifest = json.loads((tmp_path / "ds" / "manifest.json").read_text())
     row = next(r for r in manifest if r["id"] == "tgt-missing-argument-0001")
-    assert row["origin"] == "supplement" and row["transformed"] is False
+    assert row["origin"] == "supplement"
+    assert row["transformed"] is False
     assert row["teachers"]["GENERATOR"] == "Gen Model"

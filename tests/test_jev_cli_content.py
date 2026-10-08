@@ -98,7 +98,8 @@ def test_the_eight_decline_reasons_each_have_prompt_and_generator_text(domain) -
         assert reason.description.startswith("Hand this off:")
         assert len(reason.definition) >= 40
     missing = domain.reason("missing_argument").definition
-    assert "jev run" in missing and "jev explain" in missing
+    assert "jev run" in missing
+    assert "jev explain" in missing
 
 
 def test_paraphrases_cover_every_operation_with_at_least_two(domain) -> None:
@@ -185,7 +186,8 @@ def test_mutating_verbs_have_dry_run_and_apply_phrasings(domain, corpus) -> None
     ops = _by(corpus, "operation")
     mutating = [e for e in ops if domain.is_mutating(e["expect"]["operation"])]
     texts = " ".join(e["text"].lower() for e in mutating)
-    assert "--apply" in texts and "dry" in texts
+    assert "--apply" in texts
+    assert "dry" in texts
     for name in domain.names():
         if domain.is_mutating(name):
             assert any(e["expect"]["operation"] == name for e in mutating), name

@@ -61,7 +61,8 @@ def test_every_new_verb_is_registered_with_json_and_an_explain_entry():
     for path in [("init",), ("run",), ("status",), ("decide",), *[("run", s) for s in STAGES]]:
         assert path in paths, path
     notes = ann.ANNOTATIONS
-    assert notes["jev.init"].read_only is False and notes["jev.decide"].read_only is False
+    assert notes["jev.init"].read_only is False
+    assert notes["jev.decide"].read_only is False
     assert all(notes[f"jev.run.{s}"].read_only is False for s in STAGES)
 
 
@@ -95,13 +96,16 @@ def test_init_is_a_dry_run_until_apply(tmp_path, capsys):
     rc, out, _ = run_cli(capsys, "init", DOMAIN_REF, "--work", str(work), *BASE, "--json")
     assert rc == 0
     doc = json.loads(out)
-    assert doc["applied"] is False and len(doc["files"]) == 2
+    assert doc["applied"] is False
+    assert len(doc["files"]) == 2
     assert not work.exists()
     rc, _, _ = run_cli(capsys, "init", DOMAIN_REF, "--work", str(work), *BASE, "--apply")
     assert rc == 0
-    assert (work / "run.json").is_file() and (work / "run.toml").is_file()
+    assert (work / "run.json").is_file()
+    assert (work / "run.toml").is_file()
     toml = (work / "run.toml").read_text()
-    assert 'base = "example-org/toy-base"' in toml and "seed = 7" in toml
+    assert 'base = "example-org/toy-base"' in toml
+    assert "seed = 7" in toml
 
 
 @pytest.mark.behavioral("o33")
@@ -111,10 +115,13 @@ def test_every_run_stage_leaves_the_work_dir_unchanged_without_apply(scaffold, c
     rc, out, err = run_cli(capsys, "run", stage, "--work", str(scaffold), "--json")
     assert rc == 0, err
     doc = json.loads(out)
-    assert doc["stage"] == stage and doc["applied"] is False and doc["would_run"] is True
+    assert doc["stage"] == stage
+    assert doc["applied"] is False
+    assert doc["would_run"] is True
     assert tree(scaffold) == before
     rc, out, _ = run_cli(capsys, "run", stage, "--work", str(scaffold))
-    assert rc == 0 and out.startswith(f"dry run: stage {stage}")
+    assert rc == 0
+    assert out.startswith(f"dry run: stage {stage}")
     assert tree(scaffold) == before
 
 
@@ -124,7 +131,8 @@ def test_apply_runs_a_stage_and_writes_its_manifest(scaffold, capsys):
     assert json.loads(out)["status"] == "complete"
     assert (scaffold / "manifests" / "config.json").is_file()
     rc, out, _ = run_cli(capsys, "run", "config", "--work", str(scaffold), "--apply")
-    assert rc == 0 and "skipped" in out
+    assert rc == 0
+    assert "skipped" in out
 
 
 # --- CliError paths (o33) ---------------------------------------------------------
@@ -146,19 +154,24 @@ def test_errors_are_structured_clierrors_in_text_and_json(scaffold, tmp_path, ca
     for argv in cases:
         rc, out, err = run_cli(capsys, *argv, "--json")
         assert rc in (1, 2), argv
-        assert out == "" and json.loads(err)["message"], argv
+        assert out == "", argv
+        assert json.loads(err)["message"], argv
         rc, out, err = run_cli(capsys, *argv)
-        assert rc in (1, 2) and err.startswith("error: "), argv
+        assert rc in (1, 2), argv
+        assert err.startswith("error: "), argv
 
 
 def test_init_refuses_a_work_dir_inside_a_git_worktree(capsys):
     rc, _, err = run_cli(capsys, "init", DOMAIN_REF, "--work", str(Path.cwd() / "x"), "--apply")
-    assert rc == 1 and "git worktree" in err
+    assert rc == 1
+    assert "git worktree" in err
 
 
 def test_a_failing_stage_is_an_error_with_the_recorded_cause(scaffold, capsys):
     rc, out, err = run_cli(capsys, "run", "preregister", "--work", str(scaffold), "--apply")
-    assert rc != 0 and out == "" and "preregister failed" in err
+    assert rc != 0
+    assert out == ""
+    assert "preregister failed" in err
     assert json.loads((scaffold / "manifests" / "preregister.json").read_text())["status"] == (
         "failed"
     )
@@ -177,17 +190,21 @@ def test_status_reads_manifests_and_shows_items_done_of_total(scaffold, capsys):
     (scaffold / "jobs" / "augment.pid").write_text(f"{os.getpid()}\n")
     before = tree(scaffold)
     rc, out, _ = run_cli(capsys, "status", str(scaffold), "--json")
-    assert rc == 0 and tree(scaffold) == before
+    assert rc == 0
+    assert tree(scaffold) == before
     doc = json.loads(out)
     stages = {s["stage"]: s for s in doc["stages"]}
     assert list(stages) == STAGES
-    assert stages["config"]["status"] == "complete" and stages["config"]["stale"] is None
+    assert stages["config"]["status"] == "complete"
+    assert stages["config"]["stale"] is None
     assert stages["split"]["status"] == "not-run"
     aug = stages["augment"]
     assert aug["status"] == "running"
     assert _counts(aug["jobs"][0]["progress"]) == {"done": 3, "total": 10}
     rc, text, _ = run_cli(capsys, "status", str(scaffold))
-    assert "augment" in text and "3/10 items" in text and "decision records: 0" in text
+    assert "augment" in text
+    assert "3/10 items" in text
+    assert "decision records: 0" in text
 
 
 def test_status_marks_a_changed_output_stale(scaffold, capsys):
@@ -196,7 +213,8 @@ def test_status_marks_a_changed_output_stale(scaffold, capsys):
     out_file.write_text(out_file.read_text() + " ")
     rc, out, _ = run_cli(capsys, "status", str(scaffold), "--json")
     stage = json.loads(out)["stages"][0]
-    assert rc == 0 and stage["stale"]
+    assert rc == 0
+    assert stage["stale"]
 
 
 def test_detached_stage_survives_and_status_reports_its_job(scaffold, capsys):
@@ -205,7 +223,8 @@ def test_detached_stage_survives_and_status_reports_its_job(scaffold, capsys):
     )
     assert rc == 0, err
     info = json.loads(out)
-    assert info["detached"] is True and info["pid"] > 0
+    assert info["detached"] is True
+    assert info["pid"] > 0
     deadline = time.time() + 60
     while detach.job_status(scaffold / "jobs", "config")["state"] != "done":
         assert time.time() < deadline, "detached stage did not finish"
@@ -213,7 +232,8 @@ def test_detached_stage_survives_and_status_reports_its_job(scaffold, capsys):
     assert detach.job_status(scaffold / "jobs", "config")["rc"] == 0
     rc, out, _ = run_cli(capsys, "status", str(scaffold), "--json")
     stage = json.loads(out)["stages"][0]
-    assert stage["status"] == "complete" and stage["jobs"][0]["state"] == "done"
+    assert stage["status"] == "complete"
+    assert stage["jobs"][0]["state"] == "done"
 
 
 def test_detach_refuses_a_stage_that_is_already_running(scaffold, capsys):
@@ -221,7 +241,8 @@ def test_detach_refuses_a_stage_that_is_already_running(scaffold, capsys):
     jobs.mkdir()
     (jobs / "config.pid").write_text(f"{os.getpid()}\n")
     rc, _, err = run_cli(capsys, "run", "config", "--work", str(scaffold), "--apply", "--detach")
-    assert rc == 1 and "already running" in err
+    assert rc == 1
+    assert "already running" in err
 
 
 # --- decide (acceptance 3) --------------------------------------------------------
@@ -253,14 +274,18 @@ def test_decide_writes_a_record_and_prints_the_verdict_with_cited_metrics(select
     lines = [json.loads(x) for x in (work / "decisions.jsonl").read_text().splitlines()]
     assert len(lines) == 1
     rec = lines[0]
-    assert rec["id"] in out and rec["verdict"] in out and "cited metrics:" in out
+    assert rec["id"] in out
+    assert rec["verdict"] in out
+    assert "cited metrics:" in out
     for cited in rec["cited"]:
         assert cited["name"] in out
     rc, out, _ = run_cli(capsys, "decide", str(work), "--json")
     assert rc == 0
     second = json.loads(out)
-    assert second["verdict"] == rec["verdict"] and second["id"] != rec["id"]
-    assert second["cited"] and second["decider"] == "rule"
+    assert second["verdict"] == rec["verdict"]
+    assert second["id"] != rec["id"]
+    assert second["cited"]
+    assert second["decider"] == "rule"
     assert len((work / "decisions.jsonl").read_text().splitlines()) == 2
     rc, out, _ = run_cli(capsys, "status", str(work), "--json")
     assert json.loads(out)["decisions"] == 2

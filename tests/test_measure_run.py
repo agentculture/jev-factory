@@ -211,7 +211,8 @@ def test_scorer_run_writes_the_shared_predictions_file(tmp_path):
         "not_grounded",
         False,
     )
-    assert st1["operation"] is None and st1["arguments"] is None
+    assert st1["operation"] is None
+    assert st1["arguments"] is None
     assert esc1["outcome"] == "escalate"
     assert exp1["outcome"] == "explain"
     assert harness.fake.tops == [READOUT_TOP] * 4
@@ -552,7 +553,8 @@ def test_the_once_rule_is_per_side_and_slice(tmp_path, capsys, name, flag, side)
     # the same pair again is refused without a deviation id
     second = Harness()
     code = measure.main(_argv(tmp_path, split, flag, *mc, label="m2"), seams=second.seams)
-    assert code != 0 and second.built == []
+    assert code != 0
+    assert second.built == []
     assert "measured once" in capsys.readouterr().err
     code = measure.main(_argv(tmp_path, split, flag, label="f2"), seams=Harness().seams)
     assert code != 0
@@ -600,7 +602,8 @@ def test_a_failed_start_up_never_leaves_a_page_or_record_that_blocks_the_real_ru
     failing = Harness(fail="No module named 'transformers'")
     assert measure.main(argv, seams=failing.seams) == 2
     err = capsys.readouterr().err
-    assert "scorer start-up failed" in err and "transformers" in err
+    assert "scorer start-up failed" in err
+    assert "transformers" in err
     page = _page(tmp_path, "final")
     assert measure.NOT_MEASURED_MARKER in page.read_text().splitlines()
     assert _ledger(tmp_path) == []
@@ -1001,5 +1004,6 @@ def test_a_measurement_reports_its_progress_for_jev_status(tmp_path):
     progress = detach.read_progress(jobs, "measure-val-r1_q4")
     n = len(json.loads(split.read_text())["entries"])
     assert (progress["done"], progress["total"]) == (n, n)
-    assert progress["updated"] >= progress["started"] and progress["start_done"] == 0
+    assert progress["updated"] >= progress["started"]
+    assert progress["start_done"] == 0
     assert detach.job_status(jobs, "measure-val-r1_q4")["state"] == "complete"

@@ -160,7 +160,8 @@ def test_the_pipeline_registers_every_stage_in_order():
     for name in EXPECTED_ORDER:
         stage = pipeline.get_stage(name)
         assert all(position[d] < position[name] for d in stage.deps), name
-        assert stage.outputs and stage.summary
+        assert stage.outputs
+        assert stage.summary
 
 
 def test_select_runs_calibrate_then_gate_fit_then_probe_then_the_rule():
@@ -238,10 +239,12 @@ def test_a_dry_run_writes_nothing(toy):
     before = _tree(toy.tmp)
     for name in EXPECTED_ORDER:
         doc = pipeline.run(toy.workdir, name, toy.ctx)
-        assert doc["applied"] is False and doc["stage"] == name
+        assert doc["applied"] is False
+        assert doc["stage"] == name
     assert _tree(toy.tmp) == before
     plan = pipeline.plan(toy.workdir, "train", toy.ctx)
-    assert plan["would_run"] and plan["stale"] == "no manifest"
+    assert plan["would_run"]
+    assert plan["stale"] == "no manifest"
     assert pipeline.plan(toy.workdir, "seed", toy.ctx)["stale"] is None
     # the pool was written by hand here, not by draft-eval: staleness says so
     split_plan = pipeline.plan(toy.workdir, "split", toy.ctx, toy.knobs["split"])
@@ -277,14 +280,16 @@ def test_a_stage_holds_the_run_lock(toy):
 
     toy.ctx.services.run_module = spy
     toy.through("train")
-    assert seen and all(seen)
+    assert seen
+    assert all(seen)
     assert not lock.exists()
 
 
 def test_a_missing_input_fails_the_stage_without_running_it(tmp_path):
     run = Run(tmp_path).through("config")
     error = run.fail("split")
-    assert "missing inputs" in error and "seed/seed.json" in error
+    assert "missing inputs" in error
+    assert "seed/seed.json" in error
 
 
 def test_the_measure_defaults_cover_the_readout():
@@ -321,7 +326,8 @@ def test_the_teacher_pilot_records_a_yield_per_class(tmp_path):
     run.through("config", "seed")
     run.apply("teachers-pilot", {"per_op": 1, "per_reason": 1, "explain": 1})
     classes = run.json("pilot/yields.json")["classes"]
-    assert classes["op-lamp_on"]["accepted"] == 0 and classes["op-lamp_on"]["reviewed"] > 0
+    assert classes["op-lamp_on"]["accepted"] == 0
+    assert classes["op-lamp_on"]["reviewed"] > 0
     assert classes["op-lamp_status"]["rate"] == 1.0
     ids = [y.name for y in pipeline._yields(run.workdir)]
     assert "op-lamp_on" in ids
@@ -367,7 +373,8 @@ def test_baseline_measures_the_greedy_stock_copy_and_writes_a_record_id(tmp_path
     run = Run(tmp_path).through(*CHAIN)
     run.apply("baseline")
     summary = run.json("baseline/summary.json")
-    assert summary["record_id"].startswith("baseline-") and summary["fold"] == "selection"
+    assert summary["record_id"].startswith("baseline-")
+    assert summary["fold"] == "selection"
     assert set(summary["stock"]) >= {"right_proposals", "ece", "mc_escalation"}
     assert "permutation_change" in summary["stock"]
     assert (run.workdir / "stock" / "generation_config.json").is_file()
@@ -379,7 +386,8 @@ def test_baseline_measures_the_greedy_stock_copy_and_writes_a_record_id(tmp_path
 def test_train_refuses_without_a_registered_pre_registration(toy):
     (toy.workdir / "prereg.lock.json").unlink()
     error = toy.fail("train")
-    assert "missing inputs" in error and "prereg.lock.json" in error
+    assert "missing inputs" in error
+    assert "prereg.lock.json" in error
     (toy.workdir / "prereg.lock.json").write_text("{}")
     assert "pre-registration" in toy.fail("train")
 
@@ -435,9 +443,11 @@ def test_select_fits_calibration_and_the_gate_on_the_fit_fold_only(toy, monkeypa
     monkeypatch.setattr(calib, "fit_rows", rows)
     monkeypatch.setattr(sweep_gate, "run_sweep", sweep)
     toy.apply("select")
-    assert fit_seen and all(ids == fit_ids for ids in fit_seen)
+    assert fit_seen
+    assert all(ids == fit_ids for ids in fit_seen)
     allowed = fit_ids | {f"{i}-nocand" for i in fit_ids}
-    assert swept and all(ids <= allowed for ids in swept)
+    assert swept
+    assert all(ids <= allowed for ids in swept)
     gate_doc = toy.json("select/r1/gate.json")
     assert gate_doc["fit"]["fold"] == "fit"
     summary = toy.json("select/r1/summary.json")
@@ -500,13 +510,13 @@ def test_quantize_refuses_a_candidate_that_was_never_trained(selected):
 def test_quantize_builds_q4_k_m_measures_it_and_checks_the_heal_trigger(selected):
     selected.apply("quantize")
     summary = selected.json("quant/summary.json")
-    assert summary["build"]["candidate"] == "r1" and summary["heal_needed"] is False
+    assert summary["build"]["candidate"] == "r1"
+    assert summary["heal_needed"] is False
     assert summary["build"]["gguf"].endswith("model-q4_k_m.gguf")
     measured = [argv for module, argv in selected.runner.calls if module.endswith("measure.run")]
     served = [argv for argv in measured if "--serve" in argv]
-    assert served and all(
-        "--llama-server" in argv and "--ground-snapshot" in argv for argv in served
-    )
+    assert served
+    assert all("--llama-server" in argv and "--ground-snapshot" in argv for argv in served)
     log = (selected.workdir / "quant" / "heal-trigger-log.jsonl").read_text()
     assert '"needed": false' in log
 
@@ -517,7 +527,8 @@ def test_recalibrate_refits_on_the_deployed_quants_own_predictions(deployed):
     cal = deployed.json("deployed/calibration.json")
     gate_doc = deployed.json("deployed/gate.json")
     assert cal["predictions_source"].endswith(build["val"])
-    assert "quant/" in build["val"] and cal["fold"] == "fit"
+    assert "quant/" in build["val"]
+    assert cal["fold"] == "fit"
     assert gate_doc["fit"]["build_sha256"] == build["gguf_sha256"]
     assert gate_doc["fit"]["predictions"] == build["val"]
     select_cal = deployed.json("select/r1/calibration.json")
@@ -527,7 +538,8 @@ def test_recalibrate_refits_on_the_deployed_quants_own_predictions(deployed):
 
 def test_heal_without_a_trigger_deploys_the_quantized_build(deployed):
     heal = deployed.json("heal/summary.json")
-    assert heal["healed"] is False and heal["deployed"]["candidate"] == "r1"
+    assert heal["healed"] is False
+    assert heal["deployed"]["candidate"] == "r1"
     assert not any("--heal" in cmd for _, cmd, _ in deployed.trainer.calls)
 
 
@@ -556,7 +568,8 @@ def test_heal_is_one_epoch_on_the_same_frozen_set_and_one_round_only(selected):
     assert heal_cmds[0][heal_cmds[0].index("--epochs") + 1] == "1"
     assert heal_cmds[0][heal_cmds[0].index("--lr") + 1] == "5e-05"
     heal = selected.json("heal/summary.json")
-    assert heal["healed"] is True and heal["deployed"]["run"] == "runs/r1-heal"
+    assert heal["healed"] is True
+    assert heal["deployed"]["run"] == "runs/r1-heal"
     # the healed run is itself a heal: a second heal round is refused
     (selected.workdir / "quant" / "summary.json").write_text(
         json.dumps({**selected.json("quant/summary.json"), "build": heal["deployed"]})
@@ -579,7 +592,8 @@ def test_measure_final_measures_once_applies_the_gate_and_reports_every_bar(depl
     test = report["sides"]["test"]
     assert set(test["bars"]) == set(ps.toy_prereg()["bars"])
     assert test["bars"]["permutation_change"]["value"] == 0.0
-    assert test["mc_n"] > 0 and test["bars"]["mc_escalation"]["met"] is True
+    assert test["mc_n"] > 0
+    assert test["bars"]["mc_escalation"]["met"] is True
     assert report["sides"]["held-out"]["mc_n"] > 0
     ledger = [
         json.loads(line)
@@ -589,9 +603,11 @@ def test_measure_final_measures_once_applies_the_gate_and_reports_every_bar(depl
         [(s, sl) for s in ("test", "held-out") for sl in ("full", "missing-candidate")]
     )
     assert all(r["deviation"] is None for r in ledger)
-    assert "right_proposals_ci" in test and "ece_ci" in test
+    assert "right_proposals_ci" in test
+    assert "ece_ci" in test
     finals = [a for m, a in deployed.runner.calls if m.endswith("measure.run") and "--final" in a]
-    assert finals and all("--calibration" in a for a in finals)
+    assert finals
+    assert all("--calibration" in a for a in finals)
     assert (deployed.workdir / "final" / "test.gated.predictions.jsonl").is_file()
     # a second final measurement is a recorded deviation
     error = deployed.fail("measure-final", force=True)
@@ -613,7 +629,8 @@ def test_a_probe_failure_keeps_the_sealed_numbers_and_the_retry_resumes(deployed
     deployed.ctx.services.serve = broken_serve
     assert "llama-server did not start" in deployed.fail("measure-final")
     measured = len(sealed_runs())
-    assert measured and (deployed.workdir / "final" / "report.partial.json").is_file()
+    assert measured
+    assert (deployed.workdir / "final" / "report.partial.json").is_file()
     deployed.ctx.services.serve = working
     deployed.apply("measure-final")  # no deviation id: resumes, never re-measures
     assert len(sealed_runs()) == measured
@@ -673,7 +690,8 @@ def test_bundle_upload_and_release_gate(deployed, tmp_path):
     assert "repo_suffix" in deployed.fail("dataset-bundle")
     deployed.apply("dataset-bundle", {"repo_suffix": "scorer-data"})
     data = deployed.json("dataset/record.json")
-    assert data["repo"] == "example-org/toy-lamps-jev-scorer-data" and data["scan"]["clean"]
+    assert data["repo"] == "example-org/toy-lamps-jev-scorer-data"
+    assert data["scan"]["clean"]
     data_dir = deployed.workdir / data["folder"]
     for name in ("calibration.json", "gate.json", "scorer-train.json", "LICENSE", "manifest.json"):
         assert (data_dir / name).is_file()
@@ -691,7 +709,8 @@ def test_bundle_upload_and_release_gate(deployed, tmp_path):
     )
     deployed.apply("upload", upload)
     calls = [c[0] for c in deployed.hub.calls]
-    assert "create_repo" in calls and "snapshot_download" in calls
+    assert "create_repo" in calls
+    assert "snapshot_download" in calls
     created = {c[1] for c in deployed.hub.calls if c[0] == "create_repo"}
     assert any("scorer-data" in str(c) for c in created)
     assert deployed.json("upload/upload.json")["dataset"]["private"] is True
@@ -707,7 +726,8 @@ def test_bundle_upload_and_release_gate(deployed, tmp_path):
     seen = []
     deployed.runner.handlers["jev_factory.evals"] = lambda argv, env: seen.append(argv) or 0
     deployed.apply("release-gate", {"manifest": str(manifest), "no_deepeval": True})
-    assert seen[0][:3] == ["run", "--manifest", str(manifest)] and "--no-deepeval" in seen[0]
+    assert seen[0][:3] == ["run", "--manifest", str(manifest)]
+    assert "--no-deepeval" in seen[0]
     assert deployed.json("release-gate/result.json")["exit_code"] == 0
     deployed.runner.handlers["jev_factory.evals"] = lambda argv, env: 4
     assert "exited 4" in deployed.fail(
@@ -719,7 +739,8 @@ def test_bundle_refuses_without_the_deployed_calibration(deployed):
     deployed.through("measure-final")
     (deployed.workdir / "deployed" / "calibration.json").unlink()
     error = deployed.fail("bundle", {"repo_suffix": "scorer"})
-    assert "missing inputs" in error and "deployed/calibration.json" in error
+    assert "missing inputs" in error
+    assert "deployed/calibration.json" in error
 
 
 def test_decide_after_quantize_cites_the_heal_check(deployed):
@@ -743,7 +764,8 @@ def test_draft_eval_drafts_the_pool_with_the_teachers_resumably(tmp_path):
     (run.workdir / "pool" / "draft.json").unlink()
     run.apply("draft-eval", {"per_op": 1, "per_reason": 1, "explain": 1})
     pool = run.json("pool/draft.json")
-    assert pool["header"]["domain"] == "toy-lamps" and pool["entries"]
+    assert pool["header"]["domain"] == "toy-lamps"
+    assert pool["entries"]
     progress = run.workdir / "jobs" / "draft-eval" / "draft-review.progress.json"
     assert json.loads(progress.read_text())["done"] >= len(pool["entries"])
 
@@ -755,7 +777,8 @@ def test_augment_and_targeted_feed_assemble_through_the_teachers(tmp_path):
     run.through(*CHAIN)
     run.apply("augment", {"per_source": 1})
     counts = run.json("aug/counts.json")
-    assert counts["per_source"] == 1 and counts["generated"] > 0
+    assert counts["per_source"] == 1
+    assert counts["generated"] > 0
     progress = json.loads((run.workdir / "jobs" / "augment.progress.json").read_text())
     assert progress["total"] > 0
     run.apply("targeted", {"recipes": ["missing-argument"], "per_recipe": 1})
@@ -779,7 +802,8 @@ def test_the_bundle_card_names_the_teachers_of_the_rows_it_trained_on(tmp_path):
     run.apply("assemble")
     frozen = select_frozen(run.workdir / "data" / "freeze.json")
     teachers = pipeline._bundle_teachers(run.workdir, frozen.path, apache_only=True)
-    assert teachers is not None and teachers.decisions
+    assert teachers is not None
+    assert teachers.decisions
     assert set(teachers.role_teachers) >= {"GENERATOR", "CORRECTOR", "REVIEWER_B"}
     trained = {str(e["id"]) for e in json.loads(frozen.path.read_text())["entries"]}
     assert set(teachers.per_variation) <= trained
@@ -787,7 +811,8 @@ def test_the_bundle_card_names_the_teachers_of_the_rows_it_trained_on(tmp_path):
     used = json.loads(pipeline._train_set_used(run.workdir, frozen.path).read_text())["entries"]
     used_ids = {str(e["id"]) for e in used}
     assert used_ids == {i for i in trained if not i.endswith("-nocand")}
-    assert any("~v" in i for i in used_ids) and any(i.startswith("tgt-") for i in used_ids)
+    assert any("~v" in i for i in used_ids)
+    assert any(i.startswith("tgt-") for i in used_ids)
     drafted, _ = pipeline._drafted_supplement(run.workdir)
     assert {i for i in used_ids if i.startswith("tgt-")} <= set(drafted)
 
@@ -800,7 +825,8 @@ def test_a_bundle_without_synthetic_rows_says_so(deployed):
     folder = deployed.workdir / deployed.json("bundle/record.json")["folder"]
     card = (folder / "README.md").read_text()
     assert "No synthetic variations were used" in card
-    assert "data set bundle" not in card and "`scorer-train.json` in this repository" in card
+    assert "data set bundle" not in card
+    assert "`scorer-train.json` in this repository" in card
 
 
 def _epochs_trained(run: Run) -> list[str]:
