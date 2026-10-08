@@ -85,6 +85,15 @@ def _tokenizer_eos_id(model_dir: Path) -> int | None:
     return None
 
 
+def _as_id_list(value: object) -> list:
+    """*value* (a token id, a list of them, or None) as a list of ids."""
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return []
+    return [value]
+
+
 def _with_tokenizer_eos(ids: dict, model_dir: Path) -> dict:
     """*ids* with the tokenizer's end-of-turn added to eos_token_id, first.
 
@@ -96,8 +105,7 @@ def _with_tokenizer_eos(ids: dict, model_dir: Path) -> dict:
     turn_end = _tokenizer_eos_id(model_dir)
     if turn_end is None:
         return ids
-    current = ids.get("eos_token_id")
-    listed = current if isinstance(current, list) else ([] if current is None else [current])
+    listed = _as_id_list(ids.get("eos_token_id"))
     if turn_end in listed:
         return ids
     merged = [turn_end, *listed]

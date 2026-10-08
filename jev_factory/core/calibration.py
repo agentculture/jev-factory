@@ -106,6 +106,15 @@ def _compact(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
+def _header_text(header: object) -> str:
+    """*header* as searchable text: a string as is, anything truthy as sorted JSON."""
+    if isinstance(header, str):
+        return header
+    if header:
+        return json.dumps(header, sort_keys=True)
+    return ""
+
+
 def split_markers(path: Path, header: object = None) -> set[str]:
     """Which of ``{"test", "held-out"}`` *path* (and *header*, if given) name.
 
@@ -120,11 +129,7 @@ def split_markers(path: Path, header: object = None) -> set[str]:
     """
     words = _stem_words(path)
     compact_stem = _compact(path.stem)
-    text = (
-        header
-        if isinstance(header, str)
-        else (json.dumps(header, sort_keys=True) if header else "")
-    )
+    text = _header_text(header)
     lowered_text = text.lower()
     markers: set[str] = set()
     if "test" in words or re.search(r"\btest\b", lowered_text):

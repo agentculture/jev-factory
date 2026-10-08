@@ -56,6 +56,39 @@ def excluded_texts(sides: list[dict]) -> frozenset[str]:
     return frozenset(_normal(entry["text"]) for side in sides for entry in side["entries"])
 
 
+def _claim_id(variation: dict, ids_seen: set) -> None:
+    """Refuse *variation* when its id is taken; otherwise mark the id as taken."""
+    vid = variation.get("id")
+    if vid in ids_seen:
+        raise ValueError(f"{vid!r}: variation id is already used by the split or another variation")
+    ids_seen.add(vid)
+
+
+def _train_source(variation: dict, sources: dict, filter_to_split: bool) -> dict | None:
+    """The split entry *variation* rewrites; None when it is off the split and filtered."""
+    if variation.get("side") != "train":
+        raise ValueError(f"{variation.get('id')}: side {variation.get('side')!r} is not train")
+    source = sources.get(variation.get("source_id"))
+    if source is None:
+        if filter_to_split:
+            return None
+        raise ValueError(
+            f"{variation.get('id')}: source {variation.get('source_id')!r} is not in the split"
+        )
+    if variation.get("expect") != source["expect"]:
+        raise ValueError(f"{variation.get('id')}: expected answer differs from its source")
+    return source
+
+
+def _drop_reason(key: str, exclude: frozenset[str], seen: set[str]) -> str | None:
+    """Which count a variation with normalised text *key* is dropped under, if any."""
+    if key in exclude:
+        return "leaked"
+    if key in seen:
+        return "duplicate"
+    return None
+
+
 def merge(
     split: dict,
     variations: list[dict],
@@ -71,30 +104,14 @@ def merge(
     kept: list[dict] = []
     counts = {"kept": 0, "duplicate": 0, "leaked": 0, "off_split": 0}
     for variation in variations:
-        vid = variation.get("id")
-        if vid in ids_seen:
-            raise ValueError(
-                f"{vid!r}: variation id is already used by the split or another variation"
-            )
-        ids_seen.add(vid)
-        if variation.get("side") != "train":
-            raise ValueError(f"{variation.get('id')}: side {variation.get('side')!r} is not train")
-        source = sources.get(variation.get("source_id"))
-        if source is None:
-            if filter_to_split:
-                counts["off_split"] += 1
-                continue
-            raise ValueError(
-                f"{variation.get('id')}: source {variation.get('source_id')!r} is not in the split"
-            )
-        if variation.get("expect") != source["expect"]:
-            raise ValueError(f"{variation.get('id')}: expected answer differs from its source")
-        key = _normal(variation["text"])
-        if key in exclude:
-            counts["leaked"] += 1
+        _claim_id(variation, ids_seen)
+        if _train_source(variation, sources, filter_to_split) is None:
+            counts["off_split"] += 1
             continue
-        if key in seen:
-            counts["duplicate"] += 1
+        key = _normal(variation["text"])
+        dropped = _drop_reason(key, exclude, seen)
+        if dropped is not None:
+            counts[dropped] += 1
             continue
         seen.add(key)
         entry = {

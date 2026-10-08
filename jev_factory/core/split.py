@@ -141,24 +141,11 @@ def stratified_split(
     if abs(sum(fractions) - 1.0) > 1e-9:
         raise ValueError(f"fractions must sum to 1.0, got {fractions!r}")
 
-    id_counts = Counter(entry["id"] for entry in entries)
-    duplicates = sorted(entry_id for entry_id, count in id_counts.items() if count > 1)
-    if duplicates:
-        raise ValueError(f"duplicate entry ids would split one source across sides: {duplicates}")
-
+    _refuse_duplicate_ids(entries)
     # An entry that already carries a source_id (a variation, c42) is kept
     # with every other entry of that source: sources are what get split.
-    sources: dict[str, list[dict]] = {}
-    for entry in entries:
-        sources.setdefault(entry.get("source_id", entry["id"]), []).append(entry)
-
-    by_kind: dict[str, list[str]] = {kind: [] for kind in EXPECTATION_KINDS}
-    for source_id, members in sources.items():
-        kinds = {expectation_kind(member["expect"]) for member in members}
-        if len(kinds) > 1:
-            raise ValueError(f"source {source_id!r} mixes expectation kinds {sorted(kinds)}")
-        by_kind[kinds.pop()].append(source_id)
-
+    sources = _group_by_source(entries)
+    by_kind = _source_ids_by_kind(sources)
     missing_kinds = [kind for kind in EXPECTATION_KINDS if not by_kind[kind]]
 
     sides: dict[str, list[dict]] = {name: [] for name in SPLIT_NAMES}
@@ -168,18 +155,62 @@ def stratified_split(
         # than relying on it.
         group = sorted(by_kind[kind])
         random.Random(seed).shuffle(group)  # nosec B311 - seeded, deterministic split
-        counts = _allocate(len(group), fractions)
-        offset = 0
-        for name, count in zip(SPLIT_NAMES, counts):
-            for source_id in group[offset : offset + count]:
-                for entry in sources[source_id]:
-                    sides[name].append({**entry, "source_id": source_id})
-            offset += count
+        _deal_sources(sides, _slice_sides(group, _allocate(len(group), fractions)), sources)
 
+    _sort_sides(sides)
+    return sides, missing_kinds
+
+
+def _refuse_duplicate_ids(entries: list[dict]) -> None:
+    id_counts = Counter(entry["id"] for entry in entries)
+    duplicates = sorted(entry_id for entry_id, count in id_counts.items() if count > 1)
+    if duplicates:
+        raise ValueError(f"duplicate entry ids would split one source across sides: {duplicates}")
+
+
+def _group_by_source(entries: list[dict]) -> dict[str, list[dict]]:
+    """*entries* grouped by ``source_id`` (default: the entry's own ``id``), in input order."""
+    sources: dict[str, list[dict]] = {}
+    for entry in entries:
+        sources.setdefault(entry.get("source_id", entry["id"]), []).append(entry)
+    return sources
+
+
+def _source_ids_by_kind(sources: dict[str, list[dict]]) -> dict[str, list[str]]:
+    """Each expectation kind's source ids; a source mixing kinds is refused."""
+    by_kind: dict[str, list[str]] = {kind: [] for kind in EXPECTATION_KINDS}
+    for source_id, members in sources.items():
+        kinds = {expectation_kind(member["expect"]) for member in members}
+        if len(kinds) > 1:
+            raise ValueError(f"source {source_id!r} mixes expectation kinds {sorted(kinds)}")
+        by_kind[kinds.pop()].append(source_id)
+    return by_kind
+
+
+def _slice_sides(group: list[str], counts: list[int]) -> dict[str, list[str]]:
+    """Consecutive slices of *group*, ``counts[i]`` long, one per side in order."""
+    assigned: dict[str, list[str]] = {}
+    offset = 0
+    for name, count in zip(SPLIT_NAMES, counts):
+        assigned[name] = group[offset : offset + count]
+        offset += count
+    return assigned
+
+
+def _deal_sources(
+    sides: dict[str, list[dict]],
+    assigned: dict[str, list[str]],
+    sources: dict[str, list[dict]],
+) -> None:
+    """Append every member of each assigned source to its side, stamped with ``source_id``."""
+    for name in SPLIT_NAMES:
+        for source_id in assigned.get(name, ()):
+            sides[name].extend({**entry, "source_id": source_id} for entry in sources[source_id])
+
+
+def _sort_sides(sides: dict[str, list[dict]]) -> None:
     for name in SPLIT_NAMES:
         sides[name].sort(key=lambda entry: entry["id"])
-
-    return sides, missing_kinds
 
 
 def absent_from_sides(sides: dict[str, list[dict]]) -> list[tuple[str, str]]:
@@ -412,35 +443,17 @@ def stratified_split_sized(
         )
     fractions = (train_frac, val_frac, test_frac)
 
-    id_counts = Counter(entry["id"] for entry in entries)
-    duplicates = sorted(entry_id for entry_id, count in id_counts.items() if count > 1)
-    if duplicates:
-        raise ValueError(f"duplicate entry ids would split one source across sides: {duplicates}")
-
-    sources: dict[str, list[dict]] = {}
-    for entry in entries:
-        sources.setdefault(entry.get("source_id", entry["id"]), []).append(entry)
-
-    by_kind: dict[str, list[str]] = {kind: [] for kind in EXPECTATION_KINDS}
-    for source_id, members in sources.items():
-        kinds = {expectation_kind(member["expect"]) for member in members}
-        if len(kinds) > 1:
-            raise ValueError(f"source {source_id!r} mixes expectation kinds {sorted(kinds)}")
-        by_kind[kinds.pop()].append(source_id)
-
+    _refuse_duplicate_ids(entries)
+    sources = _group_by_source(entries)
+    by_kind = _source_ids_by_kind(sources)
     missing_kinds = [kind for kind in EXPECTATION_KINDS if not by_kind[kind]]
 
     sides: dict[str, list[dict]] = {name: [] for name in SPLIT_NAMES}
     for kind in EXPECTATION_KINDS:
         assigned = _stratify_by_class(sorted(by_kind[kind]), sources, seed, fractions)
-        for name in SPLIT_NAMES:
-            for source_id in assigned[name]:
-                for entry in sources[source_id]:
-                    sides[name].append({**entry, "source_id": source_id})
+        _deal_sources(sides, assigned, sources)
 
-    for name in SPLIT_NAMES:
-        sides[name].sort(key=lambda entry: entry["id"])
-
+    _sort_sides(sides)
     return sides, missing_kinds
 
 
@@ -545,39 +558,18 @@ def _main_v2(
     corpus_paths: list[Path],
     out_dir: Path,
 ) -> int:
-    if args.val_size is None or args.test_size is None:
-        parser.error(
-            "v2 mode (--version, multiple --corpus, or --val-size/--test-size) "
-            "requires both --val-size and --test-size"
-        )
-    if args.fold_seed is None:
-        parser.error("v2 mode requires --fold-seed (seeds the fit/selection fold split)")
+    _require_v2_args(parser, args)
     version = args.version or "v2"
 
     train_only_paths = [Path(p) for p in (args.train_only or [])]
     try:
-        check_version(version)
-        entries, sources = merge_corpora(corpus_paths)
-        sides, missing_kinds = stratified_split_sized(
-            entries, args.seed, args.val_size, args.test_size
+        entries, sources, sides, missing_kinds = _split_v2(
+            args, version, corpus_paths, train_only_paths
         )
-        if train_only_paths:
-            sides, sources = add_train_only(sides, sources, train_only_paths)
-            entries = entries + [e for e in sides["train"] if e.get("train_only")]
     except ValueError as exc:
         parser.error(str(exc))
-    gaps = absent_from_sides(sides)
-    if gaps:
-        described = ", ".join(f"{kind!r} on {name}" for kind, name in gaps)
-        parser.error(f"too few entries to reach every side: missing {described}")
-
-    world = None
-    for path in corpus_paths:
-        with open(path, encoding="utf-8") as handle:
-            raw = json.load(handle)
-        if isinstance(raw, dict) and raw.get("world") is not None:
-            world = raw["world"]
-            break
+    _refuse_gaps(parser, sides)
+    world = _first_world(corpus_paths)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     sizes = {name: len(sides[name]) for name in SPLIT_NAMES}
@@ -611,13 +603,66 @@ def _main_v2(
         },
     )
 
+    _print_v2_summary(missing_kinds, sides, len(entries), len(corpus_paths))
+    return 0
+
+
+def _require_v2_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if args.val_size is None or args.test_size is None:
+        parser.error(
+            "v2 mode (--version, multiple --corpus, or --val-size/--test-size) "
+            "requires both --val-size and --test-size"
+        )
+    if args.fold_seed is None:
+        parser.error("v2 mode requires --fold-seed (seeds the fit/selection fold split)")
+
+
+def _split_v2(
+    args: argparse.Namespace,
+    version: str,
+    corpus_paths: list[Path],
+    train_only_paths: list[Path],
+) -> tuple[list[dict], list[dict], dict[str, list[dict]], list[str]]:
+    """Merge, split by size and add the train-only corpora: ``(entries, sources, sides,
+    missing_kinds)``. Raises :class:`ValueError` on any refusal."""
+    check_version(version)
+    entries, sources = merge_corpora(corpus_paths)
+    sides, missing_kinds = stratified_split_sized(entries, args.seed, args.val_size, args.test_size)
+    if train_only_paths:
+        sides, sources = add_train_only(sides, sources, train_only_paths)
+        entries = entries + [e for e in sides["train"] if e.get("train_only")]
+    return entries, sources, sides, missing_kinds
+
+
+def _refuse_gaps(parser: argparse.ArgumentParser, sides: dict[str, list[dict]]) -> None:
+    gaps = absent_from_sides(sides)
+    if gaps:
+        described = ", ".join(f"{kind!r} on {name}" for kind, name in gaps)
+        parser.error(f"too few entries to reach every side: missing {described}")
+
+
+def _first_world(corpus_paths: list[Path]) -> object:
+    """The first corpus file's non-null ``world``, or None when none carries one."""
+    for path in corpus_paths:
+        with open(path, encoding="utf-8") as handle:
+            raw = json.load(handle)
+        if isinstance(raw, dict) and raw.get("world") is not None:
+            return raw["world"]
+    return None
+
+
+def _print_v2_summary(
+    missing_kinds: list[str],
+    sides: dict[str, list[dict]],
+    n_entries: int,
+    n_corpora: int,
+) -> None:
     for kind in missing_kinds:
         print(f"note: no {kind!r} entries in the merged corpus; not present on any side")
     for name in SPLIT_NAMES:
         print(f"{name}={len(sides[name])}")
-    plural = "y" if len(entries) == 1 else "ies"
-    print(f"merged {len(entries)} unique entr{plural} from {len(corpus_paths)} corpus file(s)")
-    return 0
+    plural = "y" if n_entries == 1 else "ies"
+    print(f"merged {n_entries} unique entr{plural} from {n_corpora} corpus file(s)")
 
 
 def main(argv: list[str] | None = None, domain: Domain | None = None) -> int:

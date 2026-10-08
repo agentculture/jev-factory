@@ -127,26 +127,14 @@ class Prediction:
     @classmethod
     def from_dict(cls, row: object) -> "Prediction":
         """Validate one decoded line; raises :class:`PredictionError` naming the problem."""
-        if not isinstance(row, dict):
-            raise PredictionError("a line must be a JSON object")
-        missing = [name for name in FIELDS if name not in row]
-        if missing:
-            raise PredictionError(f"missing field(s): {', '.join(missing)}")
-        if not isinstance(row["id"], str) or not row["id"]:
-            raise PredictionError("id must be a non-empty string")
+        _check_row(row)
         _check_expected(row["expected"])
         outcome = row["outcome"]
         if outcome not in OUTCOMES:
             raise PredictionError(f"outcome {outcome!r} is not one of {', '.join(OUTCOMES)}")
         _check_proposal(outcome, row["operation"], row["arguments"])
         _check_distribution(row["candidates"], "candidates")
-        tokens = row["tokens"]
-        if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 0:
-            raise PredictionError("tokens must be a non-negative integer")
-        for name in ("ttfd_ms", "latency_ms"):
-            value = row[name]
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
-                raise PredictionError(f"{name} must be a non-negative number")
+        _check_costs(row)
         reason = row.get("invalid_reason")
         if reason is not None and not isinstance(reason, str):
             raise PredictionError("invalid_reason must be a string")
@@ -164,15 +152,15 @@ class Prediction:
             expected=dict(row["expected"]),
             outcome=outcome,
             operation=row["operation"],
-            arguments=None if row["arguments"] is None else dict(row["arguments"]),
-            candidates=None if row["candidates"] is None else dict(row["candidates"]),
-            tokens=tokens,
+            arguments=_copy(row["arguments"]),
+            candidates=_copy(row["candidates"]),
+            tokens=row["tokens"],
             ttfd_ms=float(row["ttfd_ms"]),
             latency_ms=float(row["latency_ms"]),
             invalid_reason=reason,
             offered=offered,
-            raw_scores=None if raw_scores is None else dict(raw_scores),
-            raw_probabilities=None if raw_probabilities is None else dict(raw_probabilities),
+            raw_scores=_copy(raw_scores),
+            raw_probabilities=_copy(raw_probabilities),
             grounded=grounded,
         )
 
@@ -204,6 +192,30 @@ class Prediction:
         if self.offered is not None:
             return self.offered
         return tuple(self.candidates or ())
+
+
+def _check_row(row: object) -> None:
+    if not isinstance(row, dict):
+        raise PredictionError("a line must be a JSON object")
+    missing = [name for name in FIELDS if name not in row]
+    if missing:
+        raise PredictionError(f"missing field(s): {', '.join(missing)}")
+    if not isinstance(row["id"], str) or not row["id"]:
+        raise PredictionError("id must be a non-empty string")
+
+
+def _check_costs(row: dict) -> None:
+    tokens = row["tokens"]
+    if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 0:
+        raise PredictionError("tokens must be a non-negative integer")
+    for name in ("ttfd_ms", "latency_ms"):
+        value = row[name]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            raise PredictionError(f"{name} must be a non-negative number")
+
+
+def _copy(mapping: Mapping | None) -> dict | None:
+    return None if mapping is None else dict(mapping)
 
 
 def _check_expected(expected: object) -> None:

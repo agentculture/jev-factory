@@ -597,25 +597,41 @@ def _valid(value: object) -> bool:
     )
 
 
+def _first_item(value: object) -> object:
+    """*value*'s first element when it is a non-empty list, else None."""
+    return value[0] if isinstance(value, list) and value else None
+
+
+def _dict_get(value: object, key: str) -> object:
+    """``value[key]`` when *value* is a dict (None when absent), else None."""
+    return value.get(key) if isinstance(value, dict) else None
+
+
+def _legacy_scores(top: dict) -> dict[str, float]:
+    """The legacy shape: ``top_logprobs[0]`` is ``{token: logprob}``."""
+    return {t: float(v) for t, v in top.items() if isinstance(t, str) and _valid(v)}
+
+
+def _content_scores(content: object) -> dict[str, float]:
+    """The content shape: ``content[0].top_logprobs`` is ``[{token, logprob}, ...]``."""
+    entries = _dict_get(_first_item(content), "top_logprobs")
+    return {
+        e["token"]: float(e["logprob"])
+        for e in (entries if isinstance(entries, list) else ())
+        if isinstance(e, dict) and isinstance(e.get("token"), str) and _valid(e.get("logprob"))
+    }
+
+
 def parse_top_logprobs(reply: Any) -> dict[str, float]:
     """``{token: logprob}`` from a ``/completions`` reply (legacy or content shape)."""
-    choices = reply.get("choices") if isinstance(reply, dict) else None
-    first = choices[0] if isinstance(choices, list) and choices else None
-    logprobs = first.get("logprobs") if isinstance(first, dict) else None
+    logprobs = _dict_get(_first_item(_dict_get(reply, "choices")), "logprobs")
     if not isinstance(logprobs, dict):
         raise ServedError("the server reply carries no logprobs")
-    top = logprobs.get("top_logprobs")
-    if isinstance(top, list) and top and isinstance(top[0], dict):
-        scores = {t: float(v) for t, v in top[0].items() if isinstance(t, str) and _valid(v)}
+    top = _first_item(logprobs.get("top_logprobs"))
+    if isinstance(top, dict):
+        scores = _legacy_scores(top)
     else:
-        content = logprobs.get("content")
-        head = content[0] if isinstance(content, list) and content else None
-        entries = head.get("top_logprobs") if isinstance(head, dict) else None
-        scores = {
-            e["token"]: float(e["logprob"])
-            for e in (entries if isinstance(entries, list) else ())
-            if isinstance(e, dict) and isinstance(e.get("token"), str) and _valid(e.get("logprob"))
-        }
+        scores = _content_scores(logprobs.get("content"))
     if not scores:
         raise ServedError("the server reply carries no logprobs")
     return scores
