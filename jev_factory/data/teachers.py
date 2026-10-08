@@ -241,7 +241,22 @@ def _post(role: RoleConfig, system: str, user: str) -> str:
 # verdicts: JSON against a schema
 # --------------------------------------------------------------------------
 
-_FENCE = re.compile(r"(?:^```[A-Za-z]*\s*)|(?:\s*```$)")
+_FENCE = "```"
+_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+
+def strip_fence(text: str) -> str:
+    """*text* without a leading ```` ```lang ```` fence and a trailing ```` ``` ````.
+
+    String operations, not a regex: a reply is model output of any length, and the
+    regex this replaces backtracked quadratically on a long run of whitespace.
+    """
+    body = text.strip()
+    if body.startswith(_FENCE):
+        body = body[len(_FENCE) :].lstrip(_LETTERS)
+    if body.endswith(_FENCE):
+        body = body[: -len(_FENCE)]
+    return body.strip()
 
 
 def _first_object(text: str) -> str | None:
@@ -277,7 +292,7 @@ def parse_verdict(text: str) -> tuple[bool, str]:
     weight. Empty, non-JSON or off-schema text raises :class:`TeacherError`:
     it is not a judgement, so it is never a reject.
     """
-    stripped = _FENCE.sub("", text.strip()).strip()
+    stripped = strip_fence(text)
     if not stripped:
         raise TeacherError("empty reply")
     blob = _first_object(stripped)
@@ -390,7 +405,11 @@ class TeacherClient:
                 last = f"HTTP {exc.code}"
                 if exc.code not in _TRANSIENT_STATUS:
                     break  # the request itself is wrong: retrying repeats it
-            except (TeacherError, urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+            except (
+                TeacherError,
+                OSError,
+                http.client.HTTPException,
+            ) as exc:  # URLError is an OSError
                 last = scrub(str(exc) or type(exc).__name__, self._secrets)
             except ValueError:
                 last = "gateway reply is not JSON"

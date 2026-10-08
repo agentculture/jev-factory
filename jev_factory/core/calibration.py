@@ -366,7 +366,7 @@ def fit_vector(
     label's scale fixed, until no coordinate moves by more than *tol* or
     *rounds* is reached. Deterministic: no randomness, a fixed visit order.
     """
-    vector = {label: 1.0 for label in labels}
+    vector = dict.fromkeys(labels, 1.0)
     if not rows or not labels:
         return vector
     ordered = sorted(labels)
@@ -508,8 +508,9 @@ def apply_to_predictions(
 # Evaluate: raw vs temperature vs temperature + vector on one fold
 # ---------------------------------------------------------------------------
 
+VARIANT_TEMPERATURE_VECTOR = "temperature+vector"
 #: The three variants :func:`evaluate` compares, in this order.
-EVALUATED_VARIANTS = ("raw", "temperature", "temperature+vector")
+EVALUATED_VARIANTS = ("raw", "temperature", VARIANT_TEMPERATURE_VECTOR)
 
 
 def evaluate_predictions(
@@ -539,7 +540,7 @@ def evaluate_predictions(
     scalings = {
         "raw": (1.0, {}),
         "temperature": (temperature, {}),
-        "temperature+vector": (temperature, vector),
+        VARIANT_TEMPERATURE_VECTOR: (temperature, vector),
     }
     report: dict = {"fold": fold, "n": len(chosen), "temperature": temperature, "variants": {}}
     for name in EVALUATED_VARIANTS:
@@ -578,7 +579,7 @@ def select_calibration(
     """
     report = evaluate_predictions(predictions, params, folds, "selection")
     ece_by_variant = {name: report["variants"][name]["ece"] for name in EVALUATED_VARIANTS}
-    with_vector = ece_by_variant["temperature+vector"]
+    with_vector = ece_by_variant[VARIANT_TEMPERATURE_VECTOR]
     temperature_only = ece_by_variant["temperature"]
     keep = (
         with_vector is not None and temperature_only is not None and with_vector < temperature_only
@@ -617,7 +618,7 @@ def _cmd_folds(args: argparse.Namespace) -> int:
         refuse_if_test_or_held_out(split_path, header)
         ids = read_split_ids(split_path)
         fit_ids, selection_ids = make_folds(ids, args.seed, args.fit_fraction)
-    except (CalibrationError, ValueError) as exc:
+    except ValueError as exc:  # CalibrationError is a ValueError
         print(f"error: {exc}", file=sys.stderr)
         return 1
     write_json(
@@ -641,7 +642,7 @@ def _cmd_fit(args: argparse.Namespace) -> int:
         params = fit_params(predictions_path, folds)
         if args.select:
             params = select_calibration(read_predictions(predictions_path), params, folds)
-    except (CalibrationError, metrics.MetricsError, OSError, ValueError) as exc:
+    except (OSError, ValueError) as exc:  # CalibrationError, MetricsError are ValueErrors
         print(f"error: {exc}", file=sys.stderr)
         return 1
     write_json(Path(args.out), params)
@@ -654,7 +655,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
         with open(args.params, encoding="utf-8") as handle:
             params = json.load(handle)
         rows = apply_to_predictions(read_predictions(args.predictions), params)
-    except (CalibrationError, metrics.MetricsError, OSError, ValueError) as exc:
+    except (OSError, ValueError) as exc:  # CalibrationError, MetricsError are ValueErrors
         print(f"error: {exc}", file=sys.stderr)
         return 1
     write_predictions(args.out, rows)
@@ -669,7 +670,7 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
         with open(args.folds, encoding="utf-8") as handle:
             folds = json.load(handle)
         report = evaluate(Path(args.predictions), params, folds, args.fold)
-    except (CalibrationError, metrics.MetricsError, OSError, ValueError) as exc:
+    except (OSError, ValueError) as exc:  # CalibrationError, MetricsError are ValueErrors
         print(f"error: {exc}", file=sys.stderr)
         return 1
     if args.out:

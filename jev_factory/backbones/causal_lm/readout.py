@@ -123,7 +123,7 @@ def distribution(
     ``({}, 0.0)`` when no label has mass.
     """
     by_label = {label: name for name, label in labels.items()}
-    masses = {name: 0.0 for name in labels}
+    masses = dict.fromkeys(labels, 0.0)
     for token, logprob in logprobs.items():
         if not isinstance(token, str) or not _valid_logprob(logprob):
             continue

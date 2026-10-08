@@ -42,7 +42,7 @@ body { background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, sans-
 .card { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
 .card.sel { outline: 2px solid var(--accent); }
 .card .text { margin: 6px 0; font-size: 15px; }
-.card .expect { font: 12px ui-monospace, monospace; color: var(--muted); word-break: break-word; }
+.card .expect { font: 12px ui-monospace, monospace; color: var(--muted); overflow-wrap: anywhere; }
 .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
 button { font: inherit; padding: 3px 10px; border-radius: 4px; border: 1px solid var(--line);
   background: var(--bg); color: var(--ink); cursor: pointer; }
@@ -117,7 +117,11 @@ label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
   function layout(nodes) {
     const kids = {};
     let root = null;
-    nodes.forEach(n => { if (n.parent === null) root = n.id; else (kids[n.parent] = kids[n.parent] || []).push(n.id); });
+    nodes.forEach(n => {
+      if (n.parent === null) { root = n.id; return; }
+      if (!kids[n.parent]) kids[n.parent] = [];
+      kids[n.parent].push(n.id);
+    });
     const pos = {};
     let row = 0;
     (function place(id, depth) {
@@ -130,6 +134,12 @@ label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
     return { pos, kids, root };
   }
 
+  const entries = n => n + " entr" + (n === 1 ? "y" : "ies");
+  function effectOf(readOnly) {
+    if (readOnly === false) return " · mutating";
+    return readOnly ? " · read-only" : "";
+  }
+
   function VerbNode({ data }) {
     const c = data.counts, total = STATUSES.reduce((s, k) => s + (c[k] || 0), 0);
     const cls = "vnode" + (data.selected ? " sel" : "") + (data.read_only === false ? " mut" : "");
@@ -137,7 +147,7 @@ label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
       h(Handle, { type: "target", position: Position.Left, style: { opacity: 0 } }),
       h("div", null, h("b", null, data.label)),
       h("div", { className: "k" }, data.kind + (data.read_only === false ? " · mutating" : "")
-        + (total ? " · " + total + " entr" + (total === 1 ? "y" : "ies") : "")
+        + (total ? " · " + entries(total) : "")
         + (c.pending ? " · " + c.pending + " pending" : "")),
       total ? h("div", { className: "bars" }, STATUSES.filter(k => c[k]).map(k =>
         h("div", { key: k, style: { flex: c[k], background: "var(--" + k + ")" } }))) : null,
@@ -160,7 +170,7 @@ label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
     const [note, setNote] = useState("");
     const [problems, setProblems] = useState([]);
     const build = () => {
-      const entry = Object.assign({}, draft.entry, { id: draft.entry.id, kind, text, expect: JSON.parse(expect) });
+      const entry = { ...draft.entry, id: draft.entry.id, kind, text, expect: JSON.parse(expect) };
       if (klass) entry["class"] = klass; else delete entry["class"];
       return entry;
     };
@@ -208,6 +218,38 @@ label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
           onClick: ev => ev.stopPropagation(), onChange: ev => setNote(ev.target.value) })));
   }
 
+  function Intro({ state }) {
+    return h("div", null,
+      h("h2", null, "Seed review"),
+      h("p", { className: "muted" }, "Pick a verb in the tree to see its seed entries. Approve, reject or edit each, or propose a new one. Every decision is appended to the review file; the seed changes only with jev review --apply."),
+      h("p", { className: "muted" }, "seed: " + state.seed.path + " (" + state.seed.entries + " entries)"),
+      h("p", { className: "muted" }, "review file: " + state.review_file),
+      state.conflicts.concat(state.problems).map((p, i) => h("p", { key: i, className: "warn" }, p)));
+  }
+
+  // The entry to start an edit from: an edited entry's latest version, else the entry.
+  function editBase(item) {
+    if (item.status === "edited" && item.decision.after) return item.decision.after;
+    return item.entry;
+  }
+
+  function VerbPanel({ node, mine, draft, selEntry, state, notify, propose, decide, load, setDraft, setSelEntry }) {
+    const canPropose = node.kind !== "group" && node.kind !== "domain";
+    return h("div", null,
+      h("h2", null, node.id),
+      h("div", { className: "muted" }, node.kind + effectOf(node.read_only)),
+      node.description && h("p", null, node.description),
+      canPropose && h("div", { className: "row" }, h("button", { onClick: propose }, "Propose an entry here")),
+      draft && h(Editor, { key: draft.entry.id + draft.action, state, draft, notify,
+        onDone: async changed => { setDraft(null); if (changed) await load(); } }),
+      h("p", { className: "muted" }, entries(mine.length) + " under this filter"),
+      mine.map(it => h(EntryCard, { key: it.entry.id + it.status, item: it, selected: selEntry === it.entry.id,
+        onSelect: () => setSelEntry(it.entry.id),
+        onDecide: (action, note) => decide(it, action, note),
+        onEdit: () => setDraft({ action: it.status === "proposed" ? "propose" : "edit",
+          entry: structuredClone(editBase(it)) }) })));
+  }
+
   function App() {
     const [state, setState] = useState(null);
     const [error, setError] = useState("");
@@ -237,7 +279,7 @@ label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
 
     const graph = useMemo(() => {
       if (!state) return { nodes: [], edges: [] };
-      const { pos, kids } = layout(state.nodes);
+      const { pos } = layout(state.nodes);
       const counts = {};
       state.nodes.forEach(n => { counts[n.id] = {}; });
       const parent = Object.fromEntries(state.nodes.map(n => [n.id, n.parent]));
@@ -247,7 +289,7 @@ label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
         }
       });
       const nodes = state.nodes.map(n => ({ id: "v:" + n.id, type: "verb", position: pos[n.id],
-        data: Object.assign({}, n, { counts: counts[n.id], selected: sel === n.id }) }));
+        data: { ...n, counts: counts[n.id], selected: sel === n.id } }));
       const edges = state.nodes.filter(n => n.parent !== null).map(n =>
         ({ id: "e:" + n.id, source: "v:" + n.parent, target: "v:" + n.id, type: "smoothstep" }));
       if (sel && pos[sel]) {
@@ -262,7 +304,6 @@ label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
             style: { stroke: "var(--" + it.status + ")" } });
         });
       }
-      void kids;
       return { nodes, edges };
     }, [state, visible, sel, selEntry]);
 
@@ -326,26 +367,8 @@ label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
             h(Background, null), h(Controls, { showInteractive: false }), h(MiniMap, { pannable: true, zoomable: true, style: { background: "var(--panel)" },
               maskColor: "rgba(127,127,127,0.25)", nodeColor: n => n.type === "entry" ? "var(--" + n.data.status + ")" : "var(--muted)" }))),
         h("div", { className: "side" },
-          !node ? h("div", null,
-            h("h2", null, "Seed review"),
-            h("p", { className: "muted" }, "Pick a verb in the tree to see its seed entries. Approve, reject or edit each, or propose a new one. Every decision is appended to the review file; the seed changes only with jev review --apply."),
-            h("p", { className: "muted" }, "seed: " + state.seed.path + " (" + state.seed.entries + " entries)"),
-            h("p", { className: "muted" }, "review file: " + state.review_file),
-            state.conflicts.concat(state.problems).map((p, i) => h("p", { key: i, className: "warn" }, p)))
-          : h("div", null,
-            h("h2", null, node.id),
-            h("div", { className: "muted" }, node.kind + (node.read_only === false ? " · mutating" : node.read_only ? " · read-only" : "")),
-            node.description ? h("p", null, node.description) : null,
-            node.kind === "group" || node.kind === "domain" ? null
-              : h("div", { className: "row" }, h("button", { onClick: propose }, "Propose an entry here")),
-            draft ? h(Editor, { key: draft.entry.id + draft.action, state, draft, notify,
-              onDone: async changed => { setDraft(null); if (changed) await load(); } }) : null,
-            h("p", { className: "muted" }, mine.length + " entr" + (mine.length === 1 ? "y" : "ies") + " under this filter"),
-            mine.map(it => h(EntryCard, { key: it.entry.id + it.status, item: it, selected: selEntry === it.entry.id,
-              onSelect: () => setSelEntry(it.entry.id),
-              onDecide: (action, note) => decide(it, action, note),
-              onEdit: () => setDraft({ action: it.status === "proposed" ? "propose" : "edit",
-                entry: JSON.parse(JSON.stringify(it.status === "edited" && it.decision.after ? it.decision.after : it.entry)) }) }))))),
+          node ? h(VerbPanel, { node, mine, draft, selEntry, state, notify, propose, decide, load,
+            setDraft, setSelEntry }) : h(Intro, { state }))),
       toast ? h("div", { className: "toast" }, toast) : null);
   }
 

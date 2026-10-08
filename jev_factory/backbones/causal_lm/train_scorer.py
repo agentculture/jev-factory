@@ -388,6 +388,10 @@ def file_sha256(path: Path) -> str:
 # -- the loss and the loop (torch) --
 
 
+#: AdamW's weight decay: torch's default, named so a run's recipe states it.
+ADAMW_WEIGHT_DECAY = 0.01
+
+
 def seed_everything(seed: int) -> None:
     import torch
 
@@ -540,7 +544,9 @@ def train_loop(
 
     default = _default_columns(label_ids)
     order_rng = random.Random(seed)  # nosec B311 - batch order, not security
-    optimiser = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr)
+    trainable = [p for p in model.parameters() if p.requires_grad]
+    # weight_decay is torch's AdamW default, stated so the recipe records it.
+    optimiser = torch.optim.AdamW(trainable, lr=lr, weight_decay=ADAMW_WEIGHT_DECAY)
     model.train()
     history: list[dict] = []
     step = 0

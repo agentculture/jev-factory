@@ -73,7 +73,7 @@ def llama_server_ctx(base_url: str, timeout: float) -> int | None:
     try:
         with opener.open(request, timeout=timeout) as response:  # nosec B310 - localhost only
             payload = json.loads(response.read())
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+    except (OSError, ValueError):  # URLError, TimeoutError are OSErrors
         return None
     settings = payload.get("default_generation_settings") if isinstance(payload, dict) else None
     n_ctx = settings.get("n_ctx") if isinstance(settings, dict) else None
@@ -100,7 +100,7 @@ def preflight_models(
             raw = response.read()
     except urllib.error.HTTPError as exc:
         raise PreflightError(f"{url} answered HTTP {exc.code}, not 200") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except OSError as exc:  # URLError, TimeoutError are OSErrors
         raise PreflightError(f"cannot reach {url} to confirm the server is up: {exc}") from exc
     if status != 200:
         raise PreflightError(f"{url} answered HTTP {status}, not 200")

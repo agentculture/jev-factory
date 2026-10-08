@@ -82,7 +82,7 @@ from .ledger import (
     LedgerCorrupt,
     LedgerLocked,
 )
-from .manifest import Manifest, ManifestError, load_manifest
+from .manifest import Manifest, load_manifest
 from .providers.base import CallRequest, CallResult
 from .providers.errors import Classification, Outcome, stop_message
 from .runplan import (  # noqa: F401  (re-exported: jev_factory.evals.run is the public API)
@@ -952,11 +952,11 @@ class Runner:
                     folder = run_dir / DEEPEVAL_DIR / f"{subject}__{policy}"
                     folder.mkdir(parents=True, exist_ok=True)
                     # deepeval prints its own summary; keep stdout for the runner's lines.
-                    with open(folder / "deepeval.log", "w", encoding="utf-8") as sink:
-                        with contextlib.redirect_stdout(sink):
-                            outcome = deepeval_layer.evaluate_traces(
-                                final_traces, policy_json, domain, results_folder=folder
-                            )
+                    log = folder / "deepeval.log"
+                    with open(log, "w", encoding="utf-8") as sink, contextlib.redirect_stdout(sink):
+                        outcome = deepeval_layer.evaluate_traces(
+                            final_traces, policy_json, domain, results_folder=folder
+                        )
                     figures = outcome.corpus_metrics
                 else:
                     figures = deepeval_layer.corpus_metrics(final_traces, policy_json, domain)
@@ -1101,7 +1101,7 @@ def _cut(model: Model, raw: bytes) -> bool:
 def _load_manifest(manifest_path: Path) -> Manifest:
     try:
         return load_manifest(manifest_path)
-    except (OSError, ManifestError, ValueError) as exc:
+    except (OSError, ValueError) as exc:  # ManifestError is a ValueError
         raise RunError(f"manifest {manifest_path}: {exc}") from exc
 
 

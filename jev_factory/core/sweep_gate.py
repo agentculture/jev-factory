@@ -95,7 +95,7 @@ def split_markers(path: Path) -> set[str]:
     under a ``final/`` directory) is exactly this shape.
     """
     markers = set(calibration.split_markers(path))
-    words = {word for word in path.stem.lower().replace("-", " ").replace("_", " ").split()}
+    words = set(path.stem.lower().replace("-", " ").replace("_", " ").split())
     words |= {part.lower() for part in path.parts}
     if FINAL_MARKER in words:
         markers.add(FINAL_MARKER)
@@ -524,7 +524,7 @@ def main(argv: list[str] | None = None, domain: Domain | None = None) -> int:
             mut_max_entropy=grids["mutating_max_entropy"],
         )
         reports = run_sweep(selected, grid, domain)
-    except (SweepError, metrics.MetricsError, OSError, ValueError) as exc:
+    except (OSError, ValueError) as exc:  # SweepError, MetricsError are ValueErrors
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

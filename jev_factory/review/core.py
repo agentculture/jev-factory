@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -48,7 +47,7 @@ _STATUS_OF_ACTION = {
     "edit": "edited",
     "propose": "proposed",
 }
-_NUMBERED_ID = re.compile(r"^(?P<prefix>.*?)(?P<num>\d+)$")
+_DIGITS = "0123456789"
 
 
 class ReviewError(ValueError):
@@ -423,12 +422,13 @@ def next_ids(
     styles: dict[str, Counter[tuple[str, int]]] = {}
     highest: dict[tuple[str, int], int] = {}
     for entry in raw_seed.get("entries", []):
-        match = _NUMBERED_ID.match(str(entry.get("id", "")))
-        if not match:
+        split = split_number(str(entry.get("id", "")))
+        if split is None:
             continue
-        style = (match["prefix"], len(match["num"]))
+        prefix, num = split
+        style = (prefix, len(num))
         styles.setdefault(_entry_kind(entry, domain), Counter())[style] += 1
-        highest[style] = max(highest.get(style, 0), int(match["num"]))
+        highest[style] = max(highest.get(style, 0), int(num))
     out = {}
     for kind in ("operation", "explain", "escalate"):
         counter = styles.get(kind)
@@ -438,6 +438,16 @@ def next_ids(
             number += 1
         out[kind] = f"{prefix}{number:0{width}d}"
     return out
+
+
+def split_number(entry_id: str) -> tuple[str, str] | None:
+    """``("jcs-op-", "042")`` for ``jcs-op-042``: the id's trailing digits and what precedes
+    them, or ``None`` when it does not end in a digit. String operations, not a regex, so a
+    long id costs linear time."""
+    width = len(entry_id) - len(entry_id.rstrip(_DIGITS))
+    if width == 0:
+        return None
+    return entry_id[:-width], entry_id[-width:]
 
 
 def _entry_kind(entry: Mapping[str, Any], domain: Domain) -> str:

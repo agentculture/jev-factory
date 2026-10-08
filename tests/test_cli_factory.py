@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
+import jev_factory.domains.jev_cli.annotations as ann
 from jev_factory.cli import _build_parser, main
-from jev_factory.domains.jev_cli import annotations as ann
 from jev_factory.explain import known_paths
 from jev_factory.factory import detach, pipeline
 from tests.fixtures.toy_domain import DOMAIN  # noqa: F401  (importable as the domain module)

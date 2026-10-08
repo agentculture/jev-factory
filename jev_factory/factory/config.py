@@ -41,7 +41,7 @@ ENV_PREFIX = "JEV_"
 SOURCES = ("cli", "file", "env", "default")
 """Precedence order, highest first."""
 
-_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_ENV_NAME = re.compile(r"^[A-Za-z_]\w*$", re.ASCII)
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 

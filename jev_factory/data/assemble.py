@@ -291,12 +291,15 @@ def verify_render(domain: Domain, rows: Sequence[dict], tokenizer, reasons: bool
 # ---------------------------------------------------------------------------
 
 
+_CHECK_PATH = "check the path"
+
+
 def _read_json(path: Path) -> Any:
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise CliError(
-            2, f"{path}: not a readable JSON file ({type(exc).__name__})", "check the path"
+            2, f"{path}: not a readable JSON file ({type(exc).__name__})", _CHECK_PATH
         ) from None
 
 
@@ -306,7 +309,7 @@ def _read_jsonl(path: Path) -> list[dict]:
         return [json.loads(line) for line in text.splitlines() if line.strip()]
     except (OSError, ValueError) as exc:
         raise CliError(
-            2, f"{path}: not a readable JSONL file ({type(exc).__name__})", "check the path"
+            2, f"{path}: not a readable JSONL file ({type(exc).__name__})", _CHECK_PATH
         ) from None
 
 
@@ -388,7 +391,7 @@ def merged_entries(
 def _file_record(path: Path) -> dict[str, str]:
     digest = sha256_path(path)
     if digest is None:
-        raise CliError(2, f"{path}: missing, cannot be frozen", "check the path")
+        raise CliError(2, f"{path}: missing, cannot be frozen", _CHECK_PATH)
     return {"path": str(path), "sha256": digest}
 
 

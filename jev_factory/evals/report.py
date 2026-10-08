@@ -533,18 +533,24 @@ def _render_main_table(rows: Sequence[Mapping[str, Any]]) -> list[str]:
     return lines
 
 
+_RULE_4 = "| --- | --- | --- | --- |"
+
+
 def _render_slices(rows: Sequence[Mapping[str, Any]]) -> list[str]:
     lines: list[str] = []
     for row in rows:
         variant = f"{row['subject']} ({row['variant']})"
         slices = row["slices"]
-        lines.append(f"### {variant}")
-        lines.append("")
-
-        lines.append("Read-only vs. mutating:")
-        lines.append("")
-        lines.append("| slice | n | ECE | Brier | missing-candidate |")
-        lines.append("| --- | --- | --- | --- | --- |")
+        lines.extend(
+            [
+                f"### {variant}",
+                "",
+                "Read-only vs. mutating:",
+                "",
+                "| slice | n | ECE | Brier | missing-candidate |",
+                "| --- | --- | --- | --- | --- |",
+            ]
+        )
         for name, data in slices["read_only_vs_mutating"].items():
             measurable = data["ece"] is not None
             missing = _fmt_rate(data["missing_candidate"])
@@ -552,58 +558,74 @@ def _render_slices(rows: Sequence[Mapping[str, Any]]) -> list[str]:
                 f"| {name} | {data['n']} | {_fmt_measurable(data['ece'], measurable)} | "
                 f"{_fmt_measurable(data['brier'], measurable)} | {missing} |"
             )
-        lines.append("")
-
-        lines.append("Candidate count (offered candidates per case):")
-        lines.append("")
-        lines.append("| candidates offered | rows | measurable | top-1 rate |")
-        lines.append("| --- | --- | --- | --- |")
+        lines.extend(
+            [
+                "",
+                "Candidate count (offered candidates per case):",
+                "",
+                "| candidates offered | rows | measurable | top-1 rate |",
+                _RULE_4,
+            ]
+        )
         for key, data in slices["candidate_count"].items():
             lines.append(
                 f"| {key} | {data['n_rows']} | {data['n_measurable']} | "
                 f"{_fmt_rate(data['top1_rate'])} |"
             )
-        lines.append("")
-
-        lines.append("Confidence bucket:")
-        lines.append("")
-        lines.append("| bucket | n | mean confidence | accuracy |")
-        lines.append("| --- | --- | --- | --- |")
+        lines.extend(
+            [
+                "",
+                "Confidence bucket:",
+                "",
+                "| bucket | n | mean confidence | accuracy |",
+                _RULE_4,
+            ]
+        )
         for bucket in slices["confidence_bucket"]:
             lo, hi = bucket["lower"], bucket["upper"]
             label = "n/a" if lo is None or hi is None else f"{lo:.1f} to {hi:.1f}"
             confidence = "-" if bucket["confidence"] is None else f"{bucket['confidence']:.3f}"
             accuracy = "-" if bucket["accuracy"] is None else f"{bucket['accuracy']:.3f}"
             lines.append(f"| {label} | {bucket['n']} | {confidence} | {accuracy} |")
-        lines.append("")
-
-        lines.append("Missing-candidate split:")
-        lines.append("")
-        lines.append("| bucket | rows | measurable | top-1 rate |")
-        lines.append("| --- | --- | --- | --- |")
+        lines.extend(
+            [
+                "",
+                "Missing-candidate split:",
+                "",
+                "| bucket | rows | measurable | top-1 rate |",
+                _RULE_4,
+            ]
+        )
         for name, data in slices["missing_candidate_split"].items():
             lines.append(
                 f"| {name} | {data['n_rows']} | {data['n_measurable']} | "
                 f"{_fmt_rate(data['top1_rate'])} |"
             )
-        lines.append("")
-
-        lines.append("Semantic escalation vs. uncertainty abstention:")
-        lines.append("")
+        lines.extend(
+            [
+                "",
+                "Semantic escalation vs. uncertainty abstention:",
+                "",
+            ]
+        )
         sem = slices["semantic_vs_epistemic"]
-        lines.append("| kind | n | N | rate |")
-        lines.append("| --- | --- | --- | --- |")
+        lines.extend(
+            [
+                "| kind | n | N | rate |",
+                _RULE_4,
+            ]
+        )
         sem_rate = _fmt_rate(sem["semantic_escalation"]["rate"])
         epi_rate = _fmt_rate(sem["epistemic_abstention"]["rate"])
-        lines.append(
-            f"| semantic escalation | {sem['semantic_escalation']['n']} | "
-            f"{sem['semantic_escalation']['N']} | {sem_rate} |"
+        lines.extend(
+            [
+                f"| semantic escalation | {sem['semantic_escalation']['n']} | "
+                f"{sem['semantic_escalation']['N']} | {sem_rate} |",
+                f"| epistemic abstention | {sem['epistemic_abstention']['n']} | "
+                f"{sem['epistemic_abstention']['N']} | {epi_rate} |",
+                "",
+            ]
         )
-        lines.append(
-            f"| epistemic abstention | {sem['epistemic_abstention']['n']} | "
-            f"{sem['epistemic_abstention']['N']} | {epi_rate} |"
-        )
-        lines.append("")
 
         permutation = slices["permutation"]
         if permutation == "not_run":
@@ -626,7 +648,7 @@ def _render_artifacts(rows: Sequence[Mapping[str, Any]]) -> list[str]:
         "## Artifacts",
         "",
         "| subject | predictions sha256 | repo id | revision |",
-        "| --- | --- | --- | --- |",
+        _RULE_4,
     ]
     for subject, artifact in seen.items():
         lines.append(
@@ -644,46 +666,60 @@ def render_markdown(result: Mapping[str, Any]) -> str:
     function. No case request text or case id appears anywhere in it.
     """
     lines: list[str] = []
-    lines.append(f"# Release-gate report — run {result['run_id']}")
-    lines.append("")
-    lines.append(f"Date: {result['date']}")
-    lines.append("")
-    lines.append(
-        "Generated by `jev_factory/evals/report.py`. Do not hand-edit; regenerate from the "
-        "run directory instead."
+    lines.extend(
+        [
+            f"# Release-gate report — run {result['run_id']}",
+            "",
+            f"Date: {result['date']}",
+            "",
+            "Generated by `jev_factory/evals/report.py`. Do not hand-edit; regenerate from the "
+            "run directory instead.",
+            "",
+        ]
     )
-    lines.append("")
     deepeval = result.get("deepeval")
     if deepeval is not None:
         state = "ran" if deepeval else "did not run (--no-deepeval); corpus figures are exact"
-        lines.append(f"DeepEval per-case layer: {state}.")
-        lines.append("")
+        lines.extend(
+            [
+                f"DeepEval per-case layer: {state}.",
+                "",
+            ]
+        )
 
-    lines.append("## Candidates and baselines")
-    lines.append("")
-    lines.append(
-        "Each candidate/baseline appears twice: model-only (policy `raw`, the bare argmax, "
-        "no calibration or gate) and model+harness (the shipped policy) — so the table "
-        "answers whether the model improved separately from whether the harness prevented "
-        "mistakes."
+    lines.extend(
+        [
+            "## Candidates and baselines",
+            "",
+            "Each candidate/baseline appears twice: model-only (policy `raw`, the bare argmax, "
+            "no calibration or gate) and model+harness (the shipped policy) — so the table "
+            "answers whether the model improved separately from whether the harness prevented "
+            "mistakes.",
+            "",
+        ]
     )
-    lines.append("")
     lines.extend(_render_main_table(result["rows"]))
     lines.append("")
     lines.extend(_render_artifacts(result["rows"]))
 
-    lines.append("## Reference models")
-    lines.append("")
-    lines.append("Reference models, scored raw (no harness applies to them).")
-    lines.append("")
+    lines.extend(
+        [
+            "## Reference models",
+            "",
+            "Reference models, scored raw (no harness applies to them).",
+            "",
+        ]
+    )
     lines.extend(_render_main_table(result["reference_rows"]))
-    lines.append("")
-
-    lines.append(f"Note: {result['not_measurable_note']}")
-    lines.append("")
-
-    lines.append("## Slices")
-    lines.append("")
+    lines.extend(
+        [
+            "",
+            f"Note: {result['not_measurable_note']}",
+            "",
+            "## Slices",
+            "",
+        ]
+    )
     lines.extend(_render_slices(result["rows"]))
     lines.extend(_render_slices(result["reference_rows"]))
 

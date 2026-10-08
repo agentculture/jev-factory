@@ -79,7 +79,7 @@ def expect_words(expect: dict[str, Any], cls: str | None, domain: Domain) -> str
 
 def parse_json_list(raw: str) -> list[Any]:
     """The JSON list in a reply (a code fence or prose around it is fine)."""
-    text = re.sub(r"(?:^```(?:json)?)|(?:```$)", "", raw.strip(), flags=re.M).strip()
+    text = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.M).strip()
     start, end = text.find("["), text.rfind("]")
     if start == -1 or end < start:
         raise ValueError("no JSON list in the reply")

@@ -47,16 +47,22 @@ def _render(result: dict) -> str:
         )
     if result.get("applied", True) is False:
         lines = [f"dry run: stage {result['stage']} ({result['summary']})"]
-        lines.append(
-            f"  would run: {result['would_run']}"
-            + (f" ({result['stale']})" if result["stale"] else "")
+        lines.extend(
+            [
+                f"  would run: {result['would_run']}"
+                + (f" ({result['stale']})" if result["stale"] else ""),
+                "  substeps: " + ", ".join(result["substeps"]),
+                "  reads: " + (", ".join(result["inputs"]) or "nothing"),
+            ]
         )
-        lines.append("  substeps: " + ", ".join(result["substeps"]))
-        lines.append("  reads: " + (", ".join(result["inputs"]) or "nothing"))
         if result["missing_inputs"]:
             lines.append("  missing inputs: " + ", ".join(result["missing_inputs"]))
-        lines.append("  writes: " + (", ".join(result["outputs"]) or "nothing"))
-        lines.append(f"  {result['note']}")
+        lines.extend(
+            [
+                "  writes: " + (", ".join(result["outputs"]) or "nothing"),
+                f"  {result['note']}",
+            ]
+        )
         return "\n".join(lines)
     state = "skipped (fresh)" if result.get("skipped") else result.get("status", "done")
     return f"stage {result['stage']}: {state}"

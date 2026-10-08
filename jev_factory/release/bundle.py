@@ -56,7 +56,10 @@ NVSH_PROVENANCE = {
 APACHE_LICENCE = "Apache-2.0"
 KINDS = ("bf16", "gguf", "awq")
 BUNDLE_FILE = "bundle.json"
-REQUIRED_FILES = ("calibration.json", "gate.json", "scorer-train.json")
+CALIBRATION_FILE = "calibration.json"
+GATE_FILE = "gate.json"
+
+REQUIRED_FILES = (CALIBRATION_FILE, GATE_FILE, "scorer-train.json")
 TOKENIZER_FILES = (
     "chat_template.jinja",
     "tokenizer.json",
@@ -670,8 +673,8 @@ def build_model_bundle(
             encoding="utf-8",
         )
         for source, name in (
-            (calibration, "calibration.json"),
-            (gate, "gate.json"),
+            (calibration, CALIBRATION_FILE),
+            (gate, GATE_FILE),
             (scorer_train, "scorer-train.json"),
         ):
             shutil.copyfile(source, out / name)
@@ -755,7 +758,7 @@ def build_dataset_bundle(
             default_source=default_source,
             supplement_teachers=supplement_teachers,
         )
-        for source, name in ((calibration, "calibration.json"), (gate, "gate.json")):
+        for source, name in ((calibration, CALIBRATION_FILE), (gate, GATE_FILE)):
             shutil.copyfile(source, out / name)
         _write_info(out, kind="dataset", domain=domain, config=config, repo=repo, run=run)
         check_bundle(out)

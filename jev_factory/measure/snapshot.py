@@ -180,7 +180,7 @@ def _today() -> str:  # wall clock
 
 
 def main(argv: list[str] | None = None, *, today: Callable[[], str] = _today) -> int:
-    from jev_factory.domain.validate import DomainError, load_domain
+    from jev_factory.domain.validate import load_domain
 
     parser = argparse.ArgumentParser(
         prog="python -m jev_factory.measure.snapshot",
@@ -225,7 +225,7 @@ def main(argv: list[str] | None = None, *, today: Callable[[], str] = _today) ->
     except SnapshotError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2 if exc.env else 1
-    except (DomainError, OSError, ValueError) as exc:
+    except (OSError, ValueError) as exc:  # DomainError is a ValueError
         print(f"error: {exc}", file=sys.stderr)
         return 1
     out.parent.mkdir(parents=True, exist_ok=True)

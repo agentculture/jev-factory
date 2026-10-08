@@ -517,7 +517,7 @@ def main(
     *,
     build_scorer: Callable[[argparse.Namespace], object] = _build_real_scorer,
 ) -> int:
-    from jev_factory.domain.validate import DomainError, load_domain
+    from jev_factory.domain.validate import load_domain
     from jev_factory.measure.corpus import load_corpus
 
     parser = argparse.ArgumentParser(
@@ -551,7 +551,7 @@ def main(
     try:
         domain = load_domain(args.domain)
         raw = json.loads(split_path.read_text(encoding="utf-8"))
-    except (DomainError, OSError, ValueError) as exc:
+    except (OSError, ValueError) as exc:  # DomainError is a ValueError
         print(f"error: {exc}", file=sys.stderr)
         return 1
     header = raw.get("header") if isinstance(raw, dict) else None

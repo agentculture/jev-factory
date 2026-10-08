@@ -68,7 +68,7 @@ _REQUIRED = (
 _OPTIONAL = ("prereg_sha256", "decider_ref", "overrides", "deviation_id", "details")
 _CITED_KEYS = {"name", "value", "source", "sha256"}
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
-_ID = re.compile(r"^D[1-9][0-9]*$")
+_ID = re.compile(r"^D[1-9]\d*$", re.ASCII)
 
 
 def _err(message: str, remediation: str = "") -> CliError:

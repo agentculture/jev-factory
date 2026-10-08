@@ -391,7 +391,7 @@ def _diagnose(
     for c in failing:
         classes.update({k: v for k, v in c.failure_classes.items() if v > 0})
     if classes:
-        top = sorted(classes.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+        top = min(classes.items(), key=lambda kv: (-kv[1], kv[0]))[0]
         return (
             "targeted_augment",
             {"class": top},

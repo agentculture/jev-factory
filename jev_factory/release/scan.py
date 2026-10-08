@@ -286,7 +286,7 @@ def _safetensors_header(path: Path) -> dict | None:
             if size > min(_SAFETENSORS_MAX_HEADER, path.stat().st_size - 8):
                 return None
             header = json.loads(handle.read(size).decode("utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError):
+    except (OSError, ValueError):  # UnicodeDecodeError is a ValueError
         return None
     return header if isinstance(header, dict) else None
 

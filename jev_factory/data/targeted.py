@@ -552,7 +552,6 @@ def _rounds(k: int) -> list[int]:
 
 def _ask(
     client: TeacherClient,
-    domain: Domain,
     prompt: Callable[[int], tuple[str, str]],
     k: int,
     rejects: dict[str, int],
@@ -590,7 +589,7 @@ def _text(item: dict[str, Any], key: str = "text") -> str:
 def dx_units(domain: Domain, client: TeacherClient, k: int, rejects: dict[str, int]) -> list[Unit]:
     diagnosis = decline_class(domain, "diagnosis-explain")
     units = []
-    for item in _ask(client, domain, lambda size: dx_prompt(domain, size), k, rejects):
+    for item in _ask(client, lambda size: dx_prompt(domain, size), k, rejects):
         explain, answer, diagnose = (
             _text(item, "explain"),
             _text(item, "answer"),
@@ -632,7 +631,7 @@ def choice_units(
         def prompt(size: int, op=op, arg=arg, value=value) -> tuple[str, str]:
             return choice_prompt(domain, op.name, arg.name, value, size)
 
-        for item in _ask(client, domain, prompt, k, rejects):
+        for item in _ask(client, prompt, k, rejects):
             text, args = _text(item), item.get("args")
             if not text or domain.validate_args(op.name, args) is not None:
                 bump(rejects, "invalid_args")
@@ -656,7 +655,7 @@ def disambiguation_units(
         def prompt(size: int, op=op) -> tuple[str, str]:
             return disambiguation_prompt(domain, op.name, size)
 
-        for item in _ask(client, domain, prompt, k, rejects):
+        for item in _ask(client, prompt, k, rejects):
             text, args = _text(item), item.get("args")
             if not text or domain.validate_args(op.name, args) is not None:
                 bump(rejects, "invalid_args")
@@ -685,7 +684,7 @@ def hard_negative_units(
         def prompt(size: int, op=op) -> tuple[str, str]:
             return hard_negative_prompt(domain, op.name, size)
 
-        for item in _ask(client, domain, prompt, k, rejects):
+        for item in _ask(client, prompt, k, rejects):
             text, answer = _text(item), _text(item, "answer")
             if not text or not answer:
                 bump(rejects, "invalid_item")
@@ -713,7 +712,7 @@ def check_then_change_units(
         def prompt(size: int, op=op) -> tuple[str, str]:
             return check_then_change_prompt(domain, op.name, size)
 
-        for item in _ask(client, domain, prompt, k, rejects):
+        for item in _ask(client, prompt, k, rejects):
             check, conditional = _text(item, "check"), _text(item, "conditional")
             name, args = item.get("operation"), item.get("args")
             checked = domain.get(name) if isinstance(name, str) else None

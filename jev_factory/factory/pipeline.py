@@ -831,7 +831,7 @@ def stage_seed(workdir: Path, knobs: dict[str, Any]) -> None:
     )
 
 
-def _teacher_client(workdir: Path) -> Any:
+def _teacher_client() -> Any:
     ctx = _ctx()
     if ctx.services.teacher_client is not None:
         return ctx.services.teacher_client
@@ -870,7 +870,7 @@ def stage_teachers_pilot(workdir: Path, knobs: dict[str, Any]) -> None:
     from jev_factory.data import draft
 
     ctx = _ctx()
-    client = _teacher_client(workdir)
+    client = _teacher_client()
     out = workdir / PILOT_DIR
     seed = int(ctx.config.get("seed") or 0)
     result = draft.run_draft(
@@ -943,7 +943,7 @@ def stage_draft_heldout(workdir: Path, knobs: dict[str, Any]) -> None:
         source = Path(drafted["path"])
         if knobs.get("review", True):
             reviewed_dir = workdir / "heldout" / "reviewed"
-            draft.run_review(ctx.domain, source, reviewed_dir, _teacher_client(workdir))
+            draft.run_review(ctx.domain, source, reviewed_dir, _teacher_client())
             source = reviewed_dir / "draft.json"
         doc = _read_json(source)
     draft.write_sealed(out, doc)
@@ -963,7 +963,7 @@ def stage_draft_eval(workdir: Path, knobs: dict[str, Any]) -> None:
         int(knobs["per_op"]),
         int(knobs["per_reason"]),
         int(knobs["explain"]),
-        _teacher_client(workdir),
+        _teacher_client(),
         only_reasons=list(only) if only else None,
         max_batch=int(knobs["max_batch"]),
         jobdir=workdir / JOBS_DIR / "draft-eval",
@@ -1031,6 +1031,9 @@ def _stock_values(val: Sequence[Prediction], mc: Sequence[Prediction], domain: D
     }
 
 
+PROBE_FILE = "probe.json"
+
+
 def stage_baseline(workdir: Path, knobs: dict[str, Any]) -> None:
     """Measure the stock base model (a greedy stock copy) on the validation side.
 
@@ -1084,7 +1087,7 @@ def stage_baseline(workdir: Path, knobs: dict[str, Any]) -> None:
     if knobs.get("probe", True):
         report = probe(
             _selection_split(workdir, folds, out / "val-selection.json"),
-            out / "probe.json",
+            out / PROBE_FILE,
             model=str(stock),
             revision=revision,
             per_entry=10,
@@ -1128,7 +1131,7 @@ def stage_augment(workdir: Path, knobs: dict[str, Any]) -> None:
         result = augment.run_augment(
             [workdir / TRAIN_SPLIT],
             ctx.domain,
-            _teacher_client(workdir),
+            _teacher_client(),
             accepted,
             rejected,
             per_source,
@@ -1158,7 +1161,7 @@ def stage_targeted(workdir: Path, knobs: dict[str, Any]) -> None:
             int(knobs["per_recipe"]),
             int(ctx.config.get("seed") or 0),
             ctx.domain,
-            _teacher_client(workdir),
+            _teacher_client(),
             exclude=[workdir / VAL_SPLIT, workdir / TEST_SPLIT],
             decide_by=str(knobs["decide_by"]),
             review_out=workdir / "aug" / "targeted-review.jsonl",
@@ -1339,6 +1342,9 @@ def _train_fields(workdir: Path, name: str) -> dict[str, Any]:
     return out
 
 
+SUMMARY_FILE = "summary.json"
+
+
 def stage_select(workdir: Path, knobs: dict[str, Any]) -> None:
     """Per candidate: calibrate -> gate fit (fit fold) -> probe; then the pre-registered rule.
 
@@ -1394,7 +1400,7 @@ def stage_select(workdir: Path, knobs: dict[str, Any]) -> None:
         revision = revision_file.read_text().strip() if revision_file.is_file() else "unknown"
         report = probe(
             selection_split,
-            here / "probe.json",
+            here / PROBE_FILE,
             model=str(run_dir / "merged"),
             revision=revision,
             per_entry=registered.perms_per_entry,
@@ -1422,7 +1428,7 @@ def stage_select(workdir: Path, knobs: dict[str, Any]) -> None:
             "predictions_sha256": val_sha,
             **_train_fields(workdir, name),
         }
-        summary_path = _write_json(here / "summary.json", doc)
+        summary_path = _write_json(here / SUMMARY_FILE, doc)
         summaries.append(rules.load_summary(summary_path))
     if missing:
         raise _err(
@@ -1686,12 +1692,12 @@ def stage_recalibrate(workdir: Path, knobs: dict[str, Any]) -> None:
     )
     _write_json(
         workdir / DEPLOYED_BUILD,
-        {**deployed, "selection": {k: v for k, v in fitted["numbers"].items()}},
+        {**deployed, "selection": dict(fitted["numbers"])},
     )
 
 
 def _final_side(
-    workdir: Path, lines: Sequence[Prediction], thresholds: gate_mod.Thresholds, resamples: int
+    lines: Sequence[Prediction], thresholds: gate_mod.Thresholds, resamples: int
 ) -> tuple[list[Prediction], dict]:
     domain = _ctx().domain
     gated = [sweep_gate.redecide(p, thresholds, domain) for p in lines]
@@ -1780,8 +1786,8 @@ def stage_measure_final(workdir: Path, knobs: dict[str, Any]) -> None:
             missing_candidate=True,
             **flag,
         )
-        gated, computed = _final_side(workdir, read_predictions(full), thresholds, resamples)
-        gated_mc = _final_side(workdir, read_predictions(mc), thresholds, 0)[0]
+        gated, computed = _final_side(read_predictions(full), thresholds, resamples)
+        gated_mc = _final_side(read_predictions(mc), thresholds, 0)[0]
         write_predictions(workdir / "final" / f"{side}.gated.predictions.jsonl", gated)
         right = computed["right_proposals"]
         values = {
@@ -1804,7 +1810,7 @@ def stage_measure_final(workdir: Path, knobs: dict[str, Any]) -> None:
         with ctx.services.serve(ctx, gguf, model, workdir / "final" / "serve") as base_url:
             probe_report = probe(
                 workdir / TEST_SPLIT,
-                workdir / "final" / "probe.json",
+                workdir / "final" / PROBE_FILE,
                 model=model,
                 revision=revision,
                 per_entry=registered.perms_per_entry,
@@ -2468,9 +2474,9 @@ def decide(
     workdir = Path(workdir)
     registered, prereg_sha = _prereg(workdir, ctx)
     summaries = [
-        rules.load_summary(workdir / SELECT_DIR / name / "summary.json")
+        rules.load_summary(workdir / SELECT_DIR / name / SUMMARY_FILE)
         for name in registered.candidates
-        if (workdir / SELECT_DIR / name / "summary.json").is_file()
+        if (workdir / SELECT_DIR / name / SUMMARY_FILE).is_file()
     ]
     if not summaries:
         raise _err("no candidate summaries in this run", "run the select stage first")

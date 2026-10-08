@@ -757,7 +757,7 @@ def fetch_models(url: str, timeout: float = 5.0) -> dict | None:
             if response.status != 200:
                 return None
             payload = json.loads(response.read())
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+    except (OSError, ValueError):  # URLError and TimeoutError are OSErrors
         return None
     return payload if isinstance(payload, dict) else None
 

@@ -610,6 +610,9 @@ def _stepper(jobdir: Path | None, name: str, total: int) -> Step:
 # ---------------------------------------------------------------------------
 
 
+DRAFT_FILE = "draft.json"
+
+
 def run_draft(
     domain: Domain,
     out_dir: Path,
@@ -698,7 +701,7 @@ def run_draft(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     doc = {"header": header, "entries": entries}
-    (out_dir / "draft.json").write_text(
+    (out_dir / DRAFT_FILE).write_text(
         json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     (out_dir / "review.jsonl").write_text(_review_lines(rows, strip_text=False), encoding="utf-8")
@@ -846,7 +849,7 @@ def draft_heldout(
                 }
             )
     doc = {"header": held_out_header(model, snapshot, seed, domain), "entries": entries}
-    path = Path(out_dir) / "draft.json"
+    path = Path(out_dir) / DRAFT_FILE
     write_sealed(path, doc)
     return {**summarize_sealed(path), "snapshot": snapshot, "rejects": rejects}
 
@@ -963,7 +966,7 @@ def run_review(
         "lead agent has not read these entries."
     )
     out_dir = Path(out_dir)
-    path = out_dir / "draft.json"
+    path = out_dir / DRAFT_FILE
     write_sealed(path, {"header": header, "entries": kept})
     (out_dir / "review.jsonl").write_text(_review_lines(rows, strip_text=True), encoding="utf-8")
     return {**summarize_sealed(path), "rejects": rejects}

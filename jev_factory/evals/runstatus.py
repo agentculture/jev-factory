@@ -50,7 +50,7 @@ def status(run_dir: Path) -> dict:
     for rec in ledger_doc.get("entries", {}).values():
         spec = rec.get("spec", {})
         label = by_spec.get((spec.get("provider"), spec.get("model")), "(unknown)")
-        row = per_model.setdefault(label, {name: 0 for name in _COUNTS})
+        row = per_model.setdefault(label, dict.fromkeys(_COUNTS, 0))
         row[rec["state"]] = row.get(rec["state"], 0) + 1
     reserved: dict[str, float] = {}
     for held in state.get("reserved", {}).values():
@@ -62,11 +62,11 @@ def status(run_dir: Path) -> dict:
         row["answers"] = info.get("answers", 0)
         row["spend_usd"] = round(label_spend.get(label, 0.0), 6)
         kind = label_provider.get(label, "(unknown)")
-        total = per_provider.setdefault(kind, {name: 0 for name in _COUNTS})
+        total = per_provider.setdefault(kind, dict.fromkeys(_COUNTS, 0))
         for name in _COUNTS:
             total[name] += row[name]
     for kind in set(provider_spend) | set(reserved):
-        per_provider.setdefault(kind, {name: 0 for name in _COUNTS})
+        per_provider.setdefault(kind, dict.fromkeys(_COUNTS, 0))
     budgets = state.get("budgets", {})
     for kind, total in per_provider.items():
         total["spend_usd"] = round(provider_spend.get(kind, 0.0), 6)

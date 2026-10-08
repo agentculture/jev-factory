@@ -98,12 +98,12 @@ def collect(workdir: Path) -> dict[str, Any]:
 #: The standard update interval for long-running work (operator decision d15).
 DEFAULT_EVERY_SECONDS = 30 * 60
 
-_DURATION_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([smh]?)\s*$")
+_DURATION_RE = re.compile(r"(\d+(?:\.\d+)?) *([smh]?)")
 
 
 def parse_every(text: str) -> float:
     """``90``/``90s``, ``30m``, ``1h`` -> seconds (at least one second)."""
-    match = _DURATION_RE.match(str(text))
+    match = _DURATION_RE.fullmatch(str(text).strip())
     if not match:
         raise CliError(
             EXIT_USER_ERROR, f"--every {text!r} is not a duration", "use e.g. 30m, 1h or 90s"
