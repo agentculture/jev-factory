@@ -1,5 +1,7 @@
 # shellcheck shell=bash
-# Vendored from nvsh scripts/lfm-finetune/capped.sh @ 9debdc6 (see NVSH_PROVENANCE in gpu.py); byte-identical below this line.
+# Vendored from nvsh scripts/lfm-finetune/capped.sh @ 9debdc6 (see NVSH_PROVENANCE in gpu.py).
+# d17: [[ ]] tests, explicit returns, named locals for positional parameters and a default
+# case (SonarCloud shell rules); behaviour unchanged, checked by tests/test_factory_gpu.py.
 # Sourced by pipeline.sh: run a heavy stage under a hard memory cap (issue 46, c49).
 #
 # The cap is RAM *and* swap. MemoryMax alone is not a hard cap on a box with
@@ -22,10 +24,12 @@ free_mem_line() {
   # One free-memory line, unified-memory-friendly (Jetson/GB10 share system
   # RAM with the GPU, so "free" here is the number that matters).
   free -h | awk -v ts="$(date -u +%FT%TZ)" '/^Mem:/{print ts, "free="$4, "avail="$7}'
+  return $?
 }
 
 mem_available_kb() {
   awk '/^MemAvailable:/{print $2; exit}' /proc/meminfo
+  return $?
 }
 
 size_to_kb() {
@@ -41,8 +45,9 @@ size_to_kb() {
     M) n=$((n * 1024)) ;;
     G) n=$((n * 1024 * 1024)) ;;
     T) n=$((n * 1024 * 1024 * 1024)) ;;
+    *) return 1 ;;
   esac
-  [ "$n" -gt 0 ] || return 1
+  [[ "$n" -gt 0 ]] || return 1
   echo "$n"
 }
 
@@ -56,17 +61,17 @@ _watch_memory() {
   trap 'kill "$nap" 2>/dev/null; exit 0' TERM
   while :; do
     avail=$(mem_available_kb)
-    if [ -n "$avail" ] && [ "$avail" -lt "$floor_kb" ]; then
+    if [[ -n "$avail" ]] && [[ "$avail" -lt "$floor_kb" ]]; then
       echo "$(date -u +%FT%TZ) watchdog: MemAvailable $((avail / 1024))M below floor $floor, stopping" \
         | tee -a "$mem_log" > "$trip_file"
       # run_capped waits for us once TRIP_FILE exists; finish the stop.
       trap '' TERM
       for ((i = 0; i < 100; i++)); do
-        [ -s "$pgid_file" ] && break
+        [[ -s "$pgid_file" ]] && break
         sleep 0.1
       done
       pgid=$(cat "$pgid_file" 2>/dev/null) || exit 0
-      [ -n "$pgid" ] || exit 0
+      [[ -n "$pgid" ]] || exit 0
       kill -TERM -- "-$pgid" 2>/dev/null || exit 0
       for ((i = 0; i < 10; i++)); do
         sleep 1
@@ -77,7 +82,7 @@ _watch_memory() {
     fi
     sleep "$interval" & nap=$!; wait "$nap"
     elapsed=$((elapsed + interval))
-    if [ "$elapsed" -ge 60 ]; then
+    if [[ "$elapsed" -ge 60 ]]; then
       free_mem_line >> "$mem_log"
       elapsed=0
     fi
@@ -92,17 +97,17 @@ _run_capped_stop() {
   # Stop and reap CMD's process group (SIGTERM, SIGKILL after 10 s), the
   # watchdog and the output pipeline, and remove run_capped's state
   # directory. Idempotent: a no-op once done.
-  [ "$_RC_ACTIVE" = 1 ] || return 0
+  [[ "$_RC_ACTIVE" = 1 ]] || return 0
   _RC_ACTIVE=0
   local pgid="" i
   # CMD may not have recorded its pid yet if the stop lands right at the start.
   for ((i = 0; i < 100; i++)); do
-    [ -s "$_RC_PGID_FILE" ] && break
+    [[ -s "$_RC_PGID_FILE" ]] && break
     kill -0 "$_RC_RUNNER" 2>/dev/null || break
     sleep 0.1
   done
   pgid=$(cat "$_RC_PGID_FILE" 2>/dev/null) || pgid=""
-  if [ -n "$pgid" ] && kill -TERM -- "-$pgid" 2>/dev/null; then
+  if [[ -n "$pgid" ]] && kill -TERM -- "-$pgid" 2>/dev/null; then
     for ((i = 0; i < 100; i++)); do
       kill -0 -- "-$pgid" 2>/dev/null || break
       sleep 0.1
@@ -119,27 +124,32 @@ _run_capped_stop() {
 _run_capped_restore_traps() {
   trap - TERM INT HUP EXIT
   eval "$_RC_PREV_TRAPS"
+  return $?
 }
 
 _run_capped_on_signal() {
   # _run_capped_on_signal SIG: stop CMD, put the caller's traps back, then
   # deliver SIG again so the caller (or the default action) handles it.
+  local sig=$1
   _run_capped_stop
   _run_capped_restore_traps
-  kill -s "$1" "$BASHPID"
+  kill -s "$sig" "$BASHPID"
+  return $?
 }
 
 _run_capped_on_exit() {
   # The shell is exiting inside run_capped: stop CMD, then run the caller's
   # own EXIT trap, which bash would otherwise never run.
-  local prev_exit
+  local prev_exit handler
   _run_capped_stop
   prev_exit=$(printf '%s\n' "$_RC_PREV_TRAPS" | grep -E ' (SIG)?EXIT$' || true)
   _run_capped_restore_traps
-  if [ -n "$prev_exit" ]; then
+  if [[ -n "$prev_exit" ]]; then
     eval "set -- $prev_exit"
-    eval "$3"
+    handler=$3
+    eval "$handler"
   fi
+  return $?
 }
 
 run_capped() {
@@ -167,7 +177,7 @@ run_capped() {
   local -a cap
   if command -v systemd-run >/dev/null 2>&1; then
     cap=(systemd-run --user --scope --quiet -p "MemoryMax=$TRAIN_MEMORY_MAX" -p MemorySwapMax=0 --)
-  elif [ "${TRAIN_MEMORY_CAP:-}" = container ]; then
+  elif [[ "${TRAIN_MEMORY_CAP:-}" = container ]]; then
     cap=()
   else
     echo "run_capped: no systemd-run to cap memory; set TRAIN_MEMORY_CAP=container only if a container --memory cap applies" >&2
@@ -210,7 +220,7 @@ run_capped() {
   wait "$_RC_RUNNER"
   status=$?
   set -e
-  if [ -s "$trip_file" ]; then
+  if [[ -s "$trip_file" ]]; then
     cat "$trip_file" >&2
     wait "$_RC_WATCHER" 2>/dev/null || true
     _RC_ACTIVE=0

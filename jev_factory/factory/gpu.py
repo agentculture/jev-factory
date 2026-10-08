@@ -27,7 +27,8 @@ NVSH_PROVENANCE = {
     "upstream": "scripts/lfm-finetune/capped.sh",
     "commit": "9debdc6",
     "adaptations": [
-        "capped.sh is vendored unchanged as jev_factory/factory/capped.sh and run through bash",
+        "capped.sh is vendored as jev_factory/factory/capped.sh and run through bash; d17 changed"
+        " only shell style ([[ ]] tests, explicit returns, named locals, a default case)",
         "run_capped, the residency guard and the stage wrapper are new Python seams",
         "tests ported from tests/test_lfm_finetune_pipeline.py (run_capped and watchdog tests)",
     ],
