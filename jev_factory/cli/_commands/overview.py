@@ -1,7 +1,7 @@
 """``jev-factory overview`` — read-only descriptive snapshot of the agent.
 
 Describes the agent to an agent reader: identity (from culture.yaml), the verb
-surface, and the sibling-pattern artifacts this template carries. The shared
+surface, and the sibling-pattern artifacts this repo carries. The shared
 section/render helpers here are reused by the ``cli`` noun's ``overview`` (see
 :mod:`jev_factory.cli._commands.cli`).
 
@@ -25,6 +25,11 @@ _ARTIFACTS = [
 ]
 
 _VERBS = [
+    "init <domain> — scaffold a run directory and run config (dry-run by default)",
+    "run <stage> — run one build stage (dry-run by default; --apply, --detach)",
+    "status <run> — stage manifests, staleness and detached-job progress",
+    "decide <run> — apply the pre-registered rule and append a decision record",
+    "ask <request> — propose one jev verb from a bundle; executes nothing",
     "whoami — identity probe (nick, version, backend, model)",
     "learn — structured self-teaching prompt",
     "explain <path> — markdown docs for a topic",

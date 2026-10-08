@@ -43,9 +43,31 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
 
       - name: scan for committed secrets and non-localhost endpoints
         run: python3 scripts/scan-secrets.py
+
+      # portability-lint.sh lints the files modified vs HEAD, which on a clean CI
+      # checkout is nothing. Rewind HEAD to the change's base (index kept) so the
+      # files this PR or push touches are the ones it lints. The vendored skill
+      # kit is cited verbatim and is not linted wholesale (`--all` would flag it).
+      - name: portability lint (paths that leak a user or a host)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$BASE_SHA" ] && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            git reset --soft "$BASE_SHA"
+          elif git rev-parse --verify -q HEAD~1 >/dev/null; then
+            git reset --soft HEAD~1
+          fi
+          # Devague records and planning prose quote the lint's own patterns and
+          # are never edited in place; drop them from this diff (same waiver as
+          # scripts/harness-smoke.py STEWARD_WAIVED_PORTABILITY_PREFIXES).
+          git restore --source=HEAD --staged --worktree -- \
+            .devague docs/specs docs/plans docs/deliveries 2>/dev/null || true
+          bash .claude/skills/cicd/scripts/portability-lint.sh
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:

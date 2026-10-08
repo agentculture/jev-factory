@@ -112,6 +112,24 @@ STEWARD_WAIVED_PORTABILITY_PATHS = frozenset(
         ".claude/skills/remember/SKILL.md",
     }
 )
+# Devague records and planning prose quote the lint's own patterns (a pytest
+# param id holding a home-directory path, or the dotfile-path wording), and
+# confirmed records are never edited in place. Waived by prefix, as nvsh's
+# harness-smoke does; code and other docs are never waived.
+STEWARD_WAIVED_PORTABILITY_PREFIXES = (
+    ".devague/",
+    "docs/specs/",
+    "docs/plans/",
+    "docs/deliveries/",
+)
+
+
+def portability_waived(paths: set[str]) -> bool:
+    """True when every flagged path is an exact waiver or under a waived prefix."""
+    return bool(paths) and all(
+        p in STEWARD_WAIVED_PORTABILITY_PATHS or p.startswith(STEWARD_WAIVED_PORTABILITY_PREFIXES)
+        for p in paths
+    )
 
 PASS, FAIL, SKIP, WAIVED = "PASS", "FAIL", "SKIP", "WAIVED"
 
@@ -501,7 +519,7 @@ def check_steward_doctor(repo: Path, timeout: int) -> Result:
         check = str(finding.get("check", "?"))
         message = str(finding.get("message", ""))
         paths = set(_FINDING_PATH.findall(message))
-        if check == "portability" and paths and paths <= STEWARD_WAIVED_PORTABILITY_PATHS:
+        if check == "portability" and portability_waived(paths):
             waived.append(f"{check} ({', '.join(sorted(paths))})")
         else:
             unexpected.append(f"{check}: {message.strip()[:300]}")

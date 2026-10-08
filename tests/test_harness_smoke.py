@@ -438,3 +438,16 @@ def test_guild_exiting_nonzero_with_no_output_skips_loudly(on_path: Path, clone:
     _fake_tool(on_path, "guild", "", "guild: not installed", 127)
     results = smoke.check_guild_create(clone, smoke.load_invocations(clone), 30)
     assert all(r.status == "SKIP" for r in results), [r.detail for r in results]
+
+
+def test_portability_findings_in_planning_records_are_waived_by_prefix():
+    # Devague records and planning prose quote the lint's own patterns
+    # (e.g. a pytest param id with a home-directory path, or dotfile wording);
+    # they are waived by prefix, as nvsh's harness-smoke does. Code is not.
+    smoke = _load_smoke()
+    assert smoke.portability_waived({".devague/frames/x.json", "docs/specs/a.md"})
+    assert smoke.portability_waived({"docs/plans/p.md", "docs/deliveries/d.md"})
+    assert smoke.portability_waived({".claude/skills/recall/SKILL.md"})
+    assert not smoke.portability_waived({"jev_factory/x.json"})
+    assert not smoke.portability_waived({".devague/frames/x.json", "README.md"})
+    assert not smoke.portability_waived(set())

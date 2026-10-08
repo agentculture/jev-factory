@@ -7,7 +7,7 @@ from importlib.metadata import version as _pkg_version
 
 try:
     __version__ = _pkg_version("jev-factory")
-except PackageNotFoundError:  # pragma: no cover - editable install without metadata
+except PackageNotFoundError:  # editable install without metadata
     __version__ = "0.0.0"
 
 __all__ = ["__version__"]

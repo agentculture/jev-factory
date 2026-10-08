@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jev review</title>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css"
+  integrity="sha384-uySezIHhsCs2A2+GIarZ89Bi2gd6yjY0I1FFVamfrk6hgEUWLuBYlXA7bYr6dHaJ" crossorigin="anonymous">
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #dcdcd6;
+  --pending: #b7791f; --approved: #2f855a; --rejected: #c53030; --edited: #2b6cb0;
+  --proposed: #6b46c1; --mutating: #c05621; --accent: #2b6cb0;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --panel: #1f1f1d; --ink: #ecece8; --muted: #a0a09a; --line: #3a3a36;
+    --pending: #ecc94b; --approved: #68d391; --rejected: #fc8181; --edited: #63b3ed;
+    --proposed: #b794f4; --mutating: #f6ad55; --accent: #63b3ed;
+  }
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, sans-serif; }
+.app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 14px;
+  border-bottom: 1px solid var(--line); background: var(--panel); }
+.bar h1 { font-size: 16px; margin: 0; }
+.bar select, .bar input { font: inherit; padding: 3px 6px; background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 4px; }
+.counts span { margin-right: 10px; white-space: nowrap; }
+.main { display: grid; grid-template-columns: 1fr minmax(340px, 38%); min-height: 0; }
+.flow { min-height: 0; }
+.side { overflow: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 12px 14px; }
+.side h2 { font-size: 15px; margin: 0 0 4px; word-break: break-all; }
+.muted { color: var(--muted); }
+.warn { color: var(--rejected); }
+.chip { display: inline-block; padding: 0 6px; border-radius: 9px; font-size: 12px; color: #fff; }
+.st-pending { background: var(--pending); } .st-approved { background: var(--approved); }
+.st-rejected { background: var(--rejected); } .st-edited { background: var(--edited); }
+.st-proposed { background: var(--proposed); }
+.card { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+.card.sel { outline: 2px solid var(--accent); }
+.card .text { margin: 6px 0; font-size: 15px; }
+.card .expect { font: 12px ui-monospace, monospace; color: var(--muted); overflow-wrap: anywhere; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+button { font: inherit; padding: 3px 10px; border-radius: 4px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--ink); cursor: pointer; }
+button.ok { border-color: var(--approved); color: var(--approved); }
+button.no { border-color: var(--rejected); color: var(--rejected); }
+button.ed { border-color: var(--edited); color: var(--edited); }
+button:disabled { opacity: .5; cursor: default; }
+input.note { flex: 1; min-width: 120px; }
+input, textarea { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 4px; padding: 3px 6px; }
+textarea { width: 100%; }
+label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.vnode { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--ink); min-width: 150px; font-size: 13px; }
+.vnode.sel { outline: 2px solid var(--accent); }
+.vnode .k { font-size: 11px; color: var(--muted); }
+.vnode.mut { border-left: 4px solid var(--mutating); }
+.vnode .bars { display: flex; height: 4px; margin-top: 4px; border-radius: 2px; overflow: hidden; }
+.enode { padding: 4px 8px; border-radius: 5px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--ink); width: 260px; font-size: 12px; }
+.enode .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.react-flow__controls-button { background: var(--panel); color: var(--ink); border-color: var(--line); }
+.react-flow__controls-button svg { fill: var(--ink); }
+.toast { position: fixed; bottom: 14px; left: 14px; padding: 8px 12px; border-radius: 6px;
+  background: var(--panel); border: 1px solid var(--line); max-width: 60%; }
+@media (max-width: 800px) { .main { grid-template-columns: 1fr; grid-template-rows: 50% 50%; }
+  .side { border-left: none; border-top: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<div id="root"><p style="padding:16px">Loading the review site&hellip; (React and React Flow load from unpkg.com)</p></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+  integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+  integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"
+  integrity="sha384-lA1w00Vex5qXDv4/xYJO/e8SCjfdlNghbTP+s+2zl37rCEAC7trsSRpYrv/JQy5y" crossorigin="anonymous"></script>
+<script>
+"use strict";
+(function () {
+  const TOKEN = "__JEV_REVIEW_KEY__";
+  const h = React.createElement;
+  const { useState, useEffect, useMemo, useCallback } = React;
+  const RF = window.ReactFlow;
+  const Flow = RF.default || RF.ReactFlow;
+  const { Background, Controls, MiniMap, Handle, Position } = RF;
+  const STATUSES = ["pending", "approved", "rejected", "edited", "proposed"];
+  const ROW = 54, COL = 230;
+
+  async function api(path, body) {
+    const init = { headers: { "X-Review-Key": TOKEN } };
+    if (body !== undefined) {
+      init.method = "POST";
+      init.headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(body);
+    }
+    const res = await fetch(path, init);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    return data;
+  }
+
+  function expectText(expect) {
+    if (!expect) return "";
+    if (expect.escalate) return "escalate";
+    if (expect.explain) return "explain: " + (expect.answer || "");
+    const args = expect.args && Object.keys(expect.args).length ? " " + JSON.stringify(expect.args) : "";
+    return (expect.operation || "?") + args;
+  }
+
+  // Tidy tree: leaves get consecutive rows, a parent sits at the middle of its children.
+  function layout(nodes) {
+    const kids = {};
+    let root = null;
+    nodes.forEach(n => {
+      if (n.parent === null) { root = n.id; return; }
+      if (!kids[n.parent]) kids[n.parent] = [];
+      kids[n.parent].push(n.id);
+    });
+    const pos = {};
+    let row = 0;
+    (function place(id, depth) {
+      const cs = kids[id] || [];
+      if (!cs.length) { pos[id] = { x: depth * COL, y: row++ * ROW }; return; }
+      cs.forEach(c => place(c, depth + 1));
+      const ys = cs.map(c => pos[c].y);
+      pos[id] = { x: depth * COL, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+    })(root, 0);
+    return { pos, kids, root };
+  }
+
+  const entries = n => n + " entr" + (n === 1 ? "y" : "ies");
+  function effectOf(readOnly) {
+    if (readOnly === false) return " · mutating";
+    return readOnly ? " · read-only" : "";
+  }
+
+  function VerbNode({ data }) {
+    const c = data.counts, total = STATUSES.reduce((s, k) => s + (c[k] || 0), 0);
+    const cls = "vnode" + (data.selected ? " sel" : "") + (data.read_only === false ? " mut" : "");
+    return h("div", { className: cls, title: data.description || data.id },
+      h(Handle, { type: "target", position: Position.Left, style: { opacity: 0 } }),
+      h("div", null, h("b", null, data.label)),
+      h("div", { className: "k" }, data.kind + (data.read_only === false ? " · mutating" : "")
+        + (total ? " · " + entries(total) : "")
+        + (c.pending ? " · " + c.pending + " pending" : "")),
+      total ? h("div", { className: "bars" }, STATUSES.filter(k => c[k]).map(k =>
+        h("div", { key: k, style: { flex: c[k], background: "var(--" + k + ")" } }))) : null,
+      h(Handle, { type: "source", position: Position.Right, style: { opacity: 0 } }));
+  }
+
+  function EntryNode({ data }) {
+    return h("div", { className: "enode" + (data.selected ? " sel" : ""), style: { borderLeft: "4px solid var(--" + data.status + ")" } },
+      h(Handle, { type: "target", position: Position.Left, style: { opacity: 0 } }),
+      h("div", { className: "k muted" }, data.id + " · " + data.status),
+      h("div", { className: "t" }, data.text));
+  }
+  const nodeTypes = { verb: VerbNode, entry: EntryNode };
+
+  function Editor({ state, draft, onDone, notify }) {
+    const [text, setText] = useState(draft.entry.text || "");
+    const [klass, setKlass] = useState(draft.entry.class || "");
+    const [kind, setKind] = useState(draft.entry.kind || (state.kinds[0] || "explicit"));
+    const [expect, setExpect] = useState(JSON.stringify(draft.entry.expect || {}, null, 1));
+    const [note, setNote] = useState("");
+    const [problems, setProblems] = useState([]);
+    const build = () => {
+      const entry = { ...draft.entry, id: draft.entry.id, kind, text, expect: JSON.parse(expect) };
+      if (klass) entry["class"] = klass; else delete entry["class"];
+      return entry;
+    };
+    const check = async () => {
+      try { setProblems((await api("/api/check", { entry: build() })).problems); }
+      catch (e) { setProblems([String(e.message || e)]); }
+    };
+    const save = async () => {
+      try {
+        await api("/api/decision", { action: draft.action, entry_id: draft.entry.id, after: build(), note });
+        notify(draft.action === "propose" ? "proposed " + draft.entry.id : "edited " + draft.entry.id);
+        onDone(true);
+      } catch (e) { setProblems([String(e.message || e)]); }
+    };
+    return h("div", { className: "card sel" },
+      h("b", null, (draft.action === "propose" ? "Propose " : "Edit ") + draft.entry.id),
+      h("label", null, "text"), h("textarea", { rows: 3, value: text, onChange: e => setText(e.target.value) }),
+      h("label", null, "class"), h("input", { list: "classes", value: klass, onChange: e => setKlass(e.target.value) }),
+      h("datalist", { id: "classes" }, state.classes.map(c => h("option", { key: c, value: c }))),
+      h("label", null, "kind"), h("input", { value: kind, onChange: e => setKind(e.target.value) }),
+      h("label", null, "expect (JSON)"), h("textarea", { rows: 4, className: "expect", value: expect, onChange: e => setExpect(e.target.value) }),
+      h("label", null, "note (why)"), h("input", { className: "note", value: note, onChange: e => setNote(e.target.value) }),
+      problems.length ? h("ul", { className: "warn" }, problems.map((p, i) => h("li", { key: i }, p))) : null,
+      h("div", { className: "row" },
+        h("button", { onClick: check }, "Check"),
+        h("button", { className: "ed", onClick: save }, draft.action === "propose" ? "Propose" : "Save edit"),
+        h("button", { onClick: () => onDone(false) }, "Cancel")));
+  }
+
+  function EntryCard({ item, selected, onSelect, onDecide, onEdit }) {
+    const [note, setNote] = useState("");
+    const e = item.entry, d = item.decision, proposal = item.status === "proposed";
+    return h("div", { className: "card" + (selected ? " sel" : ""), onClick: onSelect },
+      h("div", null, h("span", { className: "chip st-" + item.status }, item.status), " ",
+        h("b", null, e.id), h("span", { className: "muted" }, " · " + (e["class"] || "") + " · " + (e.source || ""))),
+      h("div", { className: "text" }, e.text),
+      h("div", { className: "expect" }, expectText(e.expect)),
+      d && d.note ? h("div", { className: "muted" }, "note: " + d.note) : null,
+      d && d.action === "edit" && d.after ? h("div", { className: "muted" }, "edited to: " + d.after.text) : null,
+      h("div", { className: "row" },
+        proposal ? null : h("button", { className: "ok", onClick: ev => { ev.stopPropagation(); onDecide("approve", note); } }, "Approve"),
+        h("button", { className: "no", onClick: ev => { ev.stopPropagation(); onDecide("reject", note); } }, proposal ? "Withdraw" : "Reject"),
+        h("button", { className: "ed", onClick: ev => { ev.stopPropagation(); onEdit(); } }, proposal ? "Revise" : "Edit"),
+        h("input", { className: "note", placeholder: "note (optional)", value: note,
+          onClick: ev => ev.stopPropagation(), onChange: ev => setNote(ev.target.value) })));
+  }
+
+  function Intro({ state }) {
+    return h("div", null,
+      h("h2", null, "Seed review"),
+      h("p", { className: "muted" }, "Pick a verb in the tree to see its seed entries. Approve, reject or edit each, or propose a new one. Every decision is appended to the review file; the seed changes only with jev review --apply."),
+      h("p", { className: "muted" }, "seed: " + state.seed.path + " (" + state.seed.entries + " entries)"),
+      h("p", { className: "muted" }, "review file: " + state.review_file),
+      state.conflicts.concat(state.problems).map((p, i) => h("p", { key: i, className: "warn" }, p)));
+  }
+
+  // The entry to start an edit from: an edited entry's latest version, else the entry.
+  function editBase(item) {
+    if (item.status === "edited" && item.decision.after) return item.decision.after;
+    return item.entry;
+  }
+
+  function VerbPanel({ node, mine, draft, selEntry, state, notify, propose, decide, load, setDraft, setSelEntry }) {
+    const canPropose = node.kind !== "group" && node.kind !== "domain";
+    return h("div", null,
+      h("h2", null, node.id),
+      h("div", { className: "muted" }, node.kind + effectOf(node.read_only)),
+      node.description && h("p", null, node.description),
+      canPropose && h("div", { className: "row" }, h("button", { onClick: propose }, "Propose an entry here")),
+      draft && h(Editor, { key: draft.entry.id + draft.action, state, draft, notify,
+        onDone: async changed => { setDraft(null); if (changed) await load(); } }),
+      h("p", { className: "muted" }, entries(mine.length) + " under this filter"),
+      mine.map(it => h(EntryCard, { key: it.entry.id + it.status, item: it, selected: selEntry === it.entry.id,
+        onSelect: () => setSelEntry(it.entry.id),
+        onDecide: (action, note) => decide(it, action, note),
+        onEdit: () => setDraft({ action: it.status === "proposed" ? "propose" : "edit",
+          entry: structuredClone(editBase(it)) }) })));
+  }
+
+  function App() {
+    const [state, setState] = useState(null);
+    const [error, setError] = useState("");
+    const [sel, setSel] = useState(null);
+    const [selEntry, setSelEntry] = useState(null);
+    const [filter, setFilter] = useState("all");
+    const [query, setQuery] = useState("");
+    const [draft, setDraft] = useState(null);
+    const [toast, setToast] = useState("");
+    const notify = useCallback(m => { setToast(m); setTimeout(() => setToast(""), 2500); }, []);
+    const load = useCallback(async () => {
+      try { setState(await api("/api/state")); setError(""); } catch (e) { setError(String(e.message || e)); }
+    }, []);
+    useEffect(() => { load(); }, [load]);
+
+    const visible = useMemo(() => {
+      if (!state) return [];
+      const q = query.trim().toLowerCase();
+      return state.entries.filter(it => {
+        if (filter === "pending" && it.status !== "pending") return false;
+        if (filter.startsWith("status:") && it.status !== filter.slice(7)) return false;
+        // A source filter never hides proposals: they are the operator's own new entries.
+        if (filter.startsWith("source:") && it.status !== "proposed" && it.entry.source !== filter.slice(7)) return false;
+        return !q || (it.entry.text + " " + it.entry.id).toLowerCase().includes(q);
+      });
+    }, [state, filter, query]);
+
+    const graph = useMemo(() => {
+      if (!state) return { nodes: [], edges: [] };
+      const { pos } = layout(state.nodes);
+      const counts = {};
+      state.nodes.forEach(n => { counts[n.id] = {}; });
+      const parent = Object.fromEntries(state.nodes.map(n => [n.id, n.parent]));
+      visible.forEach(it => {
+        for (let id = it.node; id !== null && id !== undefined; id = parent[id]) {
+          counts[id][it.status] = (counts[id][it.status] || 0) + 1;
+        }
+      });
+      const nodes = state.nodes.map(n => ({ id: "v:" + n.id, type: "verb", position: pos[n.id],
+        data: { ...n, counts: counts[n.id], selected: sel === n.id } }));
+      const edges = state.nodes.filter(n => n.parent !== null).map(n =>
+        ({ id: "e:" + n.id, source: "v:" + n.parent, target: "v:" + n.id, type: "smoothstep" }));
+      if (sel && pos[sel]) {
+        const mine = visible.filter(it => it.node === sel);
+        const x = Math.max(...Object.values(pos).map(p => p.x)) + COL + 40;
+        const top = pos[sel].y - (mine.length - 1) * 23;
+        mine.forEach((it, i) => {
+          const id = "n:" + it.entry.id;
+          nodes.push({ id, type: "entry", position: { x, y: top + i * 46 },
+            data: { id: it.entry.id, text: it.entry.text, status: it.status, selected: selEntry === it.entry.id } });
+          edges.push({ id: "a:" + it.entry.id, source: "v:" + sel, target: id,
+            style: { stroke: "var(--" + it.status + ")" } });
+        });
+      }
+      return { nodes, edges };
+    }, [state, visible, sel, selEntry]);
+
+    const decide = async (item, action, note) => {
+      try {
+        await api("/api/decision", { action, entry_id: item.entry.id, note });
+        notify(action + " " + item.entry.id);
+        await load();
+      } catch (e) { notify("error: " + (e.message || e)); }
+    };
+    const nextPending = () => {
+      const it = state.entries.find(x => x.status === "pending" && visible.includes(x));
+      if (!it) { notify("nothing pending under this filter"); return; }
+      setSel(it.node); setSelEntry(it.entry.id);
+    };
+    const propose = () => {
+      const node = state.nodes.find(n => n.id === sel);
+      let expect = { escalate: true }, kindKey = "escalate";
+      if (node.kind === "operation") { expect = { operation: node.id, args: {} }; kindKey = "operation"; }
+      else if (node.id === "explain") { expect = { explain: true, answer: "" }; kindKey = "explain"; }
+      const klass = node.kind === "reason" ? "decline:" + node.label : "";
+      setDraft({ action: "propose", entry: { id: state.next_ids[kindKey], kind: state.kinds[0] || "explicit",
+        text: "", expect, "class": klass } });
+    };
+
+    if (error) return h("p", { className: "warn", style: { padding: 16 } }, "error: " + error);
+    if (!state) return h("p", { style: { padding: 16 } }, "loading the review state...");
+    const node = sel ? state.nodes.find(n => n.id === sel) : null;
+    const mine = sel ? visible.filter(it => it.node === sel) : [];
+    const c = state.counts;
+    return h("div", { className: "app" },
+      h("div", { className: "bar" },
+        h("h1", null, "jev review · " + state.domain),
+        h("div", { className: "counts" }, STATUSES.map(k =>
+          h("span", { key: k }, h("span", { className: "chip st-" + k }, k), " " + (c[k] || 0))),
+          c.withdrawn ? h("span", { className: "muted" }, "withdrawn " + c.withdrawn) : null),
+        h("select", { value: filter, onChange: e => setFilter(e.target.value) },
+          h("option", { value: "all" }, "all entries"),
+          h("option", { value: "pending" }, "pending only"),
+          STATUSES.slice(1).map(s => h("option", { key: s, value: "status:" + s }, s + " only")),
+          state.sources.map(s => h("option", { key: s, value: "source:" + s }, "source " + s))),
+        h("input", { placeholder: "search text or id", value: query, onChange: e => setQuery(e.target.value) }),
+        h("button", { onClick: nextPending }, "Next pending"),
+        h("span", { className: "muted" }, state.pending_changes + " change(s) to apply with `jev review --apply`"),
+        state.conflicts.length || state.problems.length
+          ? h("span", { className: "warn", title: state.conflicts.concat(state.problems).join("\n") },
+              (state.conflicts.length + state.problems.length) + " conflict(s)/problem(s)") : null),
+      h("div", { className: "main" },
+        h("div", { className: "flow" },
+          // Keyed by the selected verb: each selection mounts a view fitted to that verb
+          // and its attached entries (or to the whole tree when nothing is selected).
+          h(Flow, { key: sel || "", nodes: graph.nodes, edges: graph.edges, nodeTypes, fitView: true, minZoom: 0.1,
+            fitViewOptions: sel ? { nodes: graph.nodes.filter(n => n.id === "v:" + sel || n.type === "entry").map(n => ({ id: n.id })),
+              padding: 0.25, maxZoom: 1.1 } : { padding: 0.05 },
+            nodesDraggable: false, nodesConnectable: false,
+            defaultEdgeOptions: { style: { stroke: "var(--muted)", strokeWidth: 1.5 } },
+            onNodeClick: (_, n) => {
+              if (n.type === "verb") { setSel(n.id.slice(2)); setSelEntry(null); setDraft(null); }
+              else setSelEntry(n.data.id);
+            } },
+            h(Background, null), h(Controls, { showInteractive: false }), h(MiniMap, { pannable: true, zoomable: true, style: { background: "var(--panel)" },
+              maskColor: "rgba(127,127,127,0.25)", nodeColor: n => n.type === "entry" ? "var(--" + n.data.status + ")" : "var(--muted)" }))),
+        h("div", { className: "side" },
+          node ? h(VerbPanel, { node, mine, draft, selEntry, state, notify, propose, decide, load,
+            setDraft, setSelEntry }) : h(Intro, { state }))),
+      toast ? h("div", { className: "toast" }, toast) : null);
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(h(App));
+})();
+</script>
+</body>
+</html>
