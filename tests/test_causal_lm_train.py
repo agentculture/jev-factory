@@ -105,8 +105,9 @@ def test_a_sampled_merged_weight_equal_to_the_base_fails_the_merge() -> None:
 
 @pytest.mark.behavioral("o15")
 def test_a_merge_that_changed_nothing_at_all_fails() -> None:
+    unchanged = {name: [row[:] for row in value] for name, value in _BASE.items()}
     with pytest.raises(tr.MergeError, match="equals the base"):
-        _verify(after={name: [row[:] for row in value] for name, value in _BASE.items()})
+        _verify(after=unchanged)
 
 
 @pytest.mark.behavioral("o15")
@@ -159,8 +160,9 @@ def test_weights_are_compared_with_the_tensor_equal_method_when_there_is_one() -
     assert tr.weights_equal(_Tensor([1, 2]), _Tensor([1, 2]))
     assert not tr.weights_equal(_Tensor([1, 2]), _Tensor([1, 3]))
     same = {"m": _Tensor([1.0, 2.0])}
+    equal = {"m": _Tensor([1.0, 2.0])}
     with pytest.raises(tr.MergeError, match="equals the base"):
-        tr.check_weights_changed(same, {"m": _Tensor([1.0, 2.0])})
+        tr.check_weights_changed(same, equal)
     assert tr.check_weights_changed(same, {"m": _Tensor([1.0, 2.5])}) == ["m"]
 
 
@@ -168,8 +170,9 @@ def test_weights_are_compared_with_the_tensor_equal_method_when_there_is_one() -
 def test_real_tensors_equal_to_the_base_fail_the_merge() -> None:
     torch = pytest.importorskip("torch")
     base = {"m": torch.ones(2, 2, dtype=torch.bfloat16)}
+    copy = {"m": base["m"].clone()}
     with pytest.raises(tr.MergeError, match="equals the base"):
-        tr.check_weights_changed(base, {"m": base["m"].clone()})
+        tr.check_weights_changed(base, copy)
     nudged = base["m"].clone()
     nudged[0, 0] += 0.5
     assert tr.check_weights_changed(base, {"m": nudged}) == ["m"]
@@ -344,8 +347,9 @@ def test_the_gpu_memory_variable_is_the_run_configs() -> None:
 def test_the_merge_cli_needs_merge_only(capsys) -> None:
     args = tr._parser().parse_args(["--merge-only", "adapter", "--out", "o", "--base", "b"])
     assert str(args.merge_only) == "adapter"
+    parser = tr._parser()
     with pytest.raises(SystemExit):
-        tr._parser().parse_args(["--out", "o"])
+        parser.parse_args(["--out", "o"])
 
 
 # ---------------------------------------------------------------------------
@@ -499,21 +503,25 @@ def test_the_default_runner_is_the_guarded_gpu_stage() -> None:
 
 def test_a_failed_or_watchdog_stopped_stage_is_an_error(work) -> None:
     plan = _plan(work)
+    failed = _fake_runner([], status=1)
     with pytest.raises(CliError, match="exited 1"):
-        tr.run_plan(plan, apply=True, memory_max="24G", runner=_fake_runner([], status=1))
+        tr.run_plan(plan, apply=True, memory_max="24G", runner=failed)
+    stopped = _fake_runner([], status=3)
     with pytest.raises(CliError, match="watchdog"):
-        tr.run_plan(plan, apply=True, memory_max="24G", runner=_fake_runner([], status=3))
+        tr.run_plan(plan, apply=True, memory_max="24G", runner=stopped)
 
 
 def test_a_run_that_leaves_no_train_log_or_row_maps_is_an_error(work) -> None:
     plan = _plan(work)
+    runner = _fake_runner([], write=False)
     with pytest.raises(CliError, match="train-log.json"):
-        tr.run_plan(plan, apply=True, memory_max="24G", runner=_fake_runner([], write=False))
+        tr.run_plan(plan, apply=True, memory_max="24G", runner=runner)
 
 
 def test_applying_needs_a_memory_cap(work) -> None:
+    plan, runner = _plan(work), _fake_runner([])
     with pytest.raises(CliError, match="train_memory_max"):
-        tr.run_plan(_plan(work), apply=True, memory_max=None, runner=_fake_runner([]))
+        tr.run_plan(plan, apply=True, memory_max=None, runner=runner)
 
 
 def _trained_run(work, name="scorer-r1", **log) -> Path:
@@ -581,10 +589,12 @@ def test_heal_refuses_a_run_that_is_itself_a_heal_or_was_never_merged(work) -> N
 
 
 def test_heal_refuses_hyperparameters_other_than_the_recipe(work) -> None:
+    base_run = _trained_run(work)
     with pytest.raises(CliError, match="1 epoch"):
-        _heal(work, _trained_run(work), epochs=2)
+        _heal(work, base_run, epochs=2)
+    other_run = _trained_run(work, name="scorer-r4")
     with pytest.raises(CliError, match="5e-05"):
-        _heal(work, _trained_run(work, name="scorer-r4"), lr=1e-4)
+        _heal(work, other_run, lr=1e-4)
 
 
 def test_plan_to_dict_is_json_safe(work) -> None:

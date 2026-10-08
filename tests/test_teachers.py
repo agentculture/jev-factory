@@ -222,17 +222,14 @@ def test_error_text_never_carries_the_key(tmp_path):
 @pytest.mark.behavioral("o22")
 def test_teacher_config_rejects_unlisted_and_non_apache_models(tmp_path):
     url = "http://127.0.0.1:1/v1/chat/completions"
+    cfg = _config(tmp_path, url, teacher_generator_model="mystery")
     with pytest.raises(CliError, match="not in the teacher list"):
-        T.load_roles(
-            _config(tmp_path, url, teacher_generator_model="mystery"), environ={KEYVAR: "k"}
-        )
+        T.load_roles(cfg, environ={KEYVAR: "k"})
     extra = tmp_path / "models.json"
     extra.write_text(json.dumps({"gpl": {"name": "Some Model", "licence": "GPL-3.0"}}))
+    cfg = _config(tmp_path, url, teacher_models=str(extra), teacher_reviewer_a_model="gpl")
     with pytest.raises(CliError, match="not Apache-2.0"):
-        T.load_roles(
-            _config(tmp_path, url, teacher_models=str(extra), teacher_reviewer_a_model="gpl"),
-            environ={KEYVAR: "k"},
-        )
+        T.load_roles(cfg, environ={KEYVAR: "k"})
 
 
 @pytest.mark.behavioral("o22")
@@ -262,8 +259,9 @@ def test_extra_apache_teacher_is_accepted_and_named_in_provenance(tmp_path):
 )
 @pytest.mark.behavioral("o22")
 def test_banned_endpoints_are_rejected(tmp_path, url):
+    cfg = _config(tmp_path, url)
     with pytest.raises(CliError):
-        T.load_roles(_config(tmp_path, url), environ={KEYVAR: "k"})
+        T.load_roles(cfg, environ={KEYVAR: "k"})
 
 
 def test_banned_model_name_is_rejected():
@@ -317,8 +315,9 @@ def test_killed_run_resumes_at_next_item_and_resends_nothing_cached(tmp_path, ga
         return fn
 
     c1 = _client(tmp_path, g.url)
+    ledger, killed_at_item3 = ItemLedger(jobdir, "review", len(items)), work(c1, kill_at="item3")
     with pytest.raises(Killed):
-        ItemLedger(jobdir, "review", len(items)).run(items, work(c1, kill_at="item3"))
+        ledger.run(items, killed_at_item3)
     assert len(g.requests) == 4
     assert _counts(read_progress(jobdir, "review")) == {"done": 3, "total": 6}
 

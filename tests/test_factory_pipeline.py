@@ -216,16 +216,18 @@ def test_every_stage_has_documented_knobs_and_sub_steps():
 
 
 def test_an_unknown_stage_lists_every_stage(tmp_path):
+    ctx = ps.toy_context(tmp_path)
     with pytest.raises(CliError) as exc:
-        pipeline.run(tmp_path, "train-scorer", ps.toy_context(tmp_path), apply=True)
+        pipeline.run(tmp_path, "train-scorer", ctx, apply=True)
     assert "unknown stage" in exc.value.message
     assert exc.value.remediation.endswith(", ".join(EXPECTED_ORDER))
     assert not (tmp_path / "manifests").exists()
 
 
 def test_an_unknown_knob_is_refused(tmp_path):
+    ctx = ps.toy_context(tmp_path)
     with pytest.raises(CliError, match="unknown knob"):
-        pipeline.run(tmp_path, "split", ps.toy_context(tmp_path), {"vall_size": 3}, apply=True)
+        pipeline.run(tmp_path, "split", ctx, {"vall_size": 3}, apply=True)
 
 
 def _tree(root: Path) -> dict[str, float]:
@@ -256,8 +258,9 @@ def test_a_fresh_stage_is_a_no_op_and_a_changed_knob_makes_it_stale(toy):
 def test_a_work_root_inside_a_git_worktree_is_refused(tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)  # nosec B603 B607
     workdir = tmp_path / "run"
+    ctx = ps.toy_context(workdir)
     with pytest.raises(CliError, match="inside a git worktree"):
-        pipeline.run(workdir, "config", ps.toy_context(workdir), apply=True)
+        pipeline.run(workdir, "config", ctx, apply=True)
 
 
 def test_a_stage_holds_the_run_lock(toy):

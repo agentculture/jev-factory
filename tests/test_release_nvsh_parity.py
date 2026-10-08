@@ -448,20 +448,23 @@ def test_dataset_manifest_records_origin_source_teachers_and_transformation(tmp_
     ids=["no-models", "empty-models", "no-accepted-row"],
 )
 def test_a_variation_with_no_models_is_refused(tmp_path, accepted):
+    kwargs = _dataset(tmp_path, accepted=accepted)
     with pytest.raises(ValueError, match="dev-a~v1 has no accepted record naming its models"):
-        ds.build(**_dataset(tmp_path, accepted=accepted))
+        ds.build(**kwargs)
 
 
 def test_a_variation_missing_one_role_is_refused(tmp_path):
     models = {k: v for k, v in _MODELS.items() if k != "REVIEWER_B"}
+    kwargs = _dataset(tmp_path, accepted=[{"id": "dev-a~v1", "models": models}])
     with pytest.raises(ValueError, match="names no REVIEWER_B teacher"):
-        ds.build(**_dataset(tmp_path, accepted=[{"id": "dev-a~v1", "models": models}]))
+        ds.build(**kwargs)
 
 
 def test_an_unknown_teacher_alias_is_refused(tmp_path):
     table = {"worker": ("Teacher Worker 35B", "Apache-2.0")}
+    kwargs = _dataset(tmp_path, role_models=table)
     with pytest.raises(ValueError, match="'cortex' is not in the run's teacher-models table"):
-        ds.build(**_dataset(tmp_path, role_models=table))
+        ds.build(**kwargs)
 
 
 @pytest.mark.parametrize(
@@ -486,21 +489,24 @@ def test_load_role_models_reads_name_and_licence(tmp_path):
 
 def test_a_variation_on_a_non_train_side_is_refused(tmp_path):
     extra = (_entry("dev-t1~v1", {"escalate": True}),)
+    kwargs = _dataset(tmp_path, test_extra=extra)
     with pytest.raises(ValueError, match="never leave the train side"):
-        ds.build(**_dataset(tmp_path, test_extra=extra))
+        ds.build(**kwargs)
 
 
 def test_a_train_file_entry_marked_for_another_side_is_refused(tmp_path):
     train = [_entry("dev-a", _op(), side="validation")]
+    kwargs = _dataset(tmp_path, train=train, accepted=[])
     with pytest.raises(ValueError, match="is not a train-side entry"):
-        ds.build(**_dataset(tmp_path, train=train, accepted=[]))
+        ds.build(**kwargs)
 
 
 def test_a_record_without_source_is_refused(tmp_path):
     train = [_entry("dev-a", _op(), side="train")]
     del train[0]["source"]
+    kwargs = _dataset(tmp_path, train=train, accepted=[])
     with pytest.raises(ValueError, match="needs a 'source' field"):
-        ds.build(**_dataset(tmp_path, train=train, accepted=[]))
+        ds.build(**kwargs)
     assert not (tmp_path / "bundle").exists()
 
 
@@ -650,13 +656,9 @@ def test_teacher_summary_derives_roles_decisions_and_shared_names(tmp_path):
     ]
     assert "advisory" in rows[2][2]
     table = {**_ROLE_MODELS, "senses": {"name": "Closed", "licence": "Proprietary"}}
+    rows, role_models = {"dev-a~v1": _reviewer_b_row()}, _role_models(tmp_path, table)
     with pytest.raises(ValueError, match="not Apache-2.0; refused by apache_only"):
-        ds.teacher_summary(
-            [{"id": "dev-a~v1"}],
-            {"dev-a~v1": _reviewer_b_row()},
-            _role_models(tmp_path, table),
-            apache_only=True,
-        )
+        ds.teacher_summary([{"id": "dev-a~v1"}], rows, role_models, apache_only=True)
 
 
 def test_decision_rule_reads_decided_by_and_verdicts():

@@ -597,8 +597,9 @@ def test_only_counts_and_sha256_are_reported(
 def test_a_sealed_draft_is_never_overwritten(tmp_path: Path) -> None:
     result = _heldout(tmp_path)
     before = Path(result["path"]).read_bytes()
+    drafter = FakeDrafter(per_batch=1)
     with pytest.raises(CliError) as err:
-        _heldout(tmp_path, FakeDrafter(per_batch=1))
+        _heldout(tmp_path, drafter)
     assert SECRET_TEXT not in str(err.value) and "refusing to overwrite" in str(err.value)
     assert Path(result["path"]).read_bytes() == before
 
@@ -655,8 +656,9 @@ def test_an_unparsable_heldout_reply_is_counted_without_quoting_it(tmp_path: Pat
 
 def test_the_heldout_drafter_may_not_be_a_teacher(tmp_path: Path) -> None:
     for model in ("Qwen3.6-35B-A3B", "Qwen/Qwen3.8-27B", "senses", "org/gemma-4-26b-a4b"):
+        drafter = FakeDrafter()
         with pytest.raises(CliError, match="is one of the teachers"):
-            D.draft_heldout(DOMAIN, tmp_path / "x", 1, FakeDrafter(), model=model, dev_texts=[])
+            D.draft_heldout(DOMAIN, tmp_path / "x", 1, drafter, model=model, dev_texts=[])
     D.check_non_teacher(D.HELD_OUT_MODEL)  # the default drafter is not a teacher
 
 
@@ -723,15 +725,15 @@ def test_review_log_never_carries_text(tmp_path: Path) -> None:
 def test_review_refuses_the_sealed_held_out_corpus(tmp_path: Path) -> None:
     sealed = tmp_path / "held-out.json"
     sealed.write_text(json.dumps({"header": "x", "entries": []}), encoding="utf-8")
+    client = _client(tmp_path)
     with pytest.raises(D.HeldOutRefused):
-        D.run_review(DOMAIN, sealed, tmp_path / "out", _client(tmp_path))
+        D.run_review(DOMAIN, sealed, tmp_path / "out", client)
 
 
 def test_review_of_a_missing_file_names_no_text(tmp_path: Path) -> None:
+    client = _client(tmp_path)
     with pytest.raises(CliError, match="not a readable draft file"):
-        D.run_review(
-            DOMAIN, tmp_path / "nope.json", tmp_path / "out", _client(tmp_path), dev_texts=[]
-        )
+        D.run_review(DOMAIN, tmp_path / "nope.json", tmp_path / "out", client, dev_texts=[])
 
 
 def test_the_module_is_domain_agnostic_about_the_domain_name(tmp_path: Path) -> None:

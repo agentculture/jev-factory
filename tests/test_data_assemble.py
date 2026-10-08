@@ -269,8 +269,9 @@ def test_check_train_source_refuses_an_eval_named_plain_corpus():
 
 
 def test_bad_rate_is_refused(tmp_path, train):
+    cfg = asm.AssembleConfig(missing_candidate_rate=1.5)
     with pytest.raises(CliError):
-        run(tmp_path, train, cfg=asm.AssembleConfig(missing_candidate_rate=1.5))
+        run(tmp_path, train, cfg=cfg)
 
 
 # -- rendering with an injectable tokenizer ---------------------------------
@@ -281,8 +282,9 @@ def test_render_check_passes_with_a_faithful_template(tmp_path, train):
 
 
 def test_render_check_fails_when_the_template_drops_the_offer(tmp_path, train):
+    tokenizer = FakeTokenizer(keep_system=False)
     with pytest.raises(CliError, match="chat template"):
-        run(tmp_path, train, tokenizer=FakeTokenizer(keep_system=False))
+        run(tmp_path, train, tokenizer=tokenizer)
 
 
 def test_render_row_uses_the_stored_permutation(tmp_path, train):

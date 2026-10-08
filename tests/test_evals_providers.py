@@ -173,8 +173,9 @@ def test_fake_rereads_its_raw_answer_and_reply_text():
     again = provider.result_from_raw(request, result.raw)
     assert again.answer == "D" and again.response_id == result.response_id
     assert provider.reply_text(result.raw).truncated
+    not_an_answer = json.dumps({"kind": "402"}).encode()
     with pytest.raises(ValueError):
-        provider.result_from_raw(request, json.dumps({"kind": "402"}).encode())
+        provider.result_from_raw(request, not_an_answer)
 
 
 def test_fake_without_logprobs_never_returns_a_distribution():
@@ -182,10 +183,13 @@ def test_fake_without_logprobs_never_returns_a_distribution():
         capabilities=ProviderCapabilities(logprobs=False, batch=False, reasoning=False),
         script=[fake.ScriptedOutcome("answer", answer="D", candidates={"lamp_on": 1.0})],
     )
+    request = _request()
     with pytest.raises(ValueError):
-        provider.submit_sync(_request())
+        provider.submit_sync(request)
+    nonsense = fake.FakeProvider(script=["nonsense"])
+    request = _request()
     with pytest.raises(ValueError):
-        fake.FakeProvider(script=["nonsense"]).submit_sync(_request())
+        nonsense.submit_sync(request)
 
 
 # ---------------------------------------------------------------------------
@@ -339,10 +343,9 @@ def test_base_url_rules(kind, url):
 def test_constructor_refuses_unknown_kinds_and_batch():
     with pytest.raises(ValueError):
         openai_compat.OpenAICompatProvider("openai", "m")
+    with_batch = ProviderCapabilities(True, True, False)
     with pytest.raises(ValueError):
-        openai_compat.OpenAICompatProvider(
-            "local", "m", capabilities=ProviderCapabilities(True, True, False)
-        )
+        openai_compat.OpenAICompatProvider("local", "m", capabilities=with_batch)
 
 
 def test_rate_limiter_spaces_calls_without_sleeping():

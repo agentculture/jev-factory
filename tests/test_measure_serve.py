@@ -150,9 +150,12 @@ def test_a_busy_port_is_refused(settings, gguf, cleanup):
 def test_a_server_that_exits_at_once_is_reported_and_leaves_no_claim(settings, gguf, monkeypatch):
     monkeypatch.setenv("STUB_LLAMA_FAIL", "1")
     port = free_port()
+    start_settings = replace(settings, start_seconds=2)
+    wait_settings = replace(settings, wait_seconds=2)
+    # either call may report the exit (a race the test accepts): both are under test
     with pytest.raises(serve.ServeError):
-        serve.start(gguf, port, replace(settings, start_seconds=2))
-        serve.wait(port, replace(settings, wait_seconds=2))
+        serve.start(gguf, port, start_settings)
+        serve.wait(port, wait_settings)
     assert not serve.state_file(settings, port).exists()
 
 
@@ -162,8 +165,9 @@ def test_wait_on_a_server_that_never_answers_stops_it(settings, gguf, monkeypatc
     serve.start(gguf, port, settings)
     pid = serve.read_state(settings, port)["pid"]
     full = tmp_path / "full.log"
+    short_wait = replace(settings, wait_seconds=0.5)
     with pytest.raises(serve.ServeError) as excinfo:
-        serve.wait(port, replace(settings, wait_seconds=0.5), full)
+        serve.wait(port, short_wait, full)
     assert excinfo.value.code == 2
     assert not _alive(pid)
     assert not serve.state_file(settings, port).exists()
@@ -237,9 +241,10 @@ def test_a_start_racing_a_stop_waits_for_the_lock_and_is_never_signalled(
 
 def test_a_start_that_cannot_get_the_lock_fails_cleanly(settings, gguf):
     port = free_port()
+    short_lock = replace(settings, lock_seconds=0.2)
     with serve.port_lock(settings, port):
         with pytest.raises(serve.ServeError, match="lock"):
-            serve.start(gguf, port, replace(settings, lock_seconds=0.2))
+            serve.start(gguf, port, short_lock)
     assert not serve.state_file(settings, port).exists()
 
 
@@ -286,29 +291,33 @@ def test_vllm_is_started_by_digest_on_localhost_with_the_readout_logprobs(settin
 )
 def test_vllm_settings_are_refused_before_docker_runs(settings, tmp_path, change, match):
     model = _model_dir(tmp_path)
+    port, changed = free_port(), replace(settings, **change)
     with pytest.raises(serve.ServeError, match=match):
-        serve.start(model, free_port(), replace(settings, **change))
+        serve.start(model, port, changed)
     assert not any(call[:1] == ["run"] for call in _docker_calls(tmp_path))
 
 
 def test_vllm_refuses_a_model_that_does_not_decode_greedily(settings, tmp_path):
     model = _model_dir(tmp_path, temperature=0.7)
+    port = free_port()
     with pytest.raises(serve.ServeError, match="temperature"):
-        serve.start(model, free_port(), settings)
+        serve.start(model, port, settings)
 
 
 def test_vllm_refuses_an_existing_container(settings, tmp_path, monkeypatch):
     port = free_port()
     monkeypatch.setenv("STUB_DOCKER_EXISTING", f"jev-measure-{port}")
+    model = _model_dir(tmp_path)
     with pytest.raises(serve.ServeError, match="already exists"):
-        serve.start(_model_dir(tmp_path), port, settings)
+        serve.start(model, port, settings)
 
 
 def test_vllm_wait_reports_a_stopped_container(settings, tmp_path, monkeypatch):
     monkeypatch.setenv("STUB_DOCKER_RUNNING", "false")
     full = tmp_path / "vllm.log"
+    port = free_port()
     with pytest.raises(serve.ServeError) as excinfo:
-        serve.wait(free_port(), settings, full)
+        serve.wait(port, settings, full)
     assert excinfo.value.code == 2
     assert "stub vllm log line" in full.read_text()
 
@@ -398,8 +407,9 @@ def test_gpu_layers_zero_serves_the_gguf_on_the_cpu_only(tmp_path):
     assert argv[argv.index("--device") + 1] == "none"
     assert serve.ServeSettings.from_config({"measure_gpu_layers": 0}, tmp_path).gpu_layers == 0
     assert serve.ServeSettings.from_config({}, tmp_path).gpu_layers == 999
+    negative = serve.ServeSettings(gpu_layers=-1)
     with pytest.raises(serve.ServeError):
-        serve.llama_argv("llama-server", gguf, 1, serve.ServeSettings(gpu_layers=-1), "m")
+        serve.llama_argv("llama-server", gguf, 1, negative, "m")
 
 
 def test_a_cpu_served_gguf_hides_the_gpus_from_llama_server():

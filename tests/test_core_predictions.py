@@ -66,8 +66,9 @@ def test_to_dict_leaves_out_unset_optional_fields():
     ],
 )
 def test_optional_fields_are_validated(over, fragment):
+    row = _row(**over)
     with pytest.raises(pr.PredictionError, match=fragment):
-        pr.Prediction.from_dict(_row(**over))
+        pr.Prediction.from_dict(row)
 
 
 def test_raw_scores_may_be_negative_log_probabilities():
@@ -80,8 +81,10 @@ def test_unknown_keys_are_ignored():
 
 
 def test_from_rows_names_the_row_and_rejects_duplicates():
+    bad_second = [_row(), _row(id="e2", tokens=-1)]
     with pytest.raises(pr.PredictionError, match="row 2"):
-        pr.from_rows([_row(), _row(id="e2", tokens=-1)])
+        pr.from_rows(bad_second)
+    duplicated = [_row(), _row()]
     with pytest.raises(pr.PredictionError, match="duplicate"):
-        pr.from_rows([_row(), _row()])
+        pr.from_rows(duplicated)
     assert [p.id for p in pr.from_rows([_row(), _row(id="e2")])] == ["e1", "e2"]

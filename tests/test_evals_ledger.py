@@ -48,8 +48,9 @@ def test_keys_are_canonical_and_parameter_sensitive():
     assert first == second
     assert ledger_key(spec(max_output_tokens=1)) != ledger_key(spec(max_output_tokens=2))
     assert canonical_json({"b": 1, "a": 2}) == '{"a":2,"b":1}'
+    nan_spec = spec(bad=float("nan"))
     with pytest.raises(ValueError):
-        ledger_key(spec(bad=float("nan")))
+        ledger_key(nan_spec)
 
 
 def test_register_record_and_reopen(tmp_path):
@@ -59,8 +60,9 @@ def test_register_record_and_reopen(tmp_path):
         assert ledger.keys(PENDING) == sorted([key, other])
         ledger.record_done(key, answer())
         ledger.mark_invalid(other, "malformed", answer("?"))
+        again = answer()
         with pytest.raises(LedgerStateError):
-            ledger.record_done(key, answer())
+            ledger.record_done(key, again)
         with pytest.raises(LedgerStateError):
             ledger.mark_invalid(key, "")
     with Ledger(tmp_path) as again:

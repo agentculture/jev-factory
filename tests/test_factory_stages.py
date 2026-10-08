@@ -140,8 +140,9 @@ def test_registry_order_downstream_cycles_and_listing(tmp_path):
     cyc.register(Stage("y", lambda w, k: None, deps=("x",)))
     with pytest.raises(ValueError):
         cyc.names()
+    already = reg.get("a")
     with pytest.raises(ValueError):
-        reg.register(reg.get("a"))
+        reg.register(already)
     with pytest.raises(KeyError):
         reg.get("zz")
 

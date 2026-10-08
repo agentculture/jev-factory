@@ -114,23 +114,25 @@ def test_a_decision_takes_before_from_the_seed_and_appends_one_line(toy):
     ],
 )
 def test_a_bad_decision_is_refused(toy, decision, message):
+    raw = _raw(toy)
     with pytest.raises(core.ReviewError, match=re.escape(message)):
-        core.make_record(_raw(toy), toy, decision, at=AT)
+        core.make_record(raw, toy, decision, at=AT)
 
 
 def test_an_edit_must_change_something_and_validate_against_the_domain(toy):
     same = _entry(toy, "toy-01")
+    raw = _raw(toy)
     with pytest.raises(core.ReviewError, match="changes nothing"):
-        core.make_record(_raw(toy), toy, {"action": "edit", "entry_id": "toy-01", "after": same})
+        core.make_record(raw, toy, {"action": "edit", "entry_id": "toy-01", "after": same})
     bad = dict(same, expect={"operation": "no_such_op", "args": {}})
+    raw = _raw(toy)
     with pytest.raises(core.ReviewError, match="toy-01") as raised:
-        core.make_record(_raw(toy), toy, {"action": "edit", "entry_id": "toy-01", "after": bad})
+        core.make_record(raw, toy, {"action": "edit", "entry_id": "toy-01", "after": bad})
     assert str(raised.value).count("toy-01") == 1  # named once, not "toy-01: toy-01: ..."
     other_id = dict(same, id="toy-77", text="x")
+    raw = _raw(toy)
     with pytest.raises(core.ReviewError, match="is not 'toy-01'"):
-        core.make_record(
-            _raw(toy), toy, {"action": "edit", "entry_id": "toy-01", "after": other_id}
-        )
+        core.make_record(raw, toy, {"action": "edit", "entry_id": "toy-01", "after": other_id})
 
 
 def test_a_proposal_gets_an_operator_source_and_can_be_revised_or_withdrawn(toy):

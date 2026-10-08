@@ -93,8 +93,9 @@ def test_change_check_for_read_only_escalate_and_explain_not_for_mutating(tmp_pa
 
 
 def test_the_held_out_file_is_refused_by_name_and_by_header(tmp_path):
+    held_out = seed_file(tmp_path, "held-out.json")
     with pytest.raises(aug.SeedRefused):
-        aug.load_seeds(seed_file(tmp_path, "held-out.json"), DOMAIN)
+        aug.load_seeds(held_out, DOMAIN)
     renamed = seed_file(tmp_path, "x.json", header="Held-out split of toy.")
     with pytest.raises(aug.SeedRefused):
         aug.load_seeds(renamed, DOMAIN, side="test")
@@ -105,8 +106,9 @@ def test_side_is_required_when_not_inferable_and_must_agree_when_inferable(tmp_p
     with pytest.raises(aug.ConfigError, match="cannot infer"):
         aug.load_seeds(odd, DOMAIN)
     assert aug.load_seeds(odd, DOMAIN, side="val")[0].side == "val"
+    train = seed_file(tmp_path)
     with pytest.raises(aug.ConfigError, match="conflicts"):
-        aug.load_seeds(seed_file(tmp_path), DOMAIN, side="val")
+        aug.load_seeds(train, DOMAIN, side="val")
     renamed = seed_file(tmp_path, "y.json", header="Split 'val' of toy (seed=1).")
     assert aug.load_seeds(renamed, DOMAIN)[0].side == "val"
 
@@ -115,11 +117,12 @@ def test_conflicting_source_ids_are_refused_before_any_call(tmp_path):
     clash = [ENTRIES[0], {**ENTRIES[1], "source_id": "s1"}]
     path = seed_file(tmp_path, entries=clash)
     gateway = FakeGateway(generator=paraphrase)
+    client = make_client(tmp_path, gateway)
     with pytest.raises(ValueError, match="more than one expect"):
         aug.run_augment(
             [path],
             DOMAIN,
-            make_client(tmp_path, gateway),
+            client,
             tmp_path / "a",
             tmp_path / "r",
             per_source=1,

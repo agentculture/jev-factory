@@ -108,14 +108,16 @@ def test_mc_escalation_step_picks_the_highest():
 
 
 def test_unregistered_candidate_is_refused():
+    p, cands = _prereg(), [_cand("r9")]
     with pytest.raises(CliError, match="not pre-registered"):
-        rules.decide(_prereg(), [_cand("r9")])
+        rules.decide(p, cands)
 
 
 def test_rule_order_must_match_the_registered_one():
     p = dataclasses.replace(_prereg(), rule_order=tuple(reversed(prereg.RULE_ORDER)))
+    cands = [_cand("r1")]
     with pytest.raises(CliError, match="rule order"):
-        rules.decide(p, [_cand("r1")])
+        rules.decide(p, cands)
 
 
 # --- recalibrate --------------------------------------------------------------
@@ -294,8 +296,9 @@ def test_hard_stops_escalate_to_the_human(stop):
 
 
 def test_unknown_hard_stop_is_refused():
+    p, cands = _prereg(), [_cand("r1")]
     with pytest.raises(CliError, match="hard stop"):
-        rules.decide(_prereg(), [_cand("r1")], hard_stops=["coffee"])
+        rules.decide(p, cands, hard_stops=["coffee"])
 
 
 # --- summaries and records ----------------------------------------------------

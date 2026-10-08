@@ -108,8 +108,9 @@ def test_training_refuses_any_side_but_train(tmp_path) -> None:
 
 def test_validation_reads_only_the_val_side(tmp_path) -> None:
     assert _read(tmp_path, "val", _ENTRIES)
+    path = _split(tmp_path, "test", _ENTRIES)
     with pytest.raises(ValueError, match="side"):
-        ts.read_split(DOMAIN, _split(tmp_path, "test", _ENTRIES), ts.VAL_SIDE)
+        ts.read_split(DOMAIN, path, ts.VAL_SIDE)
 
 
 def test_the_held_out_split_is_refused_by_name_and_by_header(tmp_path) -> None:
@@ -214,8 +215,9 @@ def test_encode_puts_the_gold_index_on_the_rendered_prompt(tmp_path) -> None:
 
 def test_encode_refuses_a_prompt_over_max_length_rather_than_cutting_it(tmp_path) -> None:
     examples = _read(tmp_path, "train", _ENTRIES)
+    tokenizer = _Tokenizer()
     with pytest.raises(ValueError, match="over 5"):
-        ts.encode(DOMAIN, _Tokenizer(), examples, max_length=5)
+        ts.encode(DOMAIN, tokenizer, examples, max_length=5)
 
 
 def test_two_rows_with_different_maps_get_different_targets_for_the_same_gold(tmp_path) -> None:
@@ -419,10 +421,12 @@ def test_heal_forces_one_epoch_at_lr_5e_5() -> None:
     args = ts.resolve_hyperparameters(_args("--heal"))
     assert (args.epochs, args.lr) == (1, 5e-5)
     assert ts.resolve_hyperparameters(_args("--heal", "--epochs", "1", "--lr", "5e-5")).lr == 5e-5
+    three_epochs = _args("--heal", "--epochs", "3")
     with pytest.raises(ValueError, match="1 epoch"):
-        ts.resolve_hyperparameters(_args("--heal", "--epochs", "3"))
+        ts.resolve_hyperparameters(three_epochs)
+    recipe_lr = _args("--heal", "--lr", "2e-4")
     with pytest.raises(ValueError, match="5e-05"):
-        ts.resolve_hyperparameters(_args("--heal", "--lr", "2e-4"))
+        ts.resolve_hyperparameters(recipe_lr)
 
 
 @pytest.mark.parametrize(

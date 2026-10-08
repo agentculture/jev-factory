@@ -76,19 +76,19 @@ def test_a_changed_file_or_a_stale_remote_file_fails_loudly(tmp_path):
         data[1] ^= 0xFF
         path.write_bytes(bytes(data))
 
+    flipping = FakeHub(tmp_path / "r1", tamper=flip)
     with pytest.raises(UploadError, match="model.safetensors: sha256 differs"):
-        _upload(tmp_path, FakeHub(tmp_path / "r1", tamper=flip))
+        _upload(tmp_path, flipping)
+    dropping = FakeHub(tmp_path / "r2", tamper=lambda d: (d / "sub" / "tokenizer.json").unlink())
+    bundle = scanned_bundle(tmp_path / "x")
     with pytest.raises(UploadError, match="sub/tokenizer.json: missing"):
-        _upload(
-            tmp_path / "x",
-            FakeHub(tmp_path / "r2", tamper=lambda d: (d / "sub" / "tokenizer.json").unlink()),
-            bundle=scanned_bundle(tmp_path / "x"),
-        )
+        _upload(tmp_path / "x", dropping, bundle=bundle)
     hub = FakeHub(tmp_path / "r3")
     (tmp_path / "r3" / REPO).mkdir(parents=True)
     (tmp_path / "r3" / REPO / "old-weights.bin").write_bytes(b"old")
+    bundle = scanned_bundle(tmp_path / "y")
     with pytest.raises(UploadError, match="old-weights.bin"):
-        _upload(tmp_path / "y", hub, bundle=scanned_bundle(tmp_path / "y"))
+        _upload(tmp_path / "y", hub, bundle=bundle)
 
 
 @pytest.mark.behavioral("o19")
@@ -124,12 +124,10 @@ def test_no_visibility_to_public_call_is_ever_made(tmp_path):
     assert "private=False" not in source
     assert "make_public" not in source and "visibility=" not in source
     # a hub reporting public after the upload fails rather than being "fixed" to public
+    public_hub = FakeHub(tmp_path / "rp", private=False)
+    bundle = scanned_bundle(tmp_path / "p")
     with pytest.raises(UploadError, match="not private"):
-        _upload(
-            tmp_path / "p",
-            FakeHub(tmp_path / "rp", private=False),
-            bundle=scanned_bundle(tmp_path / "p"),
-        )
+        _upload(tmp_path / "p", public_hub, bundle=bundle)
 
 
 def test_a_1x_hub_is_made_private_with_update_repo_settings():
@@ -175,8 +173,9 @@ def test_the_hub_prefix_comes_from_the_run_config_then_the_domain(tmp_path):
         config=make_config(hub_prefix=""),
         bundle=scanned_bundle(tmp_path / "d"),
     )
+    no_prefix = make_config(hub_prefix="")
     with pytest.raises(UploadError, match="no hub_prefix"):
-        _upload(tmp_path, hub2, config=make_config(hub_prefix=""), domain=None)
+        _upload(tmp_path, hub2, config=no_prefix, domain=None)
 
 
 def test_an_unset_token_is_a_named_error_and_nothing_is_sent(tmp_path):
@@ -200,8 +199,9 @@ def test_a_bundle_changed_after_its_scan_or_missing_required_files_is_refused(tm
 
 
 def test_an_unknown_repo_type_is_refused(tmp_path):
+    hub = FakeHub(tmp_path / "remote")
     with pytest.raises(UploadError, match="repo type"):
-        _upload(tmp_path, FakeHub(tmp_path / "remote"), repo_type="space")
+        _upload(tmp_path, hub, repo_type="space")
 
 
 def test_a_hub_failure_never_echoes_the_token(tmp_path):

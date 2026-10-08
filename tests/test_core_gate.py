@@ -110,8 +110,9 @@ def test_decide_ties_go_to_the_earlier_offered_label():
 
 
 def test_decide_rejects_empty_distribution():
+    thresholds = gate.Thresholds()
     with pytest.raises(gate.GateError):
-        gate.decide({}, [], gate.Thresholds(), DOMAIN)
+        gate.decide({}, [], thresholds, DOMAIN)
 
 
 # ---------------------------------------------------------------------------

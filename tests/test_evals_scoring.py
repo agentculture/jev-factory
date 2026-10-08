@@ -91,10 +91,12 @@ def test_guard_uses_git_rev_parse_and_refuses_a_real_worktree(tmp_path, monkeypa
         pytest.skip("git is not installed")
     subprocess.run([git, "init", "-q", str(tmp_path)], check=True)
     assert inside_git_worktree(tmp_path / "deep" / "run") is True
+    traces = _traces()[:1]
     with pytest.raises(TraceWriteError):
-        write_traces(tmp_path / "t.jsonl", _traces()[:1])
+        write_traces(tmp_path / "t.jsonl", traces)
+    first = _traces()[0]
     with pytest.raises(TraceWriteError):
-        append_trace(tmp_path / "t.jsonl", _traces()[0])
+        append_trace(tmp_path / "t.jsonl", first)
 
     calls = []
     real_run = subprocess.run
@@ -230,8 +232,9 @@ def test_a_truncated_or_distribution_free_row_is_never_regated():
     )
     prediction = deepeval_layer.prediction_from_trace(trace)
     assert deepeval_layer.apply_policy_to_prediction("raw", prediction, DOMAIN) is prediction
+    unknown_case = Trace("x", "test", trace.raw)
     with pytest.raises(deepeval_layer.DeepevalLayerError):
-        deepeval_layer.prediction_from_trace(Trace("x", "test", trace.raw))
+        deepeval_layer.prediction_from_trace(unknown_case)
 
 
 def test_corpus_metrics_separate_the_model_from_the_harness():

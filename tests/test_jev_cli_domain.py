@@ -60,8 +60,9 @@ def test_operations_match_argparse_subcommands_exactly() -> None:
 
 @pytest.mark.behavioral("o26")
 def test_verb_only_in_argparse_fails() -> None:
+    parser = _fake_parser()
     with pytest.raises(CliDomainError) as exc:
-        generate_domain(parser=_fake_parser())
+        generate_domain(parser=parser)
     assert exc.value.code == "unannotated_verb"
     assert "'jev.go'" in str(exc.value)
 
@@ -80,18 +81,21 @@ def test_write_verb_is_mutating_and_cannot_be_annotated_read_only() -> None:
     domain = generate_domain(parser=_fake_parser(apply_flag=True), annotations=notes)
     assert domain.is_mutating("jev.go")
     notes["jev.go"] = RUN
+    parser = _fake_parser(apply_flag=True)
     with pytest.raises(CliDomainError) as exc:
-        generate_domain(parser=_fake_parser(apply_flag=True), annotations=notes)
+        generate_domain(parser=parser, annotations=notes)
     assert exc.value.code == "write_verb_read_only"
 
 
 def test_annotated_argument_must_exist_and_required_positional_must_be_annotated() -> None:
     bad = {**ann.ANNOTATIONS, "jev.go": ann.Annotation(True, (ArgSpec("nope", "str"),))}
+    parser = _fake_parser()
     with pytest.raises(CliDomainError, match="unknown_argument"):
-        generate_domain(parser=_fake_parser(), annotations=bad)
+        generate_domain(parser=parser, annotations=bad)
     bare = {**ann.ANNOTATIONS, "jev.go": ann.Annotation(True)}
+    parser = _fake_parser()
     with pytest.raises(CliDomainError, match="unannotated_argument"):
-        generate_domain(parser=_fake_parser(), annotations=bare)
+        generate_domain(parser=parser, annotations=bare)
 
 
 def test_verbs_are_read_only_except_the_write_verbs_and_all_have_descriptions() -> None:

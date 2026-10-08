@@ -351,10 +351,14 @@ def test_the_dataset_bundle_refuses_a_train_row_repeating_a_held_apart_entry(tmp
             ]
         },
     )
+    config = make_config()
+    calibration = write_json(tmp_path / "c.json", {})
+    gate = write_json(tmp_path / "g.json", {})
+    scorer_train = write_json(tmp_path / "s.json", {"entries": []})
     with pytest.raises(ValueError, match="repeat a validation or test entry"):
         build_dataset_bundle(
             domain=DOMAIN,
-            config=make_config(),
+            config=config,
             splits=splits,
             train_augmented=tmp_path / "train.json",
             accepted=tmp_path / "accepted.jsonl",
@@ -362,9 +366,9 @@ def test_the_dataset_bundle_refuses_a_train_row_repeating_a_held_apart_entry(tmp
             licence_file=tmp_path / "LICENSE",
             role_models={},
             out=tmp_path / "ds",
-            calibration=write_json(tmp_path / "c.json", {}),
-            gate=write_json(tmp_path / "g.json", {}),
-            scorer_train=write_json(tmp_path / "s.json", {"entries": []}),
+            calibration=calibration,
+            gate=gate,
+            scorer_train=scorer_train,
         )
 
 
@@ -397,8 +401,9 @@ def test_the_card_names_the_logprob_window_and_a_text_only_gguf(tmp_path):
 
 
 def test_a_dataset_bundle_refuses_a_licence_file_that_is_not_apache(tmp_path):
+    mit = _write(tmp_path / "MIT", "MIT License\n")
     with pytest.raises(BundleError, match="Apache License 2.0"):
-        _build_dataset(tmp_path, licence_file=_write(tmp_path / "MIT", "MIT License\n"))
+        _build_dataset(tmp_path, licence_file=mit)
     assert not (tmp_path / "ds").exists()
 
 
@@ -435,8 +440,9 @@ def test_teacher_summary_reads_the_records_jev_augment_writes():
     closed = {"a~v1": _jev_record(generator=("Closed Gen", "Proprietary"))}
     with pytest.raises(ValueError, match="apache_only"):
         ds.teacher_summary([{"id": "a~v1"}], closed, {}, apache_only=True)
+    no_generator = {"a~v1": _jev_record(generator=None)}
     with pytest.raises(ValueError, match="no generator teacher"):
-        ds.teacher_summary([{"id": "a~v1"}], {"a~v1": _jev_record(generator=None)}, {})
+        ds.teacher_summary([{"id": "a~v1"}], no_generator, {})
 
 
 def test_targeted_rows_are_published_as_supplement_with_their_teachers(tmp_path):

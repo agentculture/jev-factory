@@ -60,8 +60,9 @@ def test_label_token_ids_refuses_multi_token_and_shared_ids():
         def encode(self, text, add_special_tokens=False):
             return [1]
 
+    same = Same()
     with pytest.raises(ValueError, match="share"):
-        ro.label_token_ids(Same(), {"a": "A", "b": "B"})
+        ro.label_token_ids(same, {"a": "A", "b": "B"})
 
 
 def test_variant_ids_are_bare_spaced_and_tabbed():

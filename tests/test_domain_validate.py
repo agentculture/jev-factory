@@ -46,8 +46,9 @@ def test_rejects_duplicate_operation():
 @pytest.mark.parametrize("text", ["", "   "])
 def test_rejects_empty_description(text):
     ops = (dataclasses.replace(DOMAIN.operations[0], description=text),) + DOMAIN.operations[1:]
+    domain = _with(operations=ops)
     with pytest.raises(v.EmptyDescription) as exc:
-        v.validate(_with(operations=ops))
+        v.validate(domain)
     assert exc.value.code == "empty_description"
     assert "lamp_status" in str(exc.value)
 
@@ -57,8 +58,9 @@ def test_rejects_empty_description(text):
 def test_rejects_reason_missing_either_text(missing):
     broken = dataclasses.replace(DOMAIN.reasons[1], **{missing: ""})
     reasons = (DOMAIN.reasons[0], broken) + DOMAIN.reasons[2:]
+    domain = _with(reasons=reasons)
     with pytest.raises(v.IncompleteReason) as exc:
-        v.validate(_with(reasons=reasons))
+        v.validate(domain)
     assert exc.value.code == "incomplete_reason"
     assert "missing_argument" in str(exc.value)
     assert missing in str(exc.value)
@@ -75,8 +77,9 @@ def test_rejects_more_than_52_candidates_including_controls():
     )
     assert v.problems(ok) == ()
     # 51 operations + 2 controls = 53: rejected
+    too_many = dataclasses.replace(ok, operations=_ops(51))
     with pytest.raises(v.TooManyCandidates) as exc:
-        v.validate(dataclasses.replace(ok, operations=_ops(51)))
+        v.validate(too_many)
     assert exc.value.code == "too_many_candidates"
     assert "53" in str(exc.value)
 
@@ -94,8 +97,9 @@ def test_rejects_too_many_candidates_in_reasons_mode():
 @pytest.mark.behavioral("o25")
 def test_rejects_unknown_arg_kind():
     op = Operation("dim", "Dim one room.", False, args=(ArgSpec("level", "int"),))
+    domain = _with(operations=DOMAIN.operations + (op,))
     with pytest.raises(v.UnknownArgKind) as exc:
-        v.validate(_with(operations=DOMAIN.operations + (op,)))
+        v.validate(domain)
     assert exc.value.code == "unknown_arg_kind"
     assert "'int'" in str(exc.value) and "dim" in str(exc.value)
 

@@ -610,14 +610,16 @@ def test_the_trigger_is_logged_before_the_caller_can_heal(tmp_path: Path) -> Non
 def test_a_second_heal_round_is_refused_and_the_refusal_is_logged(tmp_path: Path) -> None:
     log = tmp_path / "heal-log.jsonl"
     quantize.heal_trigger(_summary(90.0), _summary(80.0), log=log, candidate="r3b")
+    bf16, quant = _summary(90.0), _summary(85.0, {"x"})
     with pytest.raises(quantize.QuantizeError, match="one round only"):
-        quantize.heal_trigger(_summary(90.0), _summary(85.0, {"x"}), log=log, candidate="r3b")
+        quantize.heal_trigger(bf16, quant, log=log, candidate="r3b")
     first, second = _events(log)
     assert second["refused"] is True and second["heal_round"] == 2
     assert second["new_wrong_mutating_ids"] == ["x"]
     # refusals are not spent rounds: the count stays at one, and a third try refuses too
+    bf16, quant = _summary(90.0), _summary(70.0)
     with pytest.raises(quantize.QuantizeError):
-        quantize.heal_trigger(_summary(90.0), _summary(70.0), log=log, candidate="r3b")
+        quantize.heal_trigger(bf16, quant, log=log, candidate="r3b")
     # a different build has its own round
     assert quantize.heal_trigger(_summary(90.0), _summary(70.0), log=log, candidate="r4")
 
@@ -625,10 +627,9 @@ def test_a_second_heal_round_is_refused_and_the_refusal_is_logged(tmp_path: Path
 @pytest.mark.behavioral("o17")
 def test_a_build_that_is_itself_a_heal_is_refused_even_with_an_empty_log(tmp_path: Path) -> None:
     log = tmp_path / "heal-log.jsonl"
+    bf16, quant = _summary(90.0), _summary(70.0)
     with pytest.raises(quantize.QuantizeError, match="one round only"):
-        quantize.heal_trigger(
-            _summary(90.0), _summary(70.0), log=log, candidate="r3b", heal_rounds=1
-        )
+        quantize.heal_trigger(bf16, quant, log=log, candidate="r3b", heal_rounds=1)
     assert _events(log)[0]["refused"] is True
 
 
@@ -804,8 +805,9 @@ def test_the_plan_needs_its_tool_paths_from_the_config(stage) -> None:
 
 
 def test_an_applied_stage_needs_a_guarded_runner(stage) -> None:
+    plan = _plan(stage)
     with pytest.raises(quantize.QuantizeError, match="GPU stage"):
-        quantize.run_quantize(_plan(stage), apply=True)
+        quantize.run_quantize(plan, apply=True)
 
 
 def test_the_stage_builds_bf16_then_imatrix_then_q4_k_m_and_records_the_commit(stage) -> None:
@@ -861,16 +863,18 @@ def test_the_gguf_carries_no_absolute_path_in_its_imatrix_metadata(stage) -> Non
 
 def test_a_tool_that_absolutises_the_paths_is_refused(stage, monkeypatch) -> None:
     monkeypatch.setenv("LEAK", "1")
+    plan = _plan(stage)
     with pytest.raises(quantize.QuantizeError, match="absolute path"):
-        quantize.run_quantize(_plan(stage), apply=True, run=quantize.default_run, env={})
+        quantize.run_quantize(plan, apply=True, run=quantize.default_run, env={})
 
 
 def test_a_failing_tool_stops_the_stage_with_its_output(stage, tmp_path) -> None:
     def run(argv, timeout, cwd=None):
         return (1, "boom") if argv[0] == stage["config"]["llama_cpp_imatrix"] else (0, "")
 
+    plan = _plan(stage)
     with pytest.raises(quantize.QuantizeError, match="boom"):
-        quantize.run_quantize(_plan(stage), apply=True, run=run, env={})
+        quantize.run_quantize(plan, apply=True, run=run, env={})
 
 
 def test_awq_runs_as_a_subprocess_of_the_awq_python_and_is_finished_after(stage) -> None:

@@ -464,12 +464,15 @@ def test_plan_reports_without_any_call(tmp_path) -> None:
 
 
 def test_the_held_out_file_and_a_non_train_side_are_refused(tmp_path) -> None:
+    by_name = train_file(tmp_path, name="held-out.json")
     with pytest.raises(ValueError, match="held-out"):
-        T.load_train(train_file(tmp_path, name="held-out.json"))
+        T.load_train(by_name)
+    by_header = train_file(tmp_path, name="x.json", header="Held-out split of toy")
     with pytest.raises(ValueError, match="held-out"):
-        T.load_train(train_file(tmp_path, name="x.json", header="Held-out split of toy"))
+        T.load_train(by_header)
+    val_side = train_file(tmp_path, name="val.json", header="Split 'val' of toy (seed=1).")
     with pytest.raises(ValueError, match="train side"):
-        T.load_train(train_file(tmp_path, name="val.json", header="Split 'val' of toy (seed=1)."))
+        T.load_train(val_side)
 
 
 def test_unknown_recipe_and_decide_by_are_refused(tmp_path) -> None:

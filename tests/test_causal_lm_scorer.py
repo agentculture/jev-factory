@@ -531,8 +531,9 @@ def test_in_process_refuses_a_tokenizer_missing_a_label_token() -> None:
             super().__init__()
             self.texts = [t if t.strip() != "z" else "zz" for t in self.texts]
 
+    tokenizer = Short()
     with pytest.raises(ValueError, match="no token"):
-        sc.InProcessTopK(Short(), lambda p: [])
+        sc.InProcessTopK(tokenizer, lambda p: [])
 
 
 def test_a_domain_can_carry_the_control_text_its_model_was_trained_on():

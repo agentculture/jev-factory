@@ -71,8 +71,9 @@ def test_a_kind_without_a_lookup_takes_the_base_world(tmp_path):
 
 
 def test_a_failed_lookup_is_an_environment_error(tmp_path):
+    failing = _live_domain(fail=True)
     with pytest.raises(snap.SnapshotError) as excinfo:
-        snap.build_snapshot(_live_domain(fail=True), [], source="s", created="c", base_world=BASE)
+        snap.build_snapshot(failing, [], source="s", created="c", base_world=BASE)
     assert excinfo.value.env
 
 

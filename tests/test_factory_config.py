@@ -113,18 +113,22 @@ def test_required_keys_can_come_from_env_alone():
 
 
 def test_unknown_keys_fail_loudly(tmp_path):
+    bogus = _write(tmp_path, bogus=1)
     with pytest.raises(CliError, match="unknown run config key"):
-        load_config(_write(tmp_path, bogus=1), environ={})
+        load_config(bogus, environ={})
+    plain = _write(tmp_path)
     with pytest.raises(CliError, match="unknown run config key"):
-        load_config(_write(tmp_path), cli={"bogus": 1}, environ={})
+        load_config(plain, cli={"bogus": 1}, environ={})
 
 
 def test_type_errors_and_bool_coercion(tmp_path):
+    path = _write(tmp_path)
     with pytest.raises(CliError, match="measure_port"):
-        load_config(_write(tmp_path), environ={"JEV_MEASURE_PORT": "abc"})
+        load_config(path, environ={"JEV_MEASURE_PORT": "abc"})
     assert load_config(_write(tmp_path), environ={"JEV_ENABLE_THINKING": "true"})["enable_thinking"]
+    path = _write(tmp_path)
     with pytest.raises(CliError):
-        load_config(_write(tmp_path), environ={"JEV_ENABLE_THINKING": "maybe"})
+        load_config(path, environ={"JEV_ENABLE_THINKING": "maybe"})
 
 
 def test_missing_and_bad_file(tmp_path):
