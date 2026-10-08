@@ -985,9 +985,11 @@ def stage_split(workdir: Path, knobs: dict[str, Any]) -> None:
     argv += ["--val-size", str(knobs["val_size"]), "--test-size", str(knobs["test_size"])]
     argv += ["--fold-seed", str(knobs["fold_seed"]), "--version", str(knobs["version"])]
     try:
-        rc = _quiet(lambda: split.main(argv, domain=ctx.domain))
-    except SystemExit as exc:  # argparse's parser.error
-        raise _err(f"split refused its inputs (exit {exc.code})", "see the message above") from None
+        rc = _quiet(lambda: split.main(argv, domain=ctx.domain, exit_on_error=False))
+    except split.SplitRefused as exc:
+        raise _err(
+            f"split refused its inputs: {exc}", "fix the pool or the split knobs, then rerun"
+        ) from None
     if rc != 0:
         raise _err(f"split exited {rc}")
     folds = _read_json(workdir / FOLDS_FILE)
@@ -1468,7 +1470,7 @@ def stage_select(workdir: Path, knobs: dict[str, Any]) -> None:
     registered, prereg_sha = _prereg(workdir, ctx)
     folds = _read_json(workdir / FOLDS_FILE)
     grid = _grid(knobs.get("gate_grid") or {})
-    mc_bar = registered.bars["mc_escalation"].bar
+    mc_bar = registered.bars["mc_escalation"].threshold
     out = workdir / SELECT_DIR
     selection_split = _selection_split(workdir, folds, out / "val-selection.json")
     plan = _SelectPlan(ctx, registered, folds, grid, mc_bar, out, selection_split, knobs)
@@ -1725,7 +1727,7 @@ def stage_recalibrate(workdir: Path, knobs: dict[str, Any]) -> None:
         folds,
         ctx.domain,
         grid=_grid(knobs.get("gate_grid") or {}),
-        mc_bar=registered.bars["mc_escalation"].bar,
+        mc_bar=registered.bars["mc_escalation"].threshold,
         bootstrap_resamples=int(knobs["bootstrap_resamples"]),
     )
     val_sha = _sha(val_path)
@@ -1737,7 +1739,7 @@ def stage_recalibrate(workdir: Path, knobs: dict[str, Any]) -> None:
             predictions=_rel(workdir, val_path),
             predictions_sha256=val_sha,
             build_sha256=deployed["gguf_sha256"],
-            mc_bar=registered.bars["mc_escalation"].bar,
+            mc_bar=registered.bars["mc_escalation"].threshold,
         ),
     )
     _write_json(
@@ -1759,7 +1761,7 @@ def _bars(registered: prereg_mod.Prereg, side: Mapping[str, Any]) -> dict[str, A
     for name, bar in registered.bars.items():
         value = side.get(name)
         out[name] = {
-            "bar": bar.bar,
+            "bar": bar.threshold,
             "value": value,
             "met": None if value is None else bar.met(value),
             "n": side.get("n"),

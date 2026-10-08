@@ -94,11 +94,11 @@ class Bar:
     name: str
     stock: float
     minimum: float
-    bar: float
+    threshold: float
     direction: str
 
     def met(self, value: float) -> bool:
-        return value >= self.bar if self.direction == "higher" else value <= self.bar
+        return value >= self.threshold if self.direction == "higher" else value <= self.threshold
 
 
 @dataclass(frozen=True)

@@ -96,3 +96,18 @@ def test_think_block_rewrite_matches_the_old_pattern():
     samples += ["".join(rng.choice(pieces) for _ in range(rng.randint(0, 14))) for _ in range(4000)]
     for text in samples:
         assert base._THINK_BLOCK.sub("", text) == OLD_THINK.sub("", text), repr(text)
+
+
+def test_split_exits_by_default_and_raises_when_asked(tmp_path, capsys):
+    """split.main keeps argparse's exit for the CLI; in-process callers get SplitRefused."""
+    from jev_factory.core import split
+
+    argv = ["--seed", "not-a-number", "--out-dir", str(tmp_path)]
+    with pytest.raises(SystemExit) as exited:
+        split.main(argv)
+    assert exited.value.code == 2
+    assert "jev-split: error:" in capsys.readouterr().err
+    with pytest.raises(split.SplitRefused) as refused:
+        split.main(argv, exit_on_error=False)
+    assert str(refused.value)
+    assert capsys.readouterr().err == ""

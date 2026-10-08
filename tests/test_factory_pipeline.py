@@ -841,3 +841,12 @@ def test_a_changed_recipe_retrains_and_an_unchanged_one_reuses_the_run(toy):
     toy.apply("train", {"candidates": {"r2": {"epochs": 4}}})  # more epochs: retrain r2
     assert _epochs_trained(toy)[-1] == "4"
     assert toy.json("runs/r2/train-request.json")["hyperparameters"]["epochs"] == 4
+
+
+def test_a_split_refusal_names_its_reason_in_the_stage_error(toy):
+    """The split stage runs the splitter in raising mode (Sonar S5754): the refusal's own
+    message reaches the stage error instead of a bare exit status."""
+    knobs = {**toy.knobs["split"], "val_size": 10**6, "test_size": 10**6, "fold_seed": 11}
+    manifest = pipeline.run(toy.workdir, "split", toy.ctx, knobs, apply=True)
+    assert manifest["status"] == "failed"
+    assert "split refused its inputs: val_size + test_size (2000000) exceeds" in manifest["error"]

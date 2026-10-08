@@ -42,6 +42,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NoReturn
 
 from jev_factory.domain.model import Domain
 
@@ -669,9 +670,27 @@ def _print_v2_summary(
     print(f"merged {n_entries} unique entr{plural} from {n_corpora} corpus file(s)")
 
 
-def main(argv: list[str] | None = None, domain: Domain | None = None) -> int:
-    """Run the splitter; *domain*'s seed corpus is the input when no ``--corpus`` is given."""
-    parser = argparse.ArgumentParser(prog="jev-split", description=__doc__.splitlines()[0])
+class SplitRefused(ValueError):
+    """The splitter refused its inputs (raised instead of exiting when ``exit_on_error`` is off)."""
+
+
+class _RefusingParser(argparse.ArgumentParser):
+    """An argument parser whose usage errors raise :class:`SplitRefused` instead of exiting."""
+
+    def error(self, message: str) -> NoReturn:
+        raise SplitRefused(message)
+
+
+def main(
+    argv: list[str] | None = None, domain: Domain | None = None, *, exit_on_error: bool = True
+) -> int:
+    """Run the splitter; *domain*'s seed corpus is the input when no ``--corpus`` is given.
+
+    With *exit_on_error* off (an in-process caller such as the pipeline), a refused input
+    raises :class:`SplitRefused` carrying argparse's message instead of exiting with status 2.
+    """
+    parser_class = argparse.ArgumentParser if exit_on_error else _RefusingParser
+    parser = parser_class(prog="jev-split", description=__doc__.splitlines()[0])
     parser.add_argument(
         "--corpus",
         action="append",

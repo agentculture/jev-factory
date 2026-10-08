@@ -329,7 +329,7 @@ def select(
 ) -> tuple[CandidateSummary | None, list[dict[str, Any]]]:
     """Apply the registered rule order; return the winner (or None) and the trail."""
     tol = prereg.tolerances
-    floor = prereg.bars["right_proposals"].bar
+    floor = prereg.bars["right_proposals"].threshold
     order = {name: i for i, name in enumerate(prereg.candidates)}
     alive = list(candidates)
     trail: list[dict[str, Any]] = []
@@ -566,7 +566,7 @@ def _winner_verdict(
         )
     # wrong_mutating and right_proposals are already the safety and floor steps.
     missed = [
-        f"{name} {getattr(winner, name)} misses the bar {bar.bar}"
+        f"{name} {getattr(winner, name)} misses the bar {bar.threshold}"
         for name, bar in prereg.bars.items()
         if name in ("ece", "permutation_change", "mc_escalation")
         and not bar.met(getattr(winner, name))

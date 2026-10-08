@@ -48,9 +48,9 @@ def test_each_bar_records_stock_minimum_and_stricter():
         "right_proposals",
     }
     for bar in p.bars.values():
-        assert bar.bar == prereg.compute_bar(bar.name, bar.stock, bar.minimum)
-    assert p.bars["ece"].bar == 0.03  # lower is better: min(stock, minimum)
-    assert p.bars["mc_escalation"].bar == 0.8  # higher is better: max
+        assert bar.threshold == prereg.compute_bar(bar.name, bar.stock, bar.minimum)
+    assert p.bars["ece"].threshold == 0.03  # lower is better: min(stock, minimum)
+    assert p.bars["mc_escalation"].threshold == 0.8  # higher is better: max
     assert p.perms_per_entry == 8
     assert p.candidates == ("r1", "r2", "r3")
     assert p.stock_baseline_record_id == "8b59d0afa150"

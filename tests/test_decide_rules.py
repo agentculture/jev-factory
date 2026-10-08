@@ -88,7 +88,7 @@ def test_permutation_step_drops_candidates_beyond_one_point():
 
 def test_accuracy_floor_is_the_preregistered_right_proposal_bar():
     p = _prereg()
-    assert p.bars["right_proposals"].bar == pytest.approx(0.95)
+    assert p.bars["right_proposals"].threshold == pytest.approx(0.95)
     cands = [_cand("r1", right_proposals=0.94, permutation_change=0.0), _cand("r3")]
     d = rules.decide(p, cands)
     assert _steps(d)["accuracy_floor"] == ["r3"]
