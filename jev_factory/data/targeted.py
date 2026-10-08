@@ -373,6 +373,55 @@ def _rng(key: str) -> random.Random:
     return random.Random(key)  # nosec B311 - seeded and deterministic, not security
 
 
+def _strippable_by_op(
+    train_entries: list[dict[str, Any]], domain: Domain
+) -> dict[str, list[dict[str, Any]]]:
+    """Valid explicit train entries of every operation that takes an argument, by op name."""
+    by_op: dict[str, list[dict[str, Any]]] = {}
+    for entry in train_entries:
+        expect = entry.get("expect") or {}
+        op = domain.get(str(expect.get("operation")))
+        if entry.get("kind") != "explicit" or op is None or not op.args:
+            continue
+        if domain.validate_args(op.name, expect.get("args", {})) is not None:
+            continue
+        by_op.setdefault(op.name, []).append(entry)
+    return by_op
+
+
+def _strip_first_argument(
+    entry: dict[str, Any], op: Operation, pick: int, domain: Domain
+) -> tuple[str | None, str, ArgSpec | None]:
+    """``(stripped, "", arg)`` for the first of *op*'s arguments that strips from the
+    entry text, else ``(None, reason, None)`` with the last argument's reason."""
+    reason = "no_argument_span"
+    for arg in op.args:
+        stripped, reason = strip_argument(
+            entry["text"], arg, entry["expect"]["args"][arg.name], pick, domain
+        )
+        if stripped is not None:
+            return stripped, reason, arg
+    return None, reason, None
+
+
+def _missing_argument_unit(
+    entry: dict[str, Any], stripped: str, arg: ArgSpec, cls: str, domain: Domain
+) -> Unit:
+    noun = arg_noun(arg, domain)
+    item = Item(
+        text=stripped,
+        expect={"escalate": True},
+        cls=cls,
+        reviews=[
+            marg_unspecified_prompt(stripped, noun, domain),
+            marg_natural_prompt(stripped, domain),
+        ],
+        extra={"pair_of": str(entry["id"]), "stripped_arg": arg.name},
+    )
+    group = str(entry.get("source_id") or entry["id"])
+    return Unit("missing-argument", [item], group=group)
+
+
 def missing_argument_units(
     train_entries: list[dict[str, Any]],
     per_op: int,
@@ -383,16 +432,7 @@ def missing_argument_units(
     """Up to *per_op* stripped requests per operation that takes an argument,
     drawn from *train_entries* in an order shuffled by *seed*; deterministic."""
     cls = decline_class(domain, "missing-argument")
-    by_op: dict[str, list[dict[str, Any]]] = {}
-    for entry in train_entries:
-        expect = entry.get("expect") or {}
-        op = domain.get(str(expect.get("operation")))
-        if entry.get("kind") != "explicit" or op is None or not op.args:
-            continue
-        if domain.validate_args(op.name, expect.get("args", {})) is not None:
-            continue
-        by_op.setdefault(op.name, []).append(entry)
-
+    by_op = _strippable_by_op(train_entries, domain)
     units: list[Unit] = []
     for op in domain.operations:
         pool = sorted(by_op.get(op.name, []), key=lambda e: str(e["id"]))
@@ -402,30 +442,12 @@ def missing_argument_units(
             if made >= per_op:
                 break
             pick = _rng(f"{seed}:missing-argument:{entry['id']}").randrange(1 << 16)
-            stripped, reason = None, "no_argument_span"
-            for arg in op.args:
-                stripped, reason = strip_argument(
-                    entry["text"], arg, entry["expect"]["args"][arg.name], pick, domain
-                )
-                if stripped is not None:
-                    break
-            if stripped is None:
+            stripped, reason, arg = _strip_first_argument(entry, op, pick, domain)
+            if stripped is None or arg is None:
                 bump(rejects, reason)
                 continue
             made += 1
-            noun = arg_noun(arg, domain)
-            item = Item(
-                text=stripped,
-                expect={"escalate": True},
-                cls=cls,
-                reviews=[
-                    marg_unspecified_prompt(stripped, noun, domain),
-                    marg_natural_prompt(stripped, domain),
-                ],
-                extra={"pair_of": str(entry["id"]), "stripped_arg": arg.name},
-            )
-            group = str(entry.get("source_id") or entry["id"])
-            units.append(Unit("missing-argument", [item], group=group))
+            units.append(_missing_argument_unit(entry, stripped, arg, cls, domain))
     return units
 
 
@@ -921,6 +943,162 @@ def plan(
     return out
 
 
+def _check_run_inputs(recipes: tuple[str, ...], decide_by: str, domain: Domain) -> None:
+    check_recipes(recipes)
+    if decide_by not in DECIDE_BY_RULES:
+        raise ValueError(f"decide_by must be one of {DECIDE_BY_RULES}, got {decide_by!r}")
+    for recipe in recipes:
+        if recipe in RECIPE_REASONS:
+            decline_class(domain, recipe)  # fail before any call
+
+
+@dataclass
+class _RunContext:
+    """What every recipe of one :func:`run` shares."""
+
+    domain: Domain
+    client: TeacherClient
+    decide_by: str
+    dedupe: _Dedupe
+
+
+@dataclass
+class _RecipeTally:
+    """One recipe's running entry, pair and kept-unit numbers."""
+
+    recipe: str
+    tag: str
+    n_entry: int = 0
+    n_pair: int = 0
+    units_kept: int = 0
+
+    def keep(self, unit: Unit) -> tuple[list[str | None], list[dict[str, Any]]]:
+        """Number a kept *unit*: its entry ids and the entries themselves."""
+        self.units_kept += 1
+        group = unit.group
+        if group is None and len(unit.items) > 1:
+            self.n_pair += 1
+            group = f"{ID_PREFIX}-{self.tag}-p{self.n_pair:04d}"
+        ids: list[str | None] = []
+        entries: list[dict[str, Any]] = []
+        for item in unit.items:
+            self.n_entry += 1
+            entry_id = f"{ID_PREFIX}-{self.tag}-{self.n_entry:04d}"
+            ids.append(entry_id)
+            entries.append(self._entry(item, entry_id, group))
+        return ids, entries
+
+    def _entry(self, item: Item, entry_id: str, group: str | None) -> dict[str, Any]:
+        entry: dict[str, Any] = {
+            "id": entry_id,
+            "kind": "explicit",
+            "text": item.text,
+            "expect": item.expect,
+            "source": f"{ID_PREFIX}-{self.recipe}",
+            "source_id": group or entry_id,
+        }
+        if item.cls:
+            entry["class"] = item.cls
+        entry.update(item.extra)
+        return entry
+
+
+def _recipe_units(
+    recipe: str,
+    train_entries: list[dict[str, Any]],
+    per_recipe: int,
+    seed: int,
+    rejects: dict[str, int],
+    ctx: _RunContext,
+) -> list[Unit]:
+    if recipe == "missing-argument":
+        return missing_argument_units(train_entries, per_recipe, seed, rejects, ctx.domain)
+    return _DRAFTERS[recipe](ctx.domain, ctx.client, per_recipe, rejects)
+
+
+def _guard_or_dedupe_reason(unit: Unit, ctx: _RunContext) -> str | None:
+    guarded = (guard_reason(item.text, ctx.domain) for item in unit.items)
+    return next((r for r in guarded if r), None) or ctx.dedupe.reason(unit)
+
+
+def _review_reason(
+    unit: Unit, ctx: _RunContext, rejects: dict[str, int]
+) -> tuple[str | None, list[dict[str, Any]]]:
+    """``(None, votes)`` when the reviewers accept *unit*, else ``(reason, votes)``;
+    a reviewer that said no is counted in *rejects*."""
+    try:
+        accepted, votes = review_unit(unit, ctx.client, ctx.decide_by)
+    except CandidateError:
+        return "error", []
+    if accepted:
+        return None, votes
+    for who in ("reviewer_a", "reviewer_b"):
+        if who in votes[-1] and not votes[-1][who]["accept"]:
+            bump(rejects, who)
+    return "reviewer", votes
+
+
+def _judge_unit(
+    unit: Unit, ctx: _RunContext, rejects: dict[str, int]
+) -> tuple[str | None, list[dict[str, Any]]]:
+    """Guard, dedupe, then review *unit*: ``(None, votes)`` if kept, else the reason."""
+    reason = _guard_or_dedupe_reason(unit, ctx)
+    votes: list[dict[str, Any]] = []
+    if reason is None:
+        reason, votes = _review_reason(unit, ctx, rejects)
+    if reason is not None and reason != "reviewer":
+        bump(rejects, reason)
+    return reason, votes
+
+
+def _run_recipe(
+    tally: _RecipeTally,
+    units: list[Unit],
+    ctx: _RunContext,
+    rejects: dict[str, int],
+    entries: list[dict[str, Any]],
+    review_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Judge every unit of the tally's recipe, appending kept entries and every
+    review row; returns the recipe's counts."""
+    for unit in units:
+        reason, votes = _judge_unit(unit, ctx, rejects)
+        ids: list[str | None] = [None] * len(unit.items)
+        if reason is None:
+            ctx.dedupe.keep(unit)
+            ids, kept = tally.keep(unit)
+            entries.extend(kept)
+        review_rows.append(
+            {
+                "recipe": tally.recipe,
+                "ids": ids,
+                "texts": [item.text for item in unit.items],
+                "accepted": reason is None,
+                "reason": reason,
+                "votes": votes,
+            }
+        )
+    return {"kept": tally.n_entry, "units_kept": tally.units_kept, "rejected": rejects}
+
+
+def _write_outputs(
+    out: Path,
+    doc: dict[str, Any],
+    review_out: Path | None,
+    review_rows: list[dict[str, Any]],
+) -> None:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if review_out is None:
+        return
+    review_out = Path(review_out)
+    review_out.parent.mkdir(parents=True, exist_ok=True)
+    review_out.write_text(
+        "".join(json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n" for row in review_rows),
+        encoding="utf-8",
+    )
+
+
 def run(
     train_path: Path,
     out: Path,
@@ -935,80 +1113,20 @@ def run(
 ) -> dict[str, Any]:
     """Draft, guard, dedupe and review every recipe; write the supplement to *out*
     (and every verdict to *review_out*); return counts and the sha256."""
-    check_recipes(recipes)
-    if decide_by not in DECIDE_BY_RULES:
-        raise ValueError(f"decide_by must be one of {DECIDE_BY_RULES}, got {decide_by!r}")
-    for recipe in recipes:
-        if recipe in RECIPE_REASONS:
-            decline_class(domain, recipe)  # fail before any call
+    _check_run_inputs(recipes, decide_by, domain)
     train_path, out = Path(train_path), Path(out)
     _, train_entries = load_train(train_path)
     protected = [text for path in exclude for text in load_texts(Path(path))]
     dedupe = _Dedupe([str(e.get("text", "")) for e in train_entries], protected)
+    ctx = _RunContext(domain, client, decide_by, dedupe)
     entries: list[dict[str, Any]] = []
     review_rows: list[dict[str, Any]] = []
     counts: dict[str, dict[str, Any]] = {}
     for recipe in recipes:
-        tag = ID_TAGS[recipe]
+        tally = _RecipeTally(recipe, ID_TAGS[recipe])
         rejects: dict[str, int] = {}
-        if recipe == "missing-argument":
-            units = missing_argument_units(train_entries, per_recipe, seed, rejects, domain)
-        else:
-            units = _DRAFTERS[recipe](domain, client, per_recipe, rejects)
-        n_entry, n_pair, kept_units = 0, 0, 0
-        for unit in units:
-            reason = next(
-                (r for r in (guard_reason(item.text, domain) for item in unit.items) if r), None
-            ) or dedupe.reason(unit)
-            votes: list[dict[str, Any]] = []
-            if reason is None:
-                try:
-                    accepted, votes = review_unit(unit, client, decide_by)
-                except CandidateError:
-                    reason = "error"
-                else:
-                    if not accepted:
-                        reason = "reviewer"
-                        for who in ("reviewer_a", "reviewer_b"):
-                            if who in votes[-1] and not votes[-1][who]["accept"]:
-                                bump(rejects, who)
-            if reason is not None and reason != "reviewer":
-                bump(rejects, reason)
-            ids: list[str | None] = [None] * len(unit.items)
-            if reason is None:
-                kept_units += 1
-                dedupe.keep(unit)
-                group = unit.group
-                if group is None and len(unit.items) > 1:
-                    n_pair += 1
-                    group = f"{ID_PREFIX}-{tag}-p{n_pair:04d}"
-                for index, item in enumerate(unit.items):
-                    n_entry += 1
-                    entry_id = f"{ID_PREFIX}-{tag}-{n_entry:04d}"
-                    ids[index] = entry_id
-                    entry: dict[str, Any] = {
-                        "id": entry_id,
-                        "kind": "explicit",
-                        "text": item.text,
-                        "expect": item.expect,
-                        "source": f"{ID_PREFIX}-{recipe}",
-                        "source_id": group or entry_id,
-                    }
-                    if item.cls:
-                        entry["class"] = item.cls
-                    entry.update(item.extra)
-                    entries.append(entry)
-            review_rows.append(
-                {
-                    "recipe": recipe,
-                    "ids": ids,
-                    "texts": [item.text for item in unit.items],
-                    "accepted": reason is None,
-                    "reason": reason,
-                    "votes": votes,
-                }
-            )
-        counts[recipe] = {"kept": n_entry, "units_kept": kept_units, "rejected": rejects}
+        units = _recipe_units(recipe, train_entries, per_recipe, seed, rejects, ctx)
+        counts[recipe] = _run_recipe(tally, units, ctx, rejects, entries, review_rows)
 
     sha256 = sha256_of_entries(entries)
     meta = {
@@ -1028,21 +1146,6 @@ def run(
         f"Split 'train' of {train_path.name}: a train-only targeted supplement written by "
         'jev_factory.data.targeted; its recipes, seed, counts and sha256 are under "targeted".'
     )
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(
-        json.dumps(
-            {"header": header, "targeted": meta, "entries": entries}, indent=2, ensure_ascii=False
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    if review_out is not None:
-        review_out = Path(review_out)
-        review_out.parent.mkdir(parents=True, exist_ok=True)
-        review_out.write_text(
-            "".join(
-                json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n" for row in review_rows
-            ),
-            encoding="utf-8",
-        )
+    doc = {"header": header, "targeted": meta, "entries": entries}
+    _write_outputs(out, doc, review_out, review_rows)
     return {"out": str(out), "kept": len(entries), "recipes": counts, "sha256": sha256}

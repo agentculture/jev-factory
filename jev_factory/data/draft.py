@@ -354,19 +354,25 @@ def _op_candidates(
     for op in domain.operations:
         for n, size in enumerate(sizes, 1):
             system, user = op_prompt(domain, op.name, size, n, len(sizes))
-            for item in _generate_items(
-                client, system, user, rejects, step, f"gen:op:{op.name}:{n}"
-            ):
-                text = str(item.get("text", "")).strip()
-                args = item.get("args") or {}
-                if not text or not isinstance(args, dict):
+            key = f"gen:op:{op.name}:{n}"
+            for item in _generate_items(client, system, user, rejects, step, key):
+                cand = _op_candidate(domain, op.name, item)
+                if cand is None:
                     bump(rejects, "invalid_args")
                     continue
-                if domain.validate_args(op.name, args) is not None:
-                    bump(rejects, "invalid_args")
-                    continue
-                out.append(Candidate(f"op-{op.name}", text, {"operation": op.name, "args": args}))
+                out.append(cand)
     return out
+
+
+def _op_candidate(domain: Domain, name: str, item: dict[str, Any]) -> Candidate | None:
+    """The candidate for one generated *item* of operation *name*, or None if invalid."""
+    text = str(item.get("text", "")).strip()
+    args = item.get("args") or {}
+    if not text or not isinstance(args, dict):
+        return None
+    if domain.validate_args(name, args) is not None:
+        return None
+    return Candidate(f"op-{name}", text, {"operation": name, "args": args})
 
 
 def _decline_candidates(
@@ -786,6 +792,31 @@ def _held_out_asks(domain: Domain, per_op: int, escalate: int, explain: int, max
     return out
 
 
+def _held_out_reply(drafter: Drafter, system: str, user: str, rejects: dict[str, int]) -> list[Any]:
+    """The drafter's items for one ask; an unusable reply is counted and yields none."""
+    try:
+        return parse_json_list(drafter(system, user))
+    except Exception:  # noqa: BLE001 - any unusable reply is a counted parse failure
+        rejects["parse"] += 1
+        return []
+
+
+def _held_out_expect(
+    domain: Domain, key: str, item: dict[str, Any], rejects: dict[str, int]
+) -> dict[str, Any] | None:
+    """The expect block for *item* drafted under ask *key*, or None for invalid op args."""
+    kind = key.split(":")[0]
+    if kind == "op":
+        op, args = key.split(":")[1], item.get("args") or {}
+        if domain.validate_args(op, args) is not None:
+            rejects["invalid_op_args"] += 1
+            return None
+        return {"operation": op, "args": args}
+    if kind == "escalate":
+        return {"escalate": True}
+    return {"explain": True, "answer": str(item.get("answer", "")).strip()}
+
+
 def draft_heldout(
     domain: Domain,
     out_dir: Path,
@@ -816,28 +847,16 @@ def draft_heldout(
     prefix = held_out_id_prefix(seed)
     source = f"heldout-draft-{_slug(model)}"
     for key, system, user in _held_out_asks(domain, per_op, escalate, explain, max_batch):
-        kind = key.split(":")[0]
-        try:
-            items = parse_json_list(drafter(system, user))
-        except Exception:  # noqa: BLE001 - any unusable reply is a counted parse failure
-            rejects["parse"] += 1
-            continue
+        items = _held_out_reply(drafter, system, user, rejects)
         for item in map(as_item, items):
             text = str(item.get("text", "")).strip()
             norm = _normalize(text)
             if not text or norm in seen or norm in dev_norm:
                 rejects["duplicate"] += 1
                 continue
-            if kind == "op":
-                op, args = key.split(":")[1], item.get("args") or {}
-                if domain.validate_args(op, args) is not None:
-                    rejects["invalid_op_args"] += 1
-                    continue
-                expect: dict[str, Any] = {"operation": op, "args": args}
-            elif kind == "escalate":
-                expect = {"escalate": True}
-            else:
-                expect = {"explain": True, "answer": str(item.get("answer", "")).strip()}
+            expect = _held_out_expect(domain, key, item, rejects)
+            if expect is None:
+                continue
             seen.add(norm)
             entries.append(
                 {

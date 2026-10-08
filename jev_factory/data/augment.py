@@ -611,6 +611,46 @@ def plan_tasks(
     return tasks
 
 
+def _load_all_seeds(seed_files: list[Path], domain: Domain, side: str | None) -> list[Seed]:
+    seeds: list[Seed] = []
+    for seed_file in seed_files:
+        seeds.extend(load_seeds(Path(seed_file), domain, side))
+    return seeds
+
+
+def _done_ids(accepted_out: Path, rejected_out: Path, ledger: ItemLedger | None) -> set[str]:
+    """Variation ids already written to either output or recorded in *ledger*."""
+    done = existing_ids(accepted_out) | existing_ids(rejected_out)
+    if ledger is not None:
+        done |= set(ledger.done)
+    return done
+
+
+def _add_counts(counts: PipelineCounts, local: PipelineCounts, *, failed: bool) -> None:
+    """Fold one variation's *local* counts into *counts*; a failed one counts as an error."""
+    counts.generated += local.generated
+    counts.corrected += local.corrected
+    if failed:
+        counts.errors += 1
+        return
+    counts.accepted += local.accepted
+    counts.rejected_by_a += local.rejected_by_a
+    counts.rejected_by_b += local.rejected_by_b
+
+
+def _store_outcome(
+    outcome: dict[str, Any],
+    variation_id: str,
+    out: Path,
+    done: set[str],
+    ledger: ItemLedger | None,
+) -> None:
+    append_jsonl(out, outcome["record"])
+    done.add(variation_id)
+    if ledger is not None:
+        ledger.record(variation_id, "accepted" if outcome["accepted"] else "rejected")
+
+
 def run_augment(
     seed_files: list[Path],
     domain: Domain,
@@ -634,14 +674,10 @@ def run_augment(
     variations that would be attempted and no teacher is called.
     """
     _check_decide_by(decide_by)
-    seeds: list[Seed] = []
-    for seed_file in seed_files:
-        seeds.extend(load_seeds(Path(seed_file), domain, side))
+    seeds = _load_all_seeds(seed_files, domain, side)
     validate_seed_consistency(seeds)
     accepted_out, rejected_out = Path(accepted_out), Path(rejected_out)
-    done = existing_ids(accepted_out) | existing_ids(rejected_out)
-    if ledger is not None:
-        done |= set(ledger.done)
+    done = _done_ids(accepted_out, rejected_out, ledger)
     tasks = plan_tasks(seeds, per_source, limit, done)
     counts = PipelineCounts()
     if dry_run:
@@ -657,22 +693,14 @@ def run_augment(
             outcome = process_variation(seed, variation_id, domain, client, local, decide_by)
         except CandidateError:
             with lock:
-                counts.generated += local.generated
-                counts.corrected += local.corrected
-                counts.errors += 1
+                _add_counts(counts, local, failed=True)
             return
         with lock:
-            counts.generated += local.generated
-            counts.corrected += local.corrected
-            counts.accepted += local.accepted
-            counts.rejected_by_a += local.rejected_by_a
-            counts.rejected_by_b += local.rejected_by_b
+            _add_counts(counts, local, failed=False)
             if variation_id in done:  # pragma: no cover - plan_tasks already dedupes
                 return
-            append_jsonl(accepted_out if outcome["accepted"] else rejected_out, outcome["record"])
-            done.add(variation_id)
-            if ledger is not None:
-                ledger.record(variation_id, "accepted" if outcome["accepted"] else "rejected")
+            out = accepted_out if outcome["accepted"] else rejected_out
+            _store_outcome(outcome, variation_id, out, done, ledger)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
         for future in [executor.submit(run_one, s, v) for s, v in tasks]:

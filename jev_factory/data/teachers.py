@@ -259,26 +259,34 @@ def strip_fence(text: str) -> str:
     return body.strip()
 
 
+_DEPTH_STEP = {"{": 1, "}": -1}
+
+
+def _object_end(text: str, start: int) -> int | None:
+    """The index of the ``}`` closing the ``{`` at *start* (string-aware), or None."""
+    depth, in_str, esc = 0, False, False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            esc = (ch == "\\") and not esc
+            in_str = not (ch == '"' and not esc)
+            continue
+        if ch == '"':
+            in_str = True
+            continue
+        depth += _DEPTH_STEP.get(ch, 0)
+        if ch == "}" and depth == 0:
+            return i
+    return None
+
+
 def _first_object(text: str) -> str | None:
     """The first balanced ``{...}`` in ``text`` (string-aware), or None."""
     start = text.find("{")
     while start != -1:
-        depth, in_str, esc = 0, False, False
-        for i in range(start, len(text)):
-            ch = text[i]
-            if in_str:
-                esc = (ch == "\\") and not esc
-                if ch == '"' and not esc:
-                    in_str = False
-                continue
-            if ch == '"':
-                in_str = True
-            elif ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    return text[start : i + 1]
+        end = _object_end(text, start)
+        if end is not None:
+            return text[start : end + 1]
         start = text.find("{", start + 1)
     return None
 
@@ -389,36 +397,55 @@ class TeacherClient:
         """One role call. Invalid replies are retried twice, then an error outcome."""
         role = self.roles[role_name]
         key = cache_key(role, system, user)
-        hit = self._cache_get(key)
-        if hit is not None:
-            try:
-                return self._ok(role, hit, parse, 0, True)
-            except TeacherError:
-                pass  # a cached reply the current schema refuses: ask again
+        cached = self._cached_outcome(role, key, parse)
+        if cached is not None:
+            return cached
         last = ""
         for attempt in range(1, RETRIES + 2):
-            try:
-                self.sent += 1
-                text = self._caller(role, system, user)
-                outcome = self._ok(role, text, parse, attempt, False)
-            except urllib.error.HTTPError as exc:
-                last = f"HTTP {exc.code}"
-                if exc.code not in _TRANSIENT_STATUS:
-                    break  # the request itself is wrong: retrying repeats it
-            except (
-                TeacherError,
-                OSError,
-                http.client.HTTPException,
-            ) as exc:  # URLError is an OSError
-                last = scrub(str(exc) or type(exc).__name__, self._secrets)
-            except ValueError:
-                last = "gateway reply is not JSON"
-            else:
-                self._cache_put(key, role, text)
+            outcome, last, retryable = self._attempt(role, system, user, parse, attempt)
+            if outcome is not None:
+                self._cache_put(key, role, outcome.text)
                 return outcome
+            if not retryable:
+                break  # the request itself is wrong: retrying repeats it
             if attempt <= RETRIES:
                 self._sleep(self._backoff * attempt)
         return Outcome("error", role.record(), error=last, attempts=min(attempt, RETRIES + 1))
+
+    def _cached_outcome(
+        self, role: RoleConfig, key: str, parse: Callable[[str], Any] | None
+    ) -> Outcome | None:
+        hit = self._cache_get(key)
+        if hit is None:
+            return None
+        try:
+            return self._ok(role, hit, parse, 0, True)
+        except TeacherError:
+            return None  # a cached reply the current schema refuses: ask again
+
+    def _attempt(
+        self,
+        role: RoleConfig,
+        system: str,
+        user: str,
+        parse: Callable[[str], Any] | None,
+        attempt: int,
+    ) -> tuple[Outcome | None, str, bool]:
+        """``(outcome, "", True)`` on success, else ``(None, error, retryable)``."""
+        try:
+            self.sent += 1
+            text = self._caller(role, system, user)
+            return self._ok(role, text, parse, attempt, False), "", True
+        except urllib.error.HTTPError as exc:
+            return None, f"HTTP {exc.code}", exc.code in _TRANSIENT_STATUS
+        except (
+            TeacherError,
+            OSError,
+            http.client.HTTPException,
+        ) as exc:  # URLError is an OSError
+            return None, scrub(str(exc) or type(exc).__name__, self._secrets), True
+        except ValueError:
+            return None, "gateway reply is not JSON", True
 
     @staticmethod
     def _ok(role: RoleConfig, text: str, parse: Callable | None, attempts: int, cached: bool):
