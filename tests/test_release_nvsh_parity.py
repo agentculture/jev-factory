@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import struct
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -21,13 +22,20 @@ from jev_factory.release import dataset_bundle as ds
 from jev_factory.release import scan
 from jev_factory.release.bundle import (
     BundleError,
+    BundleFiles,
     build_dataset_bundle,
     build_model_bundle,
     drop_undeclared_mtp,
     results_section,
 )
 from tests.fixtures.toy_domain import DOMAIN
-from tests.release_support import make_config, make_inputs, write_json
+from tests.release_support import (
+    dataset_build_args,
+    make_config,
+    make_inputs,
+    model_bundle_args,
+    write_json,
+)
 
 # Credential-shaped strings are assembled at run time so this file is never a finding.
 _HF = "hf" + "_" + "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -64,7 +72,7 @@ def _build(tmp_path: Path, inp, **overrides):
         scorer_train=inp.scorer_train,
     )
     kwargs.update(overrides)
-    return build_model_bundle(**kwargs)
+    return build_model_bundle(**model_bundle_args(**kwargs))
 
 
 def _no_licence(tmp_path, inp):
@@ -373,7 +381,7 @@ def _dataset(
         out=tmp_path / "bundle",
     )
     kwargs.update(overrides)
-    return kwargs
+    return dataset_build_args(**kwargs)
 
 
 def _manifest(out: Path) -> dict[str, dict]:
@@ -702,7 +710,8 @@ def test_several_rejected_files_are_summed(tmp_path):
     kwargs = _dataset(tmp_path)
     second = tmp_path / "rereview-rejected.jsonl"
     second.write_text(json.dumps({"id": "dev-a~v3"}) + "\n\n" + json.dumps({"id": "x"}) + "\n")
-    counts = ds.build(**{**kwargs, "rejected": [kwargs["rejected"], second]})
+    sources = replace(kwargs["sources"], rejected=[kwargs["sources"].rejected, second])
+    counts = ds.build(**{**kwargs, "sources": sources})
     assert counts["rejected"] == 3
     assert counts["accepted"] == 1
     assert "Of 4\n  reviewed rewrites, 1 were accepted (25%)" in _card(tmp_path)
@@ -725,23 +734,22 @@ def test_publishable_text_redacts_private_and_cgnat_addresses(text, published):
 
 def _full_dataset(tmp_path: Path, scorer_doc: dict, test_text: str) -> Path:
     kwargs = _dataset(tmp_path)
-    test = json.loads((kwargs["splits"] / "test.json").read_text())
+    test = json.loads((kwargs["sources"].splits / "test.json").read_text())
     test["entries"].append({**_entry("dev-t2", {"escalate": True}), "text": test_text})
-    write_json(kwargs["splits"] / "test.json", test)
+    write_json(kwargs["sources"].splits / "test.json", test)
     inp = make_inputs(tmp_path / "m")
     build_dataset_bundle(
         domain=DOMAIN,
         config=make_config(),
-        splits=kwargs["splits"],
-        train_augmented=kwargs["train_augmented"],
-        accepted=kwargs["accepted"],
-        rejected=kwargs["rejected"],
+        sources=kwargs["sources"],
         licence_file=kwargs["licence"],
         role_models=kwargs["role_models"],
         out=tmp_path / "bundle",
-        calibration=inp.calibration,
-        gate=inp.gate,
-        scorer_train=write_json(tmp_path / "scorer-train-src.json", scorer_doc),
+        files=BundleFiles(
+            calibration=inp.calibration,
+            gate=inp.gate,
+            scorer_train=write_json(tmp_path / "scorer-train-src.json", scorer_doc),
+        ),
     )
     return tmp_path / "bundle"
 

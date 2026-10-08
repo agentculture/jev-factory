@@ -11,6 +11,8 @@ from typing import Any
 
 from jev_factory.factory.config import RunConfig
 from jev_factory.release import scan
+from jev_factory.release.bundle import BundleFiles, ModelPayload
+from jev_factory.release.dataset_bundle import DatasetSources
 
 TOKEN = "hf_fake_token_value_for_tests_only"
 HUB_PREFIX = "example-org/toy-lamps-jev-"
@@ -61,6 +63,40 @@ def write_gguf(path: Path, meta: dict[str, Any] | None = None) -> Path:
     meta = {"general.architecture": "qwen3", "quantize.imatrix.file": "imatrix.dat"} | (meta or {})
     path.write_bytes(gguf_bytes(meta))
     return path
+
+
+_BUNDLE_FILES = ("calibration", "gate", "scorer_train")
+_MODEL_PAYLOAD = ("merged", "kind", "gguf", "awq_dir", "quantized_from")
+_DATASET_SOURCES = ("splits", "train_augmented", "accepted", "rejected")
+
+
+def _take(kwargs: dict[str, Any], names: tuple[str, ...]) -> dict[str, Any]:
+    return {name: kwargs.pop(name) for name in names if name in kwargs}
+
+
+def model_bundle_args(**flat: Any) -> dict[str, Any]:
+    """``build_model_bundle`` keyword arguments from the flat names the tests use: the
+    three bundle files grouped as ``files``, the checkpoint and its kind as ``payload``."""
+    kwargs = dict(flat)
+    kwargs["files"] = BundleFiles(**_take(kwargs, _BUNDLE_FILES))
+    kwargs["payload"] = ModelPayload(**_take(kwargs, _MODEL_PAYLOAD))
+    return kwargs
+
+
+def dataset_bundle_args(**flat: Any) -> dict[str, Any]:
+    """``build_dataset_bundle`` keyword arguments from flat names (``files``, ``sources``)."""
+    kwargs = dict(flat)
+    kwargs["files"] = BundleFiles(**_take(kwargs, _BUNDLE_FILES))
+    kwargs["sources"] = DatasetSources(**_take(kwargs, _DATASET_SOURCES))
+    return kwargs
+
+
+def dataset_build_args(**flat: Any) -> dict[str, Any]:
+    """``dataset_bundle.build`` keyword arguments from flat names (the run files as
+    ``sources``; ``scorer_train`` stays its own argument there)."""
+    kwargs = dict(flat)
+    kwargs["sources"] = DatasetSources(**_take(kwargs, _DATASET_SOURCES))
+    return kwargs
 
 
 class Checkpoint(SimpleNamespace):

@@ -28,6 +28,7 @@ import shlex
 import shutil
 import struct
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +79,44 @@ _TOKENIZER_CONFIG = "tokenizer_config.json"
 
 class BundleError(ValueError):
     """A bundle that cannot be built, or that fails a check and must not ship."""
+
+
+@dataclass(frozen=True)
+class BundleFiles:
+    """The three files every bundle must carry, byte for byte: the frozen calibration,
+    the gate settings and the scorer's training file (each ``None`` when missing, which
+    refuses the bundle)."""
+
+    calibration: Path | None
+    gate: Path | None
+    scorer_train: Path | None
+
+
+@dataclass(frozen=True)
+class ModelPayload:
+    """What a model bundle uploads: the merged checkpoint, the *kind* of build (``bf16``,
+    ``gguf`` or ``awq``), the GGUF file or AWQ export folder that kind needs, and the
+    bf16 repo a quantized build was made from."""
+
+    merged: Path
+    kind: str = "bf16"
+    gguf: Path | None = None
+    awq_dir: Path | None = None
+    quantized_from: str | None = None
+
+
+@dataclass(frozen=True)
+class BuildFacts:
+    """The facts a model card states about the uploaded build: its *kind*, the
+    ``mtp_num_hidden_layers`` value it was changed from, the GGUF file's name and sha256,
+    the AWQ serve arguments, and the bf16 repo it was quantized from."""
+
+    kind: str = "bf16"
+    mtp_from: int | None = None
+    gguf_name: str | None = None
+    gguf_sha256: str | None = None
+    awq_serve_args: Sequence[str] = ()
+    quantized_from: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -483,14 +522,10 @@ def model_card(
     data_summary: str,
     surface_sha256: str,
     teachers: _dataset.TeacherSummary | None = None,
-    kind: str = "bf16",
-    mtp_from: int | None = None,
-    gguf_name: str | None = None,
-    gguf_sha256: str | None = None,
-    awq_serve_args: Sequence[str] = (),
-    quantized_from: str | None = None,
+    build: BuildFacts = BuildFacts(),
 ) -> str:
     """The model card; its prose comes from ``domain.card_text`` and the run's licence."""
+    kind = build.kind
     if kind not in KINDS:
         raise BundleError(f"unknown bundle kind {kind!r} (one of {', '.join(KINDS)})")
     tags = {"bf16": "", "gguf": "- gguf\n", "awq": "- awq\n"}[kind]
@@ -498,19 +533,19 @@ def model_card(
     build_note = ""
     if kind == "gguf":
         build_note = (
-            f"\nThis repository holds the **Q4_K_M GGUF** build (`{gguf_name}`, sha256\n"
-            f"`{gguf_sha256}`), plus the fine-tune's tokenizer files and chat template.\n"
+            f"\nThis repository holds the **Q4_K_M GGUF** build (`{build.gguf_name}`, sha256\n"
+            f"`{build.gguf_sha256}`), plus the fine-tune's tokenizer files and chat template.\n"
         )
         use = (
             "Serve the GGUF with llama.cpp's `llama-server`. It is **text-only**: there is no\n"
             "vision projector, so pass no `--mmproj`. `--jinja` applies the chat template the\n"
             "GGUF carries and `--temp 0 --top-k 1` pins greedy decoding:\n\n"
-            f"```bash\nllama-server --model {gguf_name} --jinja --temp 0 --top-k 1 \\\n"
+            f"```bash\nllama-server --model {build.gguf_name} --jinja --temp 0 --top-k 1 \\\n"
             "  --host 127.0.0.1 --port 8080\n```\n"
         )
     elif kind == "awq":
         build_note = "\nThis repository holds the **INT4 AWQ** build (compressed-tensors).\n"
-        args = shlex.join(awq_serve_args)
+        args = shlex.join(build.awq_serve_args)
         use = (
             "Serve the compressed-tensors folder with vLLM "
             f"(`{args}`), with `--max-logprobs {READOUT_TOP}` so the label scores can be read.\n"
@@ -520,11 +555,11 @@ def model_card(
             f"Serve with vLLM with `--max-logprobs {READOUT_TOP}` and read the next-token\n"
             "log-probabilities over the labels.\n"
         )
-    if quantized_from:
-        build_note += f"The bf16 fine-tune it was quantized from is `{quantized_from}`.\n"
-    if mtp_from is not None:
+    if build.quantized_from:
+        build_note += f"The bf16 fine-tune it was quantized from is `{build.quantized_from}`.\n"
+    if build.mtp_from is not None:
         build_note += (
-            f"\n`config.json`: `mtp_num_hidden_layers` is set from {mtp_from} to 0 in this"
+            f"\n`config.json`: `mtp_num_hidden_layers` is set from {build.mtp_from} to 0 in this"
             " upload; the weights hold no `mtp.*` tensor.\n"
         )
     quoted = "\n\n".join(f"### {cap}\n\nFrom `{name}`:\n\n{table}" for cap, name, table in results)
@@ -596,8 +631,10 @@ def _copy_payload(
     return gguf.name, _sha256(out / gguf.name)
 
 
-def _require_sources(**sources: Path | None) -> None:
+def _require_sources(files: BundleFiles) -> None:
     """Refuse before copying anything when a required input file is missing."""
+    sources = {"calibration": files.calibration, "gate": files.gate}
+    sources["scorer-train"] = files.scorer_train
     for name, path in sources.items():
         if path is None or not Path(path).is_file():
             raise BundleError(f"a bundle must carry {name}.json: pass an existing {name} file")
@@ -693,31 +730,26 @@ def build_model_bundle(
     *,
     domain: Domain,
     config: RunConfig,
-    merged: Path,
+    payload: ModelPayload,
     base_snapshot: Path,
     repo: str,
     run: str,
     results: Path | Sequence[Path],
     data_summary: str,
     out: Path,
-    calibration: Path | None,
-    gate: Path | None,
-    scorer_train: Path | None,
-    kind: str = "bf16",
-    gguf: Path | None = None,
-    awq_dir: Path | None = None,
+    files: BundleFiles,
     teachers: _dataset.TeacherSummary | None = None,
-    quantized_from: str | None = None,
     results_heading: str | None = None,
 ) -> str:
     """Write a model bundle to *out*; return the merged checkpoint's revision.
 
-    *calibration*, *gate* and *scorer_train* are required and ship byte for byte as
+    *files* (calibration, gate and scorer_train) are required and ship byte for byte as
     ``calibration.json``, ``gate.json`` and ``scorer-train.json``. The hub prefix, licence
     and card prose come from *config* and *domain*. The finished folder is checked with
     :func:`check_bundle` (no symlink, no absolute GGUF path) and a failure removes it."""
+    kind, merged, gguf, awq_dir = payload.kind, payload.merged, payload.gguf, payload.awq_dir
     _check_kind_inputs(kind, gguf, awq_dir)
-    _require_sources(calibration=calibration, gate=gate, **{"scorer-train": scorer_train})
+    _require_sources(files)
     reports = _report_list(results, data_summary)
     licence = _licence(domain, config)
     _check_teacher_licences(teachers, licence)
@@ -744,9 +776,9 @@ def build_model_bundle(
             encoding="utf-8",
         )
         for source, name in (
-            (calibration, CALIBRATION_FILE),
-            (gate, GATE_FILE),
-            (scorer_train, "scorer-train.json"),
+            (files.calibration, CALIBRATION_FILE),
+            (files.gate, GATE_FILE),
+            (files.scorer_train, "scorer-train.json"),
         ):
             shutil.copyfile(source, out / name)
         info = _write_info(out, kind="model", domain=domain, config=config, repo=repo, run=run)
@@ -761,12 +793,14 @@ def build_model_bundle(
             data_summary=data_summary.strip(),
             surface_sha256=info["surface_sha256"],
             teachers=teachers,
-            kind=kind,
-            mtp_from=mtp_from,
-            gguf_name=gguf_name,
-            gguf_sha256=gguf_sha256,
-            awq_serve_args=awq_serve_args,
-            quantized_from=quantized_from,
+            build=BuildFacts(
+                kind=kind,
+                mtp_from=mtp_from,
+                gguf_name=gguf_name,
+                gguf_sha256=gguf_sha256,
+                awq_serve_args=awq_serve_args,
+                quantized_from=payload.quantized_from,
+            ),
         )
         _check_card(card, licence, kind)
         (out / "README.md").write_text(card, encoding="utf-8")
@@ -781,16 +815,11 @@ def build_dataset_bundle(
     *,
     domain: Domain,
     config: RunConfig,
-    splits: Path,
-    train_augmented: Path,
-    accepted: Path,
-    rejected: Path | list[Path],
+    sources: _dataset.DatasetSources,
     licence_file: Path,
     role_models: Mapping[str, tuple[str, str]],
     out: Path,
-    calibration: Path | None,
-    gate: Path | None,
-    scorer_train: Path | None,
+    files: BundleFiles,
     repo: str = "",
     run: str = "",
     model_repos: list[str] | None = None,
@@ -802,7 +831,7 @@ def build_dataset_bundle(
     Like a model bundle it must carry ``calibration.json``, ``gate.json`` and
     ``scorer-train.json`` plus ``bundle.json`` with the domain's surface hash, and is
     checked with :func:`check_bundle`; a failure removes the folder."""
-    _require_sources(calibration=calibration, gate=gate, **{"scorer-train": scorer_train})
+    _require_sources(files)
     licence = _licence(domain, config)
     _check_licence_file(licence_file, licence)
     if out.exists() and any(out.iterdir()):
@@ -810,13 +839,10 @@ def build_dataset_bundle(
     try:
         counts = _dataset.build(
             domain=domain,
-            splits=splits,
-            train_augmented=train_augmented,
-            accepted=accepted,
-            rejected=rejected,
+            sources=sources,
             licence=licence_file,
             role_models=dict(role_models),
-            scorer_train=scorer_train,
+            scorer_train=files.scorer_train,
             out=out,
             apache_only=licence == APACHE_LICENCE,
             issue_refs=str(config.get("issue_refs") or ""),
@@ -824,7 +850,7 @@ def build_dataset_bundle(
             default_source=default_source,
             supplement_teachers=supplement_teachers,
         )
-        for source, name in ((calibration, CALIBRATION_FILE), (gate, GATE_FILE)):
+        for source, name in ((files.calibration, CALIBRATION_FILE), (files.gate, GATE_FILE)):
             shutil.copyfile(source, out / name)
         _write_info(out, kind="dataset", domain=domain, config=config, repo=repo, run=run)
         check_bundle(out)

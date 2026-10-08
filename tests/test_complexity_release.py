@@ -25,7 +25,14 @@ from jev_factory.release import dataset_bundle, scan
 from jev_factory.release.bundle import BundleError, build_model_bundle, bundle_problems
 from jev_factory.review import core, server
 from tests.fixtures.toy_domain import DOMAIN
-from tests.release_support import make_config, make_inputs, write_gguf, write_json
+from tests.release_support import (
+    dataset_build_args,
+    make_config,
+    make_inputs,
+    model_bundle_args,
+    write_gguf,
+    write_json,
+)
 
 AT = "2026-10-02T12:00:00Z"
 
@@ -104,7 +111,7 @@ def _model_kwargs(tmp_path: Path, inp, **overrides):
         scorer_train=inp.scorer_train,
     )
     kwargs.update(overrides)
-    return kwargs
+    return model_bundle_args(**kwargs)
 
 
 def _teachers(role_teachers):
@@ -430,7 +437,7 @@ def _dataset_kwargs(tmp: Path, train=None, **overrides):
         out=tmp / "ds",
     )
     kwargs.update(overrides)
-    return kwargs
+    return dataset_build_args(**kwargs)
 
 
 def test_build_refuses_an_empty_licence(tmp_path):
@@ -454,7 +461,8 @@ def test_build_refuses_a_non_train_side_entry_and_a_variation_off_the_train_side
         dataset_bundle.build(**kwargs)
     assert str(caught.value) == f"a1 in {tmp_path / 'train.json'} is not a train-side entry"
     write_json(tmp_path / "splits" / "test.json", {"entries": [_entry("t1~v1", "te")]})
-    kwargs["train_augmented"] = write_json(tmp_path / "t2.json", [_entry("a1", "x")])
+    train_augmented = write_json(tmp_path / "t2.json", [_entry("a1", "x")])
+    kwargs["sources"] = dataclasses.replace(kwargs["sources"], train_augmented=train_augmented)
     with pytest.raises(ValueError) as caught:
         dataset_bundle.build(**kwargs)
     assert str(caught.value) == "t1~v1: variations never leave the train side"

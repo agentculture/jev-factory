@@ -24,10 +24,12 @@ import json
 import re
 import shutil
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from jev_factory.domain.model import Domain
+from jev_factory.release.scan import CGNAT
 
 NVSH_PROVENANCE = {
     "upstream": "scripts/lfm-finetune/dataset_bundle.py",
@@ -281,7 +283,6 @@ def _normal(text: str) -> str:
 
 _IPV4 = re.compile(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])")
 DOCUMENTATION_NET = "192.0.2."
-_CGNAT = ipaddress.ip_network("100.64.0.0/10")
 
 
 def publishable_text(text: str) -> str:
@@ -295,7 +296,7 @@ def publishable_text(text: str) -> str:
             return match.group(0)
         if address.is_loopback or address.is_unspecified:
             return match.group(0)
-        if not (address.is_private or address in _CGNAT):
+        if not (address.is_private or address in CGNAT):
             return match.group(0)
         return DOCUMENTATION_NET + match.group(1).rsplit(".", 1)[1]
 
@@ -346,13 +347,22 @@ def _answer_counts(records: list[dict[str, Any]]) -> dict[str, int]:
     return dict(kinds)
 
 
+@dataclass(frozen=True)
+class DatasetSources:
+    """The run files a dataset folder is built from: the split folder (``val.json`` and
+    ``test.json``), the augmented train file, and the augmentation's accepted and
+    rejected records (one rejected file, or several)."""
+
+    splits: Path
+    train_augmented: Path
+    accepted: Path
+    rejected: Path | list[Path]
+
+
 def build(
     *,
     domain: Domain,
-    splits: Path,
-    train_augmented: Path,
-    accepted: Path,
-    rejected: Path | list[Path],
+    sources: DatasetSources,
     licence: Path,
     role_models: dict[str, tuple[str, str]],
     scorer_train: Path,
@@ -376,13 +386,13 @@ def build(
     their teachers too; they are not counted as reviewed variations.
     """
     files = _source_files(domain, source_files)
-    train = [_with_source(e, default_source) for e in load_entries(train_augmented)]
+    train = [_with_source(e, default_source) for e in load_entries(sources.train_augmented)]
     sides = {
-        side: [_with_source(e, default_source) for e in load_entries(splits / name)]
+        side: [_with_source(e, default_source) for e in load_entries(sources.splits / name)]
         for side, name in (("validation", "val.json"), ("test", "test.json"))
     }
-    accepted_rows = {row["id"]: row for row in load_jsonl(accepted)}
-    rejected_count = _rejected_count(rejected)
+    accepted_rows = {row["id"]: row for row in load_jsonl(sources.accepted)}
+    rejected_count = _rejected_count(sources.rejected)
     if not licence.read_text(encoding="utf-8").strip():
         raise ValueError(f"{licence} is empty")
     _check_held_apart(train, sides)
@@ -395,7 +405,7 @@ def build(
         apache_only=apache_only,
         is_variation=lambda entry_id: "~v" in entry_id or entry_id in drafted,
     )
-    manifest, rows, origins = _split_rows(train, sides, train_augmented, files, summary)
+    manifest, rows, origins = _split_rows(train, sides, sources.train_augmented, files, summary)
 
     _prepare_out(out)
     _write_records(out, rows, manifest)
@@ -423,7 +433,7 @@ def build(
             licence=APACHE_LICENCE if apache_only else "see LICENSE",
             issue_refs=issue_refs,
             model_repos=model_repos,
-            seed=split_seed(splits / "val.json"),
+            seed=split_seed(sources.splits / "val.json"),
         ),
         encoding="utf-8",
     )

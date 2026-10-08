@@ -13,6 +13,7 @@ from jev_factory.release import bundle as bundle_module
 from jev_factory.release import scan
 from jev_factory.release.bundle import (
     BundleError,
+    BundleFiles,
     build_dataset_bundle,
     build_model_bundle,
     check_bundle,
@@ -20,13 +21,16 @@ from jev_factory.release.bundle import (
     gguf_metadata,
     surface_mismatch,
 )
+from jev_factory.release.dataset_bundle import DatasetSources
 from jev_factory.release.hub import upload
 from tests.fixtures.toy_domain import DOMAIN
 from tests.release_support import (
     TOKEN,
     FakeHub,
+    dataset_bundle_args,
     make_config,
     make_inputs,
+    model_bundle_args,
     write_gguf,
     write_json,
 )
@@ -48,7 +52,7 @@ def _build(tmp_path: Path, inp, **overrides):
         scorer_train=inp.scorer_train,
     )
     kwargs.update(overrides)
-    return build_model_bundle(**kwargs)
+    return build_model_bundle(**model_bundle_args(**kwargs))
 
 
 # ---- acceptance 1 / o18: required files, symlinks, GGUF metadata ------------------
@@ -314,7 +318,7 @@ def _build_dataset(tmp: Path, **overrides):
         scorer_train=inp.scorer_train,
     )
     kwargs.update(overrides)
-    return build_dataset_bundle(**kwargs)
+    return build_dataset_bundle(**dataset_bundle_args(**kwargs))
 
 
 def test_the_dataset_bundle_carries_the_required_files_and_the_surface_hash(tmp_path):
@@ -370,20 +374,22 @@ def test_the_dataset_bundle_refuses_a_train_row_repeating_a_held_apart_entry(tmp
     calibration = write_json(tmp_path / "c.json", {})
     gate = write_json(tmp_path / "g.json", {})
     scorer_train = write_json(tmp_path / "s.json", {"entries": []})
+    files = BundleFiles(calibration=calibration, gate=gate, scorer_train=scorer_train)
+    sources = DatasetSources(
+        splits=splits,
+        train_augmented=tmp_path / "train.json",
+        accepted=tmp_path / "accepted.jsonl",
+        rejected=tmp_path / "rejected.jsonl",
+    )
     with pytest.raises(ValueError, match="repeat a validation or test entry"):
         build_dataset_bundle(
             domain=DOMAIN,
             config=config,
-            splits=splits,
-            train_augmented=tmp_path / "train.json",
-            accepted=tmp_path / "accepted.jsonl",
-            rejected=tmp_path / "rejected.jsonl",
+            sources=sources,
             licence_file=tmp_path / "LICENSE",
             role_models={},
             out=tmp_path / "ds",
-            calibration=calibration,
-            gate=gate,
-            scorer_train=scorer_train,
+            files=files,
         )
 
 

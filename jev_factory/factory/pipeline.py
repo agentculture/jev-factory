@@ -1993,22 +1993,23 @@ def stage_bundle(workdir: Path, knobs: dict[str, Any]) -> None:
     if edge.is_file():
         reports.append(edge)
     out = workdir / "bundle" / str(suffix)
+    merged = workdir / build["run"] / "merged"
     try:
         revision = rb.build_model_bundle(
             domain=ctx.domain,
             config=ctx.config,
-            merged=workdir / build["run"] / "merged",
             base_snapshot=base_snapshot(ctx.config),
             repo=repo,
             run=str(build["candidate"]),
             results=reports,
             data_summary=summary,
             out=out,
-            calibration=workdir / DEPLOYED_CALIBRATION,
-            gate=workdir / DEPLOYED_GATE,
-            scorer_train=frozen.path,
-            kind="gguf",
-            gguf=workdir / build["gguf"],
+            files=rb.BundleFiles(
+                calibration=workdir / DEPLOYED_CALIBRATION,
+                gate=workdir / DEPLOYED_GATE,
+                scorer_train=frozen.path,
+            ),
+            payload=rb.ModelPayload(merged=merged, kind="gguf", gguf=workdir / build["gguf"]),
             teachers=teachers,
         )
     except rb.BundleError as exc:
@@ -2069,6 +2070,7 @@ def stage_dataset_bundle(workdir: Path, knobs: dict[str, Any]) -> None:
     from jev_factory.data.assemble import select_frozen
     from jev_factory.release import bundle as rb
     from jev_factory.release import scan
+    from jev_factory.release.dataset_bundle import DatasetSources
     from jev_factory.release.hub import effective_prefix
 
     ctx = _ctx()
@@ -2095,16 +2097,20 @@ def stage_dataset_bundle(workdir: Path, knobs: dict[str, Any]) -> None:
         counts = rb.build_dataset_bundle(
             domain=ctx.domain,
             config=ctx.config,
-            splits=workdir / "splits",
-            train_augmented=train,
-            accepted=workdir / ACCEPTED_FILE,
-            rejected=rejected,
+            sources=DatasetSources(
+                splits=workdir / "splits",
+                train_augmented=train,
+                accepted=workdir / ACCEPTED_FILE,
+                rejected=rejected,
+            ),
             licence_file=base_snapshot(ctx.config) / "LICENSE",
             role_models={},
             out=out,
-            calibration=workdir / DEPLOYED_CALIBRATION,
-            gate=workdir / DEPLOYED_GATE,
-            scorer_train=frozen.path,
+            files=rb.BundleFiles(
+                calibration=workdir / DEPLOYED_CALIBRATION,
+                gate=workdir / DEPLOYED_GATE,
+                scorer_train=frozen.path,
+            ),
             repo=repo,
             run=str(_read_json(workdir / DEPLOYED_BUILD)["candidate"]),
             model_repos=[model["repo"]],

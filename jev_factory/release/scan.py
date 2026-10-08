@@ -59,17 +59,22 @@ _KNOWN_TOKEN_PATTERNS = [
     (r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----", "private key block"),
 ]
 
-_ASSIGNMENT_RE = re.compile(
-    r"""(?ix)
-        \b(api[_-]?key|secret(?:[_-]?key)?|access[_-]?key|token|password|passwd|pwd)
-        ["']?
-        \s*[:=]\s*
-        (?:
-            "(?P<dq>[^"\n]{20,})"
-          | '(?P<sq>[^'\n]{20,})'
-          | (?P<bare>[^\s"'`,;)\]}]{20,})
-        )
-    """,
+# A secret-ish assignment is a key name, a separator and a literal value. The three parts
+# are matched one after the other by :func:`_assignments` (one pattern would be too
+# complex to read): the key names, by first letter (each starts at a word boundary) ...
+_ASSIGNMENT_KEY_RES = (
+    re.compile(r"(?i)\b(?:api|access)[_-]?key"),
+    re.compile(r"(?i)\bsecret(?:[_-]?key)?"),
+    re.compile(r"(?i)\b(?:token|password|passwd|pwd)"),
+)
+# ... then an optional closing quote on the key, ``:`` or ``=``, and blanks ...
+_ASSIGNMENT_SEPARATOR_RE = re.compile(r"""["']?\s*[:=]\s*""")
+# ... then a value of 20 or more characters: double-quoted, single-quoted or bare, tried
+# in that order.
+_ASSIGNMENT_VALUE_RES = (
+    ("dq", re.compile(r'"([^"\n]{20,})"')),
+    ("sq", re.compile(r"'([^'\n]{20,})'")),
+    ("bare", re.compile(r"""([^\s"'`,;)\]}]{20,})""")),
 )
 
 _PLACEHOLDER_RE = re.compile(
@@ -103,6 +108,47 @@ def _is_placeholder(value: str) -> bool:
     return bool(tokens & _PLACEHOLDER_WORDS) or bool(_MASK_RE.search(value))
 
 
+@dataclass(frozen=True)
+class _Assignment:
+    """One secret-ish assignment in a line: its span, key name, quoting style and value."""
+
+    start: int
+    end: int
+    key: str
+    style: str
+    value: str
+
+
+def _next_key(line: str, pos: int) -> re.Match[str] | None:
+    """The leftmost secret-ish key name at or after *pos* (no two start at one place)."""
+    found = [m for m in (key.search(line, pos) for key in _ASSIGNMENT_KEY_RES) if m]
+    return min(found, key=lambda match: match.start(), default=None)
+
+
+def _assignment_at(line: str, key: re.Match[str]) -> _Assignment | None:
+    """The assignment whose key name is *key*, when a separator and a value follow it."""
+    separator = _ASSIGNMENT_SEPARATOR_RE.match(line, key.end())
+    if separator is None:
+        return None
+    for style, pattern in _ASSIGNMENT_VALUE_RES:
+        value = pattern.match(line, separator.end())
+        if value is not None:
+            return _Assignment(key.start(), value.end(), key.group(0), style, value.group(1))
+    return None
+
+
+def _assignments(line: str) -> Iterator[_Assignment]:
+    """Every non-overlapping secret-ish assignment in *line*, left to right."""
+    pos = 0
+    while (key := _next_key(line, pos)) is not None:
+        found = _assignment_at(line, key)
+        if found is None:
+            pos = key.start() + 1
+            continue
+        yield found
+        pos = found.end
+
+
 def scan_credentials(path: str, text: str) -> list[Finding]:
     """Credential-shaped strings in *text* (known token formats, secret-ish assignments)."""
     findings: list[Finding] = []
@@ -110,16 +156,15 @@ def scan_credentials(path: str, text: str) -> list[Finding]:
         for pattern, label in _KNOWN_TOKEN_PATTERNS:
             if re.search(pattern, line):
                 findings.append(Finding(path, lineno, "credential", label))
-        for match in _ASSIGNMENT_RE.finditer(line):
-            value = match.group("dq") or match.group("sq") or match.group("bare") or ""
-            if _is_placeholder(value):
+        for assignment in _assignments(line):
+            if _is_placeholder(assignment.value):
                 continue
             findings.append(
                 Finding(
                     path,
                     lineno,
                     "credential",
-                    f"{match.group(1)}-shaped assignment with a literal value",
+                    f"{assignment.key}-shaped assignment with a literal value",
                 )
             )
     return findings
@@ -245,7 +290,8 @@ _IPV4_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:\.\d{1,3}){3})(?![\w.])")
 _PRIVATE_NAME_RE = re.compile(
     r"(?<![\w.-])([a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:local|lan|internal|home))\b", re.I
 )
-_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+#: 100.64.0.0/10, RFC 6598 shared address space (CGNAT).
+CGNAT = ipaddress.IPv4Network((0x64400000, 10))
 _DOCUMENTATION = tuple(
     ipaddress.ip_network(net) for net in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")
 )
@@ -279,7 +325,7 @@ def _is_private_address(text: str) -> bool:
         return False
     if any(address in net for net in _DOCUMENTATION):
         return False
-    return address.is_private or address in _CGNAT
+    return address.is_private or address in CGNAT
 
 
 # ---------------------------------------------------------------------------
