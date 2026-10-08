@@ -1495,7 +1495,7 @@ def _with_progress(plan: RunPlan, args: argparse.Namespace) -> RunPlan:
         return plan
     from jev_factory.factory.detach import Progress
 
-    return replace(
+    with_progress: RunPlan = replace(
         plan,
         progress=Progress(
             Path(args.progress_dir),
@@ -1503,6 +1503,7 @@ def _with_progress(plan: RunPlan, args: argparse.Namespace) -> RunPlan:
             len(plan.entries) * len(args.model),
         ),
     )
+    return with_progress
 
 
 def _keep_record(

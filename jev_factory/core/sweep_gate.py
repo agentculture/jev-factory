@@ -281,7 +281,7 @@ def redecide(prediction: Prediction, thresholds: gate.Thresholds, domain: Domain
         # nothing here has grounded arguments for it.
         outcome, operation, arguments, invalid_reason = "invalid", None, None, NOT_GROUNDED_BY_SWEEP
         grounded = False
-    return replace(
+    redecided: Prediction = replace(
         prediction,
         outcome=outcome,
         operation=operation,
@@ -289,6 +289,7 @@ def redecide(prediction: Prediction, thresholds: gate.Thresholds, domain: Domain
         invalid_reason=invalid_reason,
         grounded=grounded,
     )
+    return redecided
 
 
 # ---------------------------------------------------------------------------

@@ -490,7 +490,7 @@ def last_logits(model, input_ids, attention_mask):
     import torch
 
     last = attention_mask.sum(dim=1) - 1
-    keep, where = torch.unique(last, return_inverse=True)
+    keep, where = torch.unique(last, return_inverse=True, dim=0)  # `last` is 1-D
     logits = model(input_ids=input_ids, attention_mask=attention_mask, logits_to_keep=keep).logits
     return logits[torch.arange(input_ids.shape[0], device=logits.device), where]
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -46,9 +47,9 @@ def test_workroot_plain_dir_and_relative_path(tmp_path, monkeypatch):
 @pytest.mark.behavioral("o39")
 def test_second_acquire_names_holder_pid(tmp_path):
     with RunLock(tmp_path):
-        with pytest.raises(CliError) as exc:
-            with RunLock(tmp_path):
-                pytest.fail("second acquire must not enter")
+        second = RunLock(tmp_path)
+        with contextlib.ExitStack() as stack, pytest.raises(CliError) as exc:
+            stack.enter_context(second)  # must refuse to enter
         assert exc.value.code == 1
         assert str(os.getpid()) in exc.value.message
     # released on exit: acquirable again
@@ -62,9 +63,9 @@ def test_stale_lock_reported_not_taken(tmp_path):
     pid = _dead_pid()
     lock_file = tmp_path / LOCK_NAME
     lock_file.write_text(f'{{"pid": {pid}}}')
-    with pytest.raises(CliError) as exc:
-        with RunLock(tmp_path):
-            pytest.fail("stale lock must not be silently taken")
+    lock = RunLock(tmp_path)
+    with contextlib.ExitStack() as stack, pytest.raises(CliError) as exc:
+        stack.enter_context(lock)  # a stale lock must not be silently taken
     assert "stale" in exc.value.message
     assert str(pid) in exc.value.message
     assert lock_file.read_text() == f'{{"pid": {pid}}}'
@@ -73,6 +74,6 @@ def test_stale_lock_reported_not_taken(tmp_path):
 @pytest.mark.behavioral("o39")
 def test_unreadable_lock_is_refused(tmp_path):
     (tmp_path / LOCK_NAME).write_text("garbage")
-    with pytest.raises(CliError):
-        with RunLock(tmp_path):
-            pytest.fail("must not enter")
+    lock = RunLock(tmp_path)
+    with contextlib.ExitStack() as stack, pytest.raises(CliError):
+        stack.enter_context(lock)  # must not enter

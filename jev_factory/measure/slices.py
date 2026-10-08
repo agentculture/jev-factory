@@ -56,14 +56,13 @@ def missing_candidate_slice(split: dict, all_operations: Sequence[str]) -> dict:
         if "operation" not in expect:
             continue
         gold_op = expect["operation"]
-        candidates = tuple(op for op in all_operations if op != gold_op)
         new_entries.append(
             {
                 "id": entry["id"] + "-nocand",
                 "kind": entry["kind"],
                 "text": entry["text"],
                 "source_id": entry["id"],
-                "candidates": list(candidates),
+                "candidates": [op for op in all_operations if op != gold_op],
                 "expect": {"escalate": True},
             }
         )

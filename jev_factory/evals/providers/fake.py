@@ -243,9 +243,10 @@ class FakeProvider(BaseProvider):
             truncated=bool(doc.get("truncated")),
         )
         result = self._resolve(request, outcome)
-        return dataclasses.replace(
+        replayed: CallResult = dataclasses.replace(
             result, response_id=doc.get("id", ""), returned_model=doc.get("model")
         )
+        return replayed
 
     def reply_text(self, raw: bytes) -> ReplyText:
         """The scripted ``text``/``truncated`` of a raw answer this fake wrote."""

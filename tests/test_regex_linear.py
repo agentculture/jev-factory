@@ -79,3 +79,20 @@ def test_parse_json_list_fences_match_the_old_single_regex():
         old = OLD_JSON_FENCE.sub("", raw.strip())
         new = common._FENCE_CLOSE.sub("", common._FENCE_OPEN.sub("", raw.strip()))
         assert new == old, repr(raw)
+
+
+OLD_THINK = re.compile(r"<think>.*?(?:</think>|\Z)", re.DOTALL | re.IGNORECASE)
+
+
+def test_think_block_rewrite_matches_the_old_pattern():
+    """Sonar S6019: the two-branch pattern removes exactly what the old one did."""
+    import random
+
+    from jev_factory.evals.providers import base
+
+    rng = random.Random(11)
+    pieces = ["<think>", "</think>", "<THINK>", "</Think>", "a", "\n", " ", "answer", "<", ">"]
+    samples = ["<think>x</think>A", "<think>never closed", "A<think>b</think>C<think>d", ""]
+    samples += ["".join(rng.choice(pieces) for _ in range(rng.randint(0, 14))) for _ in range(4000)]
+    for text in samples:
+        assert base._THINK_BLOCK.sub("", text) == OLD_THINK.sub("", text), repr(text)

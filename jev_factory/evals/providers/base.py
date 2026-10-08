@@ -179,7 +179,8 @@ class ReplyText:
     truncated: bool = False
 
 
-_THINK_BLOCK = re.compile(r"<think>.*?(?:</think>|\Z)", re.DOTALL | re.IGNORECASE)
+#: A reasoning block: up to its first close tag, or to the end when it never closes.
+_THINK_BLOCK = re.compile(r"<think>.*?</think>|<think>.*", re.DOTALL | re.IGNORECASE)
 
 
 def visible_text(text: object) -> str:
@@ -213,11 +214,12 @@ def _redact_text(text: str) -> str:
 
 
 def _redacted_request(request: CallRequest) -> CallRequest:
-    return dataclasses.replace(
+    redacted: CallRequest = dataclasses.replace(
         request,
         case_text=_redact_text(request.case_text),
         prompt=_redact_text(request.prompt),
     )
+    return redacted
 
 
 class BaseProvider(ABC):

@@ -54,10 +54,11 @@ def test_every_declared_field_is_present():
 
 
 def test_domain_is_immutable():
+    domain, operation = DOMAIN, DOMAIN.operations[0]
     with pytest.raises(dataclasses.FrozenInstanceError):
-        DOMAIN.name = "other"  # type: ignore[misc]
+        setattr(domain, "name", "other")  # noqa: B010 -- assignment is what is under test
     with pytest.raises(dataclasses.FrozenInstanceError):
-        DOMAIN.operations[0].read_only = False  # type: ignore[misc]
+        setattr(operation, "read_only", False)  # noqa: B010
     assert isinstance(DOMAIN.operations, tuple)
     assert isinstance(DOMAIN.reasons, tuple)
 

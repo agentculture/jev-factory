@@ -299,7 +299,8 @@ def _memoised_lookups(domain: Domain) -> Domain:
         replace(kind, lookup=once(kind.lookup)) if kind.lookup is not None else kind
         for kind in domain.ground_kinds
     )
-    return replace(domain, ground_kinds=kinds)
+    memoised: Domain = replace(domain, ground_kinds=kinds)
+    return memoised
 
 
 def _choice_value(name: str, choices: Sequence[str], spellings, text: str) -> str:

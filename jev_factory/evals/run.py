@@ -1151,12 +1151,12 @@ def _drain(futures: list[concurrent.futures.Future]) -> tuple[bool, BaseExceptio
     for future in concurrent.futures.as_completed(futures):
         if future.cancelled():
             continue
-        try:
+        error = future.exception()  # done: as_completed only yields finished futures
+        if error is None:
             progress |= future.result()
-        except BaseException as exc:  # noqa: BLE001 -- re-raised after the drain
-            if failure is None:
-                failure = exc
-                _cancel(futures)
+        elif failure is None:  # the first failure is re-raised by the caller after the drain
+            failure = error
+            _cancel(futures)
     return progress, failure
 
 

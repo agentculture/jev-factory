@@ -147,6 +147,11 @@ def test_a_busy_port_is_refused(settings, gguf, cleanup):
     assert not serve.state_file(settings, port).exists()
 
 
+def _start_then_wait(gguf, port, start_settings, wait_settings) -> None:
+    serve.start(gguf, port, start_settings)
+    serve.wait(port, wait_settings)
+
+
 def test_a_server_that_exits_at_once_is_reported_and_leaves_no_claim(settings, gguf, monkeypatch):
     monkeypatch.setenv("STUB_LLAMA_FAIL", "1")
     port = free_port()
@@ -154,8 +159,7 @@ def test_a_server_that_exits_at_once_is_reported_and_leaves_no_claim(settings, g
     wait_settings = replace(settings, wait_seconds=2)
     # either call may report the exit (a race the test accepts): both are under test
     with pytest.raises(serve.ServeError):
-        serve.start(gguf, port, start_settings)
-        serve.wait(port, wait_settings)
+        _start_then_wait(gguf, port, start_settings, wait_settings)
     assert not serve.state_file(settings, port).exists()
 
 
