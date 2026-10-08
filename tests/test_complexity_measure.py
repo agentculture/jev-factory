@@ -405,16 +405,18 @@ def test_start_llama_refuses_a_non_executable_binary(tmp_path, llama_settings, m
     plain = tmp_path / "llama-server.txt"
     plain.write_text("not a program")
     settings = replace(llama_settings, llama_server=str(plain))
+    port = free_port()
     with pytest.raises(serve.ServeError) as excinfo:
-        serve.start_llama(model_file, free_port(), settings)
+        serve.start_llama(model_file, port, settings)
     assert excinfo.value.message == f"llama_server={plain} is not an executable file"
     assert excinfo.value.code == 2
 
 
 def test_start_llama_refuses_a_directory_binary(tmp_path, llama_settings, model_file):
     settings = replace(llama_settings, llama_server=str(tmp_path))
+    port = free_port()
     with pytest.raises(serve.ServeError, match="is not an executable file"):
-        serve.start_llama(model_file, free_port(), settings)
+        serve.start_llama(model_file, port, settings)
 
 
 def test_start_llama_reports_a_failing_version(tmp_path, llama_settings, model_file):
@@ -422,8 +424,9 @@ def test_start_llama_reports_a_failing_version(tmp_path, llama_settings, model_f
         tmp_path / "bad", "llama-server", "print('  boom  ')\nraise SystemExit(3)\n"
     )
     settings = replace(llama_settings, llama_server=str(binary))
+    port = free_port()
     with pytest.raises(serve.ServeError) as excinfo:
-        serve.start_llama(model_file, free_port(), settings)
+        serve.start_llama(model_file, port, settings)
     assert excinfo.value.message == f"'{binary.resolve()} --version' failed: boom"
     assert excinfo.value.code == 2
     assert not settings.run_dir.exists()
@@ -494,8 +497,9 @@ def _lookup_domain(result):
 
 @pytest.mark.parametrize("result", ["kitchen", b"kitchen", 7, None])
 def test_build_snapshot_refuses_a_lookup_that_is_not_a_list(result):
+    domain = _lookup_domain(result)
     with pytest.raises(snap.SnapshotError) as excinfo:
-        snap.build_snapshot(_lookup_domain(result), [], source="s", created="c", base_world={})
+        snap.build_snapshot(domain, [], source="s", created="c", base_world={})
     assert str(excinfo.value) == "the rooms lookup did not return a list"
     assert excinfo.value.env
 

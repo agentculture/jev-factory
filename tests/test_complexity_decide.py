@@ -427,16 +427,18 @@ def test_coerce_expands_a_path(monkeypatch, tmp_path):
     ],
 )
 def test_coerce_refuses(kind, raw, why):
+    key = _key(kind)
     with pytest.raises(CliError) as exc:
-        config_mod._coerce(_key(kind), raw, "the run file")
+        config_mod._coerce(key, raw, "the run file")
     assert exc.value.message.startswith(f"run config key 'k' from the run file: {why}")
     assert exc.value.remediation == f"fix k ({kind}); see docs/run-config.example.toml"
     assert exc.value.code == 1
 
 
 def test_coerce_unknown_kind():
+    key = _key("complex")
     with pytest.raises(CliError) as exc:
-        config_mod._coerce(_key("complex"), "1", "the CLI")
+        config_mod._coerce(key, "1", "the CLI")
     assert exc.value.message == "run config key 'k' has unknown kind 'complex'"
 
 

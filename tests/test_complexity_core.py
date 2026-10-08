@@ -187,8 +187,9 @@ def test_parse_top_logprobs_legacy_empty_first_dict_does_not_fall_back() -> None
         "top_logprobs": [{}],
         "content": [{"top_logprobs": [{"token": "Q", "logprob": -1}]}],
     }
+    reply = _reply(logprobs)
     with pytest.raises(scorer.ServedError, match="carries no logprobs"):
-        scorer.parse_top_logprobs(_reply(logprobs))
+        scorer.parse_top_logprobs(reply)
 
 
 @pytest.mark.parametrize(
@@ -206,8 +207,9 @@ def test_parse_top_logprobs_legacy_empty_first_dict_does_not_fall_back() -> None
     ],
 )
 def test_parse_top_logprobs_content_shape_without_scores_raises(content) -> None:
+    reply = _reply({"content": content})
     with pytest.raises(scorer.ServedError, match="^the server reply carries no logprobs$"):
-        scorer.parse_top_logprobs(_reply({"content": content}))
+        scorer.parse_top_logprobs(reply)
 
 
 def test_parse_top_logprobs_reads_only_the_first_choice() -> None:
@@ -291,32 +293,37 @@ def test_merge_a_leaked_repeat_of_the_source_counts_as_leaked() -> None:
 
 def test_merge_checks_the_id_before_the_side() -> None:
     variations = [_var("s1", "x", side="val")]
+    payload = _split_payload()
     with pytest.raises(ValueError, match="variation id is already used"):
-        merge_variations.merge(_split_payload(), variations)
+        merge_variations.merge(payload, variations)
 
 
 def test_merge_checks_the_side_before_the_source() -> None:
     variations = [_var("v1", "x", source="nope", side="val")]
+    payload = _split_payload()
     with pytest.raises(ValueError, match="^v1: side 'val' is not train$"):
-        merge_variations.merge(_split_payload(), variations, filter_to_split=True)
+        merge_variations.merge(payload, variations, filter_to_split=True)
 
 
 def test_merge_an_off_split_variation_is_still_refused_without_the_filter() -> None:
     variations = [_var("v1", "x", source="nope")]
+    payload = _split_payload()
     with pytest.raises(ValueError, match="^v1: source 'nope' is not in the split$"):
-        merge_variations.merge(_split_payload(), variations)
+        merge_variations.merge(payload, variations)
 
 
 def test_merge_an_off_split_variation_still_claims_its_id() -> None:
     variations = [_var("v1", "x", source="nope"), _var("v1", "y")]
+    payload = _split_payload()
     with pytest.raises(ValueError, match="^'v1': variation id is already used"):
-        merge_variations.merge(_split_payload(), variations, filter_to_split=True)
+        merge_variations.merge(payload, variations, filter_to_split=True)
 
 
 def test_merge_an_expect_mismatch_is_refused() -> None:
     variations = [_var("v1", "x", expect={"operation": "off"})]
+    payload = _split_payload()
     with pytest.raises(ValueError, match="^v1: expected answer differs from its source$"):
-        merge_variations.merge(_split_payload(), variations)
+        merge_variations.merge(payload, variations)
 
 
 # ---------------------------------------------------------------------------
@@ -356,63 +363,74 @@ def test_from_dict_names_every_missing_field_in_order() -> None:
 
 @pytest.mark.parametrize("value", ["", None, 3])
 def test_from_dict_refuses_a_bad_id(value) -> None:
+    row = _row(id=value)
     with pytest.raises(pr.PredictionError, match="^id must be a non-empty string$"):
-        pr.Prediction.from_dict(_row(id=value))
+        pr.Prediction.from_dict(row)
 
 
 def test_from_dict_checks_id_before_expected() -> None:
+    row = _row(id="", expected=None)
     with pytest.raises(pr.PredictionError, match="^id must be"):
-        pr.Prediction.from_dict(_row(id="", expected=None))
+        pr.Prediction.from_dict(row)
 
 
 def test_from_dict_refuses_an_unknown_outcome() -> None:
+    row = _row(outcome="maybe")
     with pytest.raises(pr.PredictionError, match="^outcome 'maybe' is not one of propose, "):
-        pr.Prediction.from_dict(_row(outcome="maybe"))
+        pr.Prediction.from_dict(row)
 
 
 @pytest.mark.parametrize("value", [True, -1, 1.0, "1", None])
 def test_from_dict_refuses_bad_tokens(value) -> None:
+    row = _row(tokens=value)
     with pytest.raises(pr.PredictionError, match="^tokens must be a non-negative integer$"):
-        pr.Prediction.from_dict(_row(tokens=value))
+        pr.Prediction.from_dict(row)
 
 
 @pytest.mark.parametrize("name", ["ttfd_ms", "latency_ms"])
 @pytest.mark.parametrize("value", [True, -0.5, "1", None])
 def test_from_dict_refuses_bad_timings(name, value) -> None:
+    row = _row(**{name: value})
     with pytest.raises(pr.PredictionError, match=f"^{name} must be a non-negative number$"):
-        pr.Prediction.from_dict(_row(**{name: value}))
+        pr.Prediction.from_dict(row)
 
 
 def test_from_dict_checks_tokens_before_timings() -> None:
+    row = _row(tokens=-1, ttfd_ms=-1, invalid_reason=3)
     with pytest.raises(pr.PredictionError, match="^tokens"):
-        pr.Prediction.from_dict(_row(tokens=-1, ttfd_ms=-1, invalid_reason=3))
+        pr.Prediction.from_dict(row)
 
 
 def test_from_dict_checks_ttfd_before_latency() -> None:
+    row = _row(ttfd_ms=-1, latency_ms=-1)
     with pytest.raises(pr.PredictionError, match="^ttfd_ms"):
-        pr.Prediction.from_dict(_row(ttfd_ms=-1, latency_ms=-1))
+        pr.Prediction.from_dict(row)
 
 
 @pytest.mark.parametrize("value", [3, ["x"], {}])
 def test_from_dict_refuses_a_non_string_invalid_reason(value) -> None:
+    row = _row(invalid_reason=value)
     with pytest.raises(pr.PredictionError, match="^invalid_reason must be a string$"):
-        pr.Prediction.from_dict(_row(invalid_reason=value))
+        pr.Prediction.from_dict(row)
 
 
 def test_from_dict_checks_invalid_reason_before_offered() -> None:
+    row = _row(invalid_reason=3, offered="bad")
     with pytest.raises(pr.PredictionError, match="^invalid_reason"):
-        pr.Prediction.from_dict(_row(invalid_reason=3, offered="bad"))
+        pr.Prediction.from_dict(row)
 
 
 @pytest.mark.parametrize("value", [0, 1, "yes", []])
 def test_from_dict_refuses_a_non_bool_grounded(value) -> None:
+    row = _row(grounded=value)
     with pytest.raises(pr.PredictionError, match="^grounded must be true, false or null$"):
-        pr.Prediction.from_dict(_row(grounded=value))
+        pr.Prediction.from_dict(row)
 
 
 def test_from_dict_checks_raw_probabilities_before_grounded() -> None:
+    row = _row(raw_probabilities={"lamp_status": 2.0}, grounded=1)
     with pytest.raises(pr.PredictionError, match="^raw_probabilities"):
-        pr.Prediction.from_dict(_row(raw_probabilities={"lamp_status": 2.0}, grounded=1))
+        pr.Prediction.from_dict(row)
 
 
 def test_from_dict_builds_a_record_with_copies_and_float_timings() -> None:
@@ -503,13 +521,15 @@ def test_expectation_kind_refuses_an_unknown_block() -> None:
     [(0.5, 0.5, float("nan")), (1.5, -0.25, -0.25), (0.5, 0.5, -0.0001), (0.5, 0.5, math.inf)],
 )
 def test_stratified_split_refuses_a_fraction_out_of_range(fractions) -> None:
+    entries = _corpus_entries()
     with pytest.raises(ValueError, match="^each fraction must be between 0 and 1, got"):
-        split.stratified_split(_corpus_entries(), fractions=fractions)
+        split.stratified_split(entries, fractions=fractions)
 
 
 def test_stratified_split_refuses_fractions_not_summing_to_one() -> None:
+    entries = _corpus_entries()
     with pytest.raises(ValueError, match="^fractions must sum to 1.0, got \\(0.5, 0.2, 0.2\\)$"):
-        split.stratified_split(_corpus_entries(), fractions=(0.5, 0.2, 0.2))
+        split.stratified_split(entries, fractions=(0.5, 0.2, 0.2))
 
 
 def test_stratified_split_refuses_duplicate_ids_sorted() -> None:
@@ -544,10 +564,11 @@ def test_stratified_split_sized_refuses_an_empty_corpus() -> None:
 
 
 def test_stratified_split_sized_refuses_sizes_over_the_corpus() -> None:
+    entries = _corpus_entries()
     with pytest.raises(
         ValueError, match="^val_size \\+ test_size \\(18\\) exceeds the corpus size \\(17\\)$"
     ):
-        split.stratified_split_sized(_corpus_entries(), 1, 9, 9)
+        split.stratified_split_sized(entries, 1, 9, 9)
 
 
 def test_stratified_split_sized_refuses_duplicate_ids() -> None:
@@ -601,8 +622,9 @@ def _v2_args(corpus: list[Path], out_dir: Path, *more: str) -> list[str]:
 def test_main_v2_a_value_error_becomes_a_usage_error(tmp_path, capsys) -> None:
     good = _write_corpus(tmp_path / "a.json", _corpus_entries())
     held = _write_corpus(tmp_path / "held-out.json", _corpus_entries())
+    argv = _v2_args([good, held], tmp_path / "out")
     with pytest.raises(SystemExit) as exc:
-        split.main(_v2_args([good, held], tmp_path / "out"))
+        split.main(argv)
     assert exc.value.code == 2
     assert "the held-out split is for judging a tuned model" in capsys.readouterr().err
     assert not (tmp_path / "out").exists()
@@ -610,16 +632,18 @@ def test_main_v2_a_value_error_becomes_a_usage_error(tmp_path, capsys) -> None:
 
 def test_main_v2_refuses_a_bad_version_as_a_usage_error(tmp_path, capsys) -> None:
     good = _write_corpus(tmp_path / "a.json", _corpus_entries())
+    argv = _v2_args([good], tmp_path / "out", "--version", "val")
     with pytest.raises(SystemExit):
-        split.main(_v2_args([good], tmp_path / "out", "--version", "val"))
+        split.main(argv)
     assert "must not name a split side" in capsys.readouterr().err
 
 
 def test_main_v2_reports_kinds_that_cannot_reach_every_side(tmp_path, capsys) -> None:
     entries = _corpus_entries() + [_entry("exp00", {"explain": True})]
     good = _write_corpus(tmp_path / "a.json", entries)
+    argv = _v2_args([good], tmp_path / "out")
     with pytest.raises(SystemExit):
-        split.main(_v2_args([good], tmp_path / "out"))
+        split.main(argv)
     assert "too few entries to reach every side: missing 'explain' on" in capsys.readouterr().err
 
 

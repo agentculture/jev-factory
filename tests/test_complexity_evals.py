@@ -184,8 +184,9 @@ def test_main_maps_each_error_to_its_exit_code(monkeypatch, tmp_path, error, cod
 
 def test_main_lets_an_unexpected_error_through(monkeypatch, tmp_path):
     _record_start(monkeypatch, "start", error=ValueError("boom"))
+    argv = ["run", "--run-dir", str(tmp_path), "--manifest", "m"]
     with pytest.raises(ValueError, match="boom"):
-        _call_main(["run", "--run-dir", str(tmp_path), "--manifest", "m"], monkeypatch)
+        _call_main(argv, monkeypatch)
 
 
 # ---------------------------------------------------------------------------
@@ -625,8 +626,10 @@ def test_run_sync_progress_survives_a_failed_send_beside_a_good_one():
 @pytest.mark.parametrize("error", [HeldoutSplitRefused("sealed"), KeyboardInterrupt()])
 def test_run_sync_reraises_what_must_not_be_classified(error):
     sync = _SyncRunner({})
+    model = _sync_model("a/m", "a", error)
+    item = _item("k1")
     with pytest.raises(type(error)):
-        sync.run_sync([(_sync_model("a/m", "a", error), _item("k1"))])
+        sync.run_sync([(model, item)])
     assert ("release", "k1") not in sync.events
 
 
@@ -639,8 +642,9 @@ def test_run_sync_raises_the_first_failure_after_draining_the_pools():
 
     a = _sync_model("a/m", "a", fail)
     sync = _SyncRunner({"a": SimpleNamespace(concurrency_cap=2)})
+    pairs = [(a, _item("k1")), (a, _item("k2"))]
     with pytest.raises(HeldoutSplitRefused):
-        sync.run_sync([(a, _item("k1")), (a, _item("k2"))])
+        sync.run_sync(pairs)
     assert sorted(e for e in sync.events if e[0] == "claim") == [("claim", "k1"), ("claim", "k2")]
 
 
@@ -653,8 +657,9 @@ def test_run_sync_cancels_what_has_not_started_after_a_failure():
 
     a = _sync_model("a/m", "a", answer)
     sync = _SyncRunner({})
+    pairs = [(a, _item(f"k{i}")) for i in range(20)]
     with pytest.raises(HeldoutSplitRefused):
-        sync.run_sync([(a, _item(f"k{i}")) for i in range(20)])
+        sync.run_sync(pairs)
     assert 1 <= len(started) < 20
 
 
@@ -1090,8 +1095,9 @@ def test_build_plan_smoke_keeps_only_the_selection(tmp_path):
 )
 def test_build_plan_refuses_a_stale_smoke_selection(tmp_path, scope, message):
     _path, manifest, env = _plan_inputs(tmp_path)
+    fakes = Fakes()
     with pytest.raises(runner.RunError) as caught:
-        runplan.build_plan(manifest, env, Fakes(), scope=scope)
+        runplan.build_plan(manifest, env, fakes, scope=scope)
     assert str(caught.value) == message
 
 
@@ -1101,8 +1107,10 @@ def test_build_plan_refuses_an_unknown_policy_before_loading_predictions(tmp_pat
         manifest_path.read_text().replace('"mutating-strict-example"', '"nope"')
     )
     (Path(env["JEV_EVALS_PRIVATE_ROOT"]) / "predictions" / "cand.jsonl").unlink()
+    manifest = load_manifest(manifest_path)
+    fakes = Fakes()
     with pytest.raises(runner.RunError) as caught:
-        runplan.build_plan(load_manifest(manifest_path), env, Fakes())
+        runplan.build_plan(manifest, env, fakes)
     assert str(caught.value) == "cand: unknown policy 'nope'"
 
 
@@ -1110,8 +1118,10 @@ def test_build_plan_refuses_a_reference_without_a_budget(tmp_path):
     manifest_path, _manifest, env = _plan_inputs(tmp_path)
     text = manifest_path.read_text().replace("[budget.openrouter]", "[budget.nvidia]")
     manifest_path.write_text(text)
+    manifest = load_manifest(manifest_path)
+    fakes = Fakes()
     with pytest.raises(runner.RunError) as caught:
-        runplan.build_plan(load_manifest(manifest_path), env, Fakes())
+        runplan.build_plan(manifest, env, fakes)
     assert str(caught.value) == "openrouter/vendor/fake-sync: no [budget.openrouter] table"
 
 
@@ -1133,6 +1143,8 @@ def test_build_plan_refuses_two_subjects_with_one_file_name(tmp_path):
         "usd_per_mtok_in = 1.0\n"
     )
     manifest_path.write_text(text.replace("\n[[case_set]]", extra + "\n[[case_set]]", 1))
+    manifest = load_manifest(manifest_path)
+    fakes = Fakes()
     with pytest.raises(runner.RunError) as caught:
-        runplan.build_plan(load_manifest(manifest_path), env, Fakes())
+        runplan.build_plan(manifest, env, fakes)
     assert str(caught.value) == "two subjects map to the same file name; rename a checkpoint"
