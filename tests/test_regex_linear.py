@@ -60,3 +60,22 @@ def test_the_replacements_are_fast_on_pathological_input():
     with pytest.raises(CliError, match="is not a duration"):
         status.parse_every("1 q")
     assert status.parse_every("  30m  ") == 1800
+
+
+OLD_JSON_FENCE = re.compile(r"(?:^```(?:json)?)|(?:```$)", re.M)
+
+
+def test_parse_json_list_fences_match_the_old_single_regex():
+    """The two-pass fence strip (Sonar S5850) removes exactly what the old one-pass regex did."""
+    import random
+
+    from jev_factory.data import common
+
+    rng = random.Random(7)
+    pieces = ["```", "json", "`", "\n", " ", "[1]", "x", "``````"]
+    samples = ["```json\n[1, 2]\n```", "[1]", "```\n[1]\n```", "```json```", "``````", "`````"]
+    samples += ["".join(rng.choice(pieces) for _ in range(rng.randint(1, 12))) for _ in range(3000)]
+    for raw in samples:
+        old = OLD_JSON_FENCE.sub("", raw.strip())
+        new = common._FENCE_CLOSE.sub("", common._FENCE_OPEN.sub("", raw.strip()))
+        assert new == old, repr(raw)

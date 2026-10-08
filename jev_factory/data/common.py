@@ -77,9 +77,14 @@ def expect_words(expect: dict[str, Any], cls: str | None, domain: Domain) -> str
     return f"{verb}: {what}{detail}"
 
 
+#: A code fence opening a line (```` ``` ```` or ```` ```json ````) and one closing a line.
+_FENCE_OPEN = re.compile(r"^```(?:json)?", re.M)
+_FENCE_CLOSE = re.compile(r"```$", re.M)
+
+
 def parse_json_list(raw: str) -> list[Any]:
     """The JSON list in a reply (a code fence or prose around it is fine)."""
-    text = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.M).strip()
+    text = _FENCE_CLOSE.sub("", _FENCE_OPEN.sub("", raw.strip())).strip()
     start, end = text.find("["), text.rfind("]")
     if start == -1 or end < start:
         raise ValueError("no JSON list in the reply")
