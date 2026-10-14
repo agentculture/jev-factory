@@ -97,12 +97,10 @@ def _row(rid, qid, licence, target="teacher"):
     }
 
 
-def make_run(tmp_path: Path, *, fmt="bf16", rows=None, gate=None, sealed_ids=("h1",)):
+def make_run(tmp_path: Path, *, fmt="bf16", rows=None, sealed_ids=("h1",)):
     run = tmp_path / "run"
     prereg_path = tmp_path / "prereg.json"
     doc = dp.example_doc()
-    if gate is not None:
-        doc["gate"] = gate
     prereg_path.write_text(json.dumps(doc), encoding="utf-8")
     dp.lock(prereg_path, run)
     artifact = _bf16(tmp_path) if fmt == "bf16" else _quantized(tmp_path)
@@ -199,16 +197,54 @@ def test_training_index_carries_every_rows_target_source_without_text(tmp_path):
     assert "state of t1" not in (out / "model" / "scorer-train.json").read_text()
 
 
-def test_gate_comes_from_the_locked_prereg_or_records_none_fitted(tmp_path):
+def _write_gate(run: Path, calibration_sha: str) -> dict:
+    doc = {
+        "stage": "distill-gate",
+        "fitted": True,
+        "thresholds_by_kind": {
+            "choice": {"floor": 0.6, "margin": None, "max_entropy": None},
+            "noul": {"floor": None, "margin": 0.2, "max_entropy": None},
+            "score": {"floor": None, "margin": None, "max_entropy": 0.9},
+        },
+        "objective": {"objective": "max_selective_accuracy"},
+        "calibration_sha256": calibration_sha,
+        "prereg_sha256": "p" * 64,
+    }
+    g = run / "distill" / "gate"
+    g.mkdir(parents=True)
+    (g / "gate.json").write_text(json.dumps(doc), encoding="utf-8")
+    return doc
+
+
+def test_without_a_gate_stage_the_bundle_records_none_fitted(tmp_path):
+    # the example prereg now registers a gate objective and grid: that is not a fitted gate
+    assert "gate" in dp.example_doc()
     _, out, summary = build(tmp_path)
     gate = json.loads((out / "model" / "gate.json").read_text())
     assert gate["fitted"] is False and "reason" in gate and summary["gate_fitted"] is False
-    thresholds = {"choice": {"floor": 0.4}}
-    sub = tmp_path / "again"
-    sub.mkdir()
-    _, out2, _ = build(sub, gate=thresholds)
-    gate2 = json.loads((out2 / "model" / "gate.json").read_text())
-    assert gate2["fitted"] is True and gate2["by_kind"] == thresholds
+    assert gate["thresholds_by_kind"] == {}
+
+
+def test_the_bundle_ships_the_fitted_gate_from_the_gate_stage(tmp_path):
+    run, prereg_path, ds = make_run(tmp_path)
+    cal_sha = _sha(run / "distill" / "quant" / "calibration.json")
+    written = _write_gate(run, cal_sha)
+    summary = B.build_bundles(run, tmp_path / "out", prereg_path=prereg_path, dataset_dir=ds)
+    for folder in ("model", "dataset"):
+        gate = json.loads((tmp_path / "out" / folder / "gate.json").read_text())
+        assert gate["fitted"] is True
+        assert gate["thresholds_by_kind"] == written["thresholds_by_kind"]
+        assert gate["calibration_sha256"] == cal_sha
+        assert gate["source"] == "distill/gate/gate.json"
+    assert summary["gate_fitted"] is True
+
+
+def test_a_gate_fitted_on_another_calibration_is_refused(tmp_path):
+    run, prereg_path, ds = make_run(tmp_path)
+    _write_gate(run, "0" * 64)
+    with pytest.raises(CliError, match="calibration"):
+        B.build_bundles(run, tmp_path / "out", prereg_path=prereg_path, dataset_dir=ds)
+    assert not (tmp_path / "out" / "model").exists()
 
 
 def test_dataset_bundle_keeps_only_apache_or_mit_rows_with_their_licence(tmp_path):

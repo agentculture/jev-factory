@@ -79,7 +79,7 @@ def _runtime(student_s=0.1, clef_s=1.0, hosts=("box", "box", "box")):
 QUANT_OK = {"quant_vs_bf16_delta_points": 0.0, "heal_count": 0, "deployed_selection_ece": 0.05}
 
 
-def _build(test, preds, *, prereg=None, runtime=None, quant=None, cal=None, held_out=()):
+def _build(test, preds, *, prereg=None, runtime=None, quant=None, cal=None, held_out=(), gate=None):
     return R.build_report(
         records_by_side={"test": test, "held_out": list(held_out)},
         predictions=preds,
@@ -89,6 +89,7 @@ def _build(test, preds, *, prereg=None, runtime=None, quant=None, cal=None, held
         prereg=prereg or dp.validate(dp.example_doc()),
         quant_manifest=quant or QUANT_OK,
         resamples=RESAMPLES,
+        gate=gate,
     )
 
 
@@ -295,3 +296,44 @@ def test_held_out_is_reported_but_not_gated():
     assert rep["sides"]["held_out"]["c42"]["gated"] is False
     assert rep["sides"]["held_out"]["c42"]["result"] == R.MISSED
     assert rep["c42"]["result"] == R.PASSED
+
+
+# --------------------------------------------------------------------- the decision gate (d4)
+
+
+GATE = {
+    "fitted": True,
+    "thresholds_by_kind": {
+        "choice": {"floor": 0.9, "margin": None, "max_entropy": None},
+        "noul": {"floor": None, "margin": None, "max_entropy": None},
+        "score": {"floor": None, "margin": None, "max_entropy": None},
+    },
+    "calibration_sha256": "c" * 64,
+}
+
+
+def test_report_shows_per_kind_coverage_and_selective_accuracy_of_the_gated_student():
+    recs = [_rec(i) for i in range(40)]
+    preds = _good(recs)  # student: 36 right at 0.97, 4 wrong with p(a)=0.45 -> top 0.55
+    preds["student"][-1] = _row(recs[-1], None)  # one unanswered question
+    rep = _build(recs, preds, gate=GATE)
+    dg = rep["decision_gate"]
+    assert dg["fitted"] is True and dg["gated"] is False and dg["reason"]
+    assert dg["thresholds_by_kind"] == GATE["thresholds_by_kind"]
+    choice = dg["sides"]["test"]["choice"]
+    # floor 0.9 answers the 36 confident right ones; the 3 hesitant and 1 unanswered abstain
+    assert choice["coverage"]["value"] == pytest.approx(36 / 40)
+    assert choice["selective_accuracy"]["value"] == 1.0
+    assert choice["coverage"]["n"] == 40 and choice["coverage"]["ci_low"] is not None
+    assert choice["abstained"] == 4 and choice["unanswered"] == 1
+    assert dg["sides"]["test"]["all"]["coverage"]["value"] == pytest.approx(36 / 40)
+    assert dg["sides"]["test"]["noul"]["coverage"]["n"] == 0
+    # reported only: the gate never changes the c42 verdict
+    assert rep["c42"] == _build(recs, preds)["c42"]
+    assert "decision_gate" not in rep["c42"]["missed"]
+
+
+def test_report_without_a_fitted_gate_says_so():
+    recs = [_rec(i) for i in range(40)]
+    dg = _build(recs, _good(recs))["decision_gate"]
+    assert dg["fitted"] is False and dg["sides"] == {} and dg["reason"]
