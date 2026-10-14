@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-14T04:03:15Z",
-  "updated": "2026-10-14T07:54:00Z",
+  "updated": "2026-10-14T08:06:04Z",
   "claims": [
     {
       "id": "c1",
@@ -1689,6 +1689,17 @@
         "t9",
         "fx2",
         "t20"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l14",
+      "code": "assumption-for-measurement",
+      "what": "tq's live build/serve path (merge_and_unload -> torchao quantize_ -> save; load_state_dict(assign=True) on the Qwen3.5 hybrid torso; SystemOneEngine over torchao tensors) has never run against a real model; int4 failed on CPU with 'Requires mslk >= 1.0.0'; only int8 was hand-checked on CPU in a separate venv",
+      "skipped_check": "a live int8/int4 build+serve smoke run in the student env on the Spark (before t26)",
+      "refs": [
+        "tq"
       ],
       "origin": "llm",
       "status": "proposed"
