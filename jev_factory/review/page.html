@@ -372,7 +372,73 @@ label { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
       toast ? h("div", { className: "toast" }, toast) : null);
   }
 
-  ReactDOM.createRoot(document.getElementById("root")).render(h(App));
+  // Corrections mode (jev review --corrections): a flat list, no verb tree.
+  function CorrectionCard({ item, reload, notify }) {
+    const c = item.correction, d = item.decision;
+    const [note, setNote] = useState("");
+    const [label, setLabel] = useState(c.label || "");
+    const [editing, setEditing] = useState(false);
+    const send = async (action, after) => {
+      try {
+        await api("/api/decision", { action, record_id: c.record_id, question_id: c.question_id, note, after });
+        notify(action + " " + item.key + " (staged)");
+        setEditing(false);
+        await reload();
+      } catch (e) { notify("error: " + (e.message || e)); }
+    };
+    const shown = d && d.action === "edit" && d.after ? d.after : c;
+    return h("div", { className: "card" },
+      h("div", null, h("span", { className: "chip st-" + item.status }, item.status), " ",
+        h("b", null, item.key), h("span", { className: "muted" }, " · " + c.reason + " · by " + c.author + " · " + c.date),
+        item.staged ? h("span", { className: "muted" }, " · staged") : null),
+      h("div", { className: "text" }, c.text),
+      h("div", { className: "expect" }, "target: " + (shown.label || "") + " " + (shown.distribution ? JSON.stringify(shown.distribution) : "")),
+      d && d.note ? h("div", { className: "muted" }, "note: " + d.note) : null,
+      editing ? h("div", null, h("label", null, "label"),
+        h("input", { value: label, onChange: e => setLabel(e.target.value) })) : null,
+      h("div", { className: "row" },
+        h("button", { className: "ok", onClick: () => send("approve") }, "Approve"),
+        h("button", { className: "no", onClick: () => send("reject") }, "Reject"),
+        editing
+          ? h("button", { className: "ed", onClick: () => send("edit", { label }) }, "Save edit")
+          : h("button", { className: "ed", onClick: () => setEditing(true) }, "Edit"),
+        h("input", { className: "note", placeholder: "note (optional)", value: note, onChange: e => setNote(e.target.value) })));
+  }
+
+  function CorrectionsView({ state, reload }) {
+    const [toast, setToast] = useState("");
+    const [filter, setFilter] = useState("proposed");
+    const notify = useCallback(m => { setToast(m); setTimeout(() => setToast(""), 2500); }, []);
+    const items = state.items.filter(it => filter === "all" || it.status === filter);
+    const c = state.counts;
+    return h("div", { className: "app" },
+      h("div", { className: "bar" },
+        h("h1", null, "jev review · corrections"),
+        h("div", { className: "counts" }, ["proposed", "approved", "edited", "rejected"].map(k =>
+          h("span", { key: k }, h("span", { className: "chip st-" + k }, k), " " + (c[k] || 0)))),
+        h("select", { value: filter, onChange: e => setFilter(e.target.value) },
+          ["all", "proposed", "approved", "edited", "rejected"].map(k => h("option", { key: k, value: k }, k))),
+        h("span", { className: "muted" }, state.staged + " staged; record them with `jev review --corrections " + state.corrections_file + " --apply`")),
+      h("div", { style: { overflow: "auto", padding: "8px 14px" } },
+        h("p", { className: "muted" }, "Only approved and edited corrections are ever trainable. review file: " + state.review_file),
+        items.map(it => h(CorrectionCard, { key: it.key + it.status, item: it, reload, notify }))),
+      toast ? h("div", { className: "toast" }, toast) : null);
+  }
+
+  function Root() {
+    const [state, setState] = useState(null);
+    const [error, setError] = useState("");
+    const reload = useCallback(async () => {
+      try { setState(await api("/api/state")); setError(""); } catch (e) { setError(String(e.message || e)); }
+    }, []);
+    useEffect(() => { reload(); }, [reload]);
+    if (error) return h("p", { className: "warn", style: { padding: 16 } }, "error: " + error);
+    if (!state) return h("p", { style: { padding: 16 } }, "loading the review state...");
+    if (state.mode === "corrections") return h(CorrectionsView, { state, reload });
+    return h(App);
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(h(Root));
 })();
 </script>
 </body>
