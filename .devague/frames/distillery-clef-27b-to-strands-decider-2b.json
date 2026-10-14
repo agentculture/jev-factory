@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-14T04:03:15Z",
-  "updated": "2026-10-14T07:13:03Z",
+  "updated": "2026-10-14T07:54:00Z",
   "claims": [
     {
       "id": "c1",
@@ -1676,6 +1676,19 @@
         "t19",
         "c9",
         "c43"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l13",
+      "code": "grader-unverified",
+      "what": "contamination.check_sources only strips a 'jev-bench:' prefix, but records from from_jev_bench_row carry source 'Praveenrajus/jev-bench:<config>', so overlapping jev-bench sources (e.g. banking77, which v21 trained on) are reported clean unless the caller remaps; t9/fx2 tests passed bare config names, never a real Record.source",
+      "skipped_check": "test contamination with Record.source values produced by the real loader",
+      "refs": [
+        "t9",
+        "fx2",
+        "t20"
       ],
       "origin": "llm",
       "status": "proposed"

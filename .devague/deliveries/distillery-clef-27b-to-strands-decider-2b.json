@@ -2,7 +2,7 @@
   "plan_slug": "distillery-clef-27b-to-strands-decider-2b",
   "schema_version": 2,
   "created": "2026-10-14T06:13:50Z",
-  "updated": "2026-10-14T06:43:29Z",
+  "updated": "2026-10-14T07:54:00Z",
   "deviations": [
     {
       "id": "d1",
@@ -34,6 +34,21 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "Add a real quantized student path (task 'tq', outside the confirmed plan): merge the v21-based winner's LoRA into its torso, build weight-only int8 and int4 variants with torchao in the torch engine, keep the pointer head fp32, serve them through a thin jev-factory wrapper around strands_decider's model on 127.0.0.1 behind the same /v1/systemone wire, and register them as quant.py builders so the spike measures them on the Spark (accuracy delta vs bf16, ECE, latency, proc-rss). W4A16/ONNX/GGUF stay recorded as unavailable follow-ups.",
+      "task_ref": "t19",
+      "reason": "t19 found no buildable quantized format on the strands-decider stack (bf16 base + unmerged LoRA, torch/MLX only), so a real run would always ship bf16 and the operator's 'quant and heal' would not be exercised; operator chose to add one real quant path.",
+      "affects": [
+        "t19",
+        "t21",
+        "t26"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
     }
   ],
   "evidence": [],
