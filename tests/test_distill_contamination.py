@@ -88,12 +88,48 @@ def test_hf_id_is_derived_from_records_automatically():
     rec = R.from_jev_bench_row(row)
     assert rec.hf_id == "mteb/banking77"
     name = rec.source  # "Praveenrajus/jev-bench:banking77"
-    # the source name alone would not be recognised by the name match
-    assert c.check_sources([name])["results"][name]["status"] == "clean"
+    # the config name inside the source is matched even without records (lapse l13)
+    assert c.check_sources([name])["results"][name]["status"] == "overlapping"
     rep = c.check_sources([name], records=[rec])
     assert rep["results"][name]["status"] == "overlapping"
     m = rep["results"][name]["matches"][0]
     assert m["source_url"].startswith("https://huggingface.co/")
-    # an explicit hf_ids argument still wins
+    # an explicit hf_ids argument is tried first, the config-name match still applies
     rep = c.check_sources([name], records=[rec], hf_ids={name: "nobody/nothing"})
-    assert rep["results"][name]["status"] == "clean"
+    assert rep["results"][name]["status"] == "overlapping"
+    assert [m["name"] for m in rep["results"][name]["matches"]][0] != "mteb/banking77"
+
+
+def _real_record(name):
+    from pathlib import Path
+
+    from jev_factory.distill.records import from_jev_bench_row
+
+    path = Path(__file__).parent / "fixtures" / "typed_decisions" / name
+    return from_jev_bench_row(json.loads(path.read_text(encoding="utf-8")))
+
+
+def test_real_banking77_record_source_overlaps_with_and_without_records():
+    rec = _real_record("real_jev_bench_banking77_row.json")
+    assert rec.source == "Praveenrajus/jev-bench:banking77"
+    bare = c.check_sources([rec.source])
+    with_records = c.check_sources([rec.source], records=[rec])
+    assert bare["results"][rec.source]["status"] == "overlapping"
+    assert with_records["results"][rec.source]["status"] == "overlapping"
+
+
+def test_real_go_emotions_record_source_matches_manifest_status():
+    rec = _real_record("real_jev_bench_go_emotions_row.json")
+    assert rec.source == "Praveenrajus/jev-bench:go_emotions"
+    expected = c.check_sources(["go_emotions"])["results"]["go_emotions"]["status"]
+    bare = c.check_sources([rec.source])["results"][rec.source]["status"]
+    with_records = c.check_sources([rec.source], records=[rec])["results"][rec.source]["status"]
+    assert bare == with_records == expected
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["jev-bench:banking77", "Praveenrajus/jev-bench:banking77", "other-org/jev-bench:banking77"],
+)
+def test_any_org_jev_bench_prefix_is_normalised(name):
+    assert c.check_sources([name])["results"][name]["status"] == "overlapping"
