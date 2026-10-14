@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-14T04:03:15Z",
-  "updated": "2026-10-14T06:35:30Z",
+  "updated": "2026-10-14T06:43:29Z",
   "claims": [
     {
       "id": "c1",
@@ -1651,6 +1651,18 @@
       "skipped_check": "a trainer-env smoke run on a real v21 checkpoint (needed before t26)",
       "refs": [
         "t13"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l11",
+      "code": "assumption-for-measurement",
+      "what": "The main agent's t8 plan task omitted a separate training side when carving the train split (fit/selection/held-out only), contradicting c11/c13; the plan gate did not catch it because coverage is claim-level, not data-flow-level",
+      "skipped_check": "trace the data flow train->teacher->assemble->train against c11/c13 when writing the t8/t10 acceptance criteria",
+      "refs": [
+        "t8",
+        "d2"
       ],
       "origin": "llm",
       "status": "proposed"

@@ -2,7 +2,7 @@
   "plan_slug": "distillery-clef-27b-to-strands-decider-2b",
   "schema_version": 2,
   "created": "2026-10-14T06:13:50Z",
-  "updated": "2026-10-14T06:13:50Z",
+  "updated": "2026-10-14T06:43:29Z",
   "deviations": [
     {
       "id": "d1",
@@ -19,6 +19,21 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t8 dataset build gains a separate 'train' side: held-out is carved first, then train/fit/selection from the rest (placeholder fractions 0.70/0.15/0.15, to be pre-registered); write_dataset writes train.jsonl; teacher labelling and assemble accept only ids from the dataset's train side and refuse fit/selection/held-out/test ids even though their source split is 'train'.",
+      "task_ref": "t8",
+      "reason": "The t8 plan text (main agent's) carved only fit/selection/held-out from each source's train split, leaving no training portion disjoint from the calibration/selection folds, which c11 and c13 require; caught while preparing the t17 brief. Operator approved the fix (fixup fx3) before t17.",
+      "affects": [
+        "t8",
+        "t10",
+        "t17"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
     }
   ],
   "evidence": [],
