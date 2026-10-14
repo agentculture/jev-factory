@@ -1,0 +1,7 @@
+[
+  {
+    "state": "User: my build keeps failing on CI but passes locally.",
+    "questions": "{\"q1\": {\"type\": \"choice\", \"instructions\": \"Pick the likely cause.\", \"criteria\": {\"env\": \"environment drift\", \"flaky\": \"flaky test\", \"code\": \"real bug\"}}, \"q2\": {\"type\": \"score\", \"criteria\": [\"low\", \"medium\", \"high\"]}}",
+    "gold": "{\"q1\": \"env\", \"q2\": \"medium\"}"
+  }
+]

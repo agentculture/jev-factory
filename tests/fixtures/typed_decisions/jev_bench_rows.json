@@ -1,0 +1,12 @@
+[
+  {
+    "id": "jb-0001",
+    "source": "boolq",
+    "primitive": "choice",
+    "split": "test",
+    "state": "The moon orbits the Earth roughly every 27 days.",
+    "question": "Is the statement true?",
+    "label": "yes",
+    "soft_label": "{\"yes\": 0.9, \"no\": 0.1}"
+  }
+]
