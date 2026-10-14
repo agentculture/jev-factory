@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-14T04:03:15Z",
-  "updated": "2026-10-14T06:13:50Z",
+  "updated": "2026-10-14T06:22:38Z",
   "claims": [
     {
       "id": "c1",
@@ -1613,6 +1613,33 @@
       "refs": [
         "common.md",
         "d1"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l8",
+      "code": "control-absent",
+      "what": "Wave 1: t10 and t11 again wrote tests and implementation together (red seen only as a collection error); t10 teacher labelling, t11 systemone_drafter and t8's subprocess token counter are verified only against fakes, never against a real Clef/Strands server or a real tokenizer",
+      "skipped_check": "per-criterion red runs; a smoke check against real endpoints/tokenizer (deferred to t25/t26)",
+      "refs": [
+        "t8",
+        "t10",
+        "t11"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l9",
+      "code": "grader-unverified",
+      "what": "Wave-0 modules t4 (systemone score keys and noul fixture shape), t6 (strands-decider serve argv) and t7 (adapter path lora/) passed their acceptance tests against invented fixtures but are wrong against the real strands-decider source (commit 8b6faa55) and the real v21 HF repo, as found by t12",
+      "skipped_check": "validate fixtures against the real upstream source/repo layout before accepting the tasks",
+      "refs": [
+        "t4",
+        "t6",
+        "t7",
+        "t12"
       ],
       "origin": "llm",
       "status": "proposed"
