@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-10-14
+
+### Added
+
+- **`jev distill <stage>`: the Clef 27B -> Strands Decider 2B distillery** (issue #18). Fourteen dry-run-by-default stages in their own registry (`jev_factory/distill/pipeline.py`): preregister, dataset, contamination, teacher-label, audit, corrections-draft, assemble, benchmark, train, quantize, gate, final, bundle, upload. Spec and plan: `docs/specs/2026-10-14-distillery-clef-27b-to-strands-decider-2b.md`, `docs/plans/2026-10-14-distillery-clef-27b-to-strands-decider-2b.md`; operator write-up: `docs/distill.md`.
+- Typed-decision record contract over the public `/v1/systemone` wire (choice, noul, score) with loaders for `LocalLLaMA/typed-decisions` and `Praveenrajus/jev-bench`; a SystemOne client that reads per-option probabilities only.
+- Separate train / fit / selection / sealed held-out / test sides (deviation d2), a licence allowlist (Apache-2.0, MIT) and a 4096-token length filter; a contamination check against v21's training data and Clef's eval suites.
+- Teacher labelling (train side only, resumable, provenance per row), a per-source teacher audit against human gold, operator-reviewed corrections (`jev review --corrections FILE`) and an assemble step with one recorded target source per question.
+- A Strands pointer-scorer backbone (`jev_factory/backbones/pointer/`), a backbone protocol and lazy registry, and a KL-to-teacher + CE-to-gold distill trainer that continues from v21 under the GPU guard.
+- Train/select/calibrate on the fit and selection folds, a deployed-format spike with torchao weight-only int8/int4 builds served by a thin `/v1/systemone` wrapper (deviation d3), heal at most once, a per-kind answer-or-abstain decision gate (deviation d4), a once-only final measurement with a paired bootstrap report, and private-first bundles and upload.
+
+### Changed
+
+- The jev-CLI domain gains one `jev.distill` operation with a grounded `stage` argument (deviation d5) and eight seed entries pending operator review; `cli_surface_sha256` changes, so the jev-tool seed review must include them before the extraction plan's t34.
+- New `distill_*` run-config keys; CLAUDE.md, QWEN.md, AGENTS.override.md and AGENTS.colleague.md describe the distillery.
+
 ## [0.10.0] - 2026-10-01
 
 ### Added
