@@ -295,9 +295,9 @@ PARAPHRASES: Mapping[str, tuple[str, ...]] = {
         "Open the local site where an operator approves, rejects or edits a domain's seed entries.",
         "Review a domain's seed corpus and write the approved changes (a dry run unless applied).",
     ),
-    # Minimal (t22) so the new verb validates; t23 owns the full paraphrase and seed set.
     "jev.distill": (
         "Run one stage of a teacher-to-student distill run, as a dry run unless applied.",
         "Step a distillation run forward by one stage: dataset, teacher labels, training and on.",
+        "Advance the big-to-small model distillation by a named stage (plan first, then apply).",
     ),
 }

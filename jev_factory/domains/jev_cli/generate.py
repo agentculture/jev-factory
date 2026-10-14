@@ -11,7 +11,8 @@ from :mod:`jev_factory.domains.jev_cli.content`.
 Grounding is offline and deterministic: ``explain <path>`` grounds against
 the explain catalog's own keys, and ``run <stage>`` against the stage
 registry (:func:`jev_factory.factory.stages.list_stages`), so the domain
-follows the stage list as stages register. The world snapshot is
+follows the stage list as stages register; ``distill <stage>`` grounds against the distill
+stage list. The world snapshot is
 :func:`world`, the CLI introspecting itself; no machine lookup is involved.
 
 :func:`cli_surface_sha256` is the CLI surface hash: the running CLI's
@@ -30,6 +31,7 @@ from jev_factory.domain.validate import validate
 from jev_factory.domains.jev_cli import content
 from jev_factory.domains.jev_cli.annotations import (
     ANNOTATIONS,
+    DISTILL_STAGE,
     EXPLAIN_PATH,
     STAGE,
     UNIVERSAL_DESTS,
@@ -151,9 +153,19 @@ def _stage_names(registry: Registry | None) -> list[str]:
     return [s["stage"] for s in list_stages(registry)]
 
 
+def _distill_stage_names() -> list[str]:
+    from jev_factory.distill.pipeline import stage_names
+
+    return stage_names()
+
+
 def world(registry: Registry | None = None) -> dict[str, Any]:
     """The CLI's own world snapshot: explain paths and registered stages."""
-    return {"explain_paths": _paths(), "stages": _stage_names(registry)}
+    return {
+        "explain_paths": _paths(),
+        "stages": _stage_names(registry),
+        "distill_stages": _distill_stage_names(),
+    }
 
 
 def generate_domain(
@@ -201,10 +213,20 @@ def generate_domain(
                     world_field="stages",
                     lookup=lambda: _stage_names(registry),
                 ),
+                GroundKind(
+                    name=DISTILL_STAGE,
+                    noun="distill stage",
+                    plural="distill stages",
+                    world_field="distill_stages",
+                    lookup=_distill_stage_names,
+                ),
             ),
             world_schema=(
                 WorldField("explain_paths", "list", "Command paths the explain catalog knows."),
                 WorldField("stages", "list", "Factory stages registered in the stage registry."),
+                WorldField(
+                    "distill_stages", "list", "Stages of the teacher-to-student distill run."
+                ),
             ),
             reasons=content.REASONS,
             default_reason=content.DEFAULT_REASON,

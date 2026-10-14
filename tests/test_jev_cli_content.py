@@ -210,3 +210,18 @@ def test_seed_world_is_a_subset_of_the_live_cli_world(domain, corpus) -> None:
     live = world()
     for key in ("explain_paths", "stages"):
         assert set(corpus.world[key]) <= set(live[key]), key
+
+
+def test_distill_seed_is_pending_review_dry_run_and_apply_across_stages(domain, corpus) -> None:
+    from jev_factory.distill.pipeline import stage_names
+
+    rows = [e for e in _by(corpus, "operation") if e["expect"]["operation"] == "jev.distill"]
+    assert len(rows) >= 4
+    assert len({e["class"] for e in rows}) >= 3
+    assert all(e["source"].startswith("agent-draft") for e in rows)
+    assert {e["expect"]["args"]["stage"] for e in rows} <= set(stage_names())
+    assert len({e["expect"]["args"]["stage"] for e in rows}) >= 3
+    texts = [e["text"].lower() for e in rows]
+    assert any("--apply" in t for t in texts)
+    assert any("dry" in t or "plan first" in t for t in texts)
+    assert set(corpus.world["distill_stages"]) <= set(world()["distill_stages"])
