@@ -34,7 +34,7 @@ from jev_factory.distill.records import Record
 from jev_factory.distill.systemone import CallResult, SystemOneClient
 
 FOLDS = ("fit", "selection")
-SEALED_NAMES = ("held_out", "heldout", "held-out", "test")
+SEALED_NAMES = ("train", "held_out", "heldout", "held-out", "test")
 SAMPLE_INTERVAL = 0.2
 
 MemoryProbe = Callable[[], "float | None"]
