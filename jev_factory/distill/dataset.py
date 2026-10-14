@@ -12,10 +12,12 @@ and the jev-bench configs). The build
    student tokens (counted by an injectable counter; nothing is truncated) and
    counts the drops per source,
 4. keeps each source's own ``test`` split as the test side, never trains on it,
-5. carves a sealed held-out set, then grouped fit/selection folds, out of each
-   source's ``train`` split with :func:`jev_factory.core.split.make_folds`
+5. carves a sealed held-out set, then grouped train / fit / selection sides, out of
+   each source's ``train`` split with :func:`jev_factory.core.split.make_folds`
    (a group is the record's ``group``, e.g. its workflow, when set, else every record
-   sharing one state, so duplicates never straddle).
+   sharing one state, so duplicates never straddle). Only the ``train`` side may
+   become a training target; ``fit`` and ``selection`` are evaluation folds
+   (deviation d2).
 
 The real counter is :func:`subprocess_token_counter`, which runs the student
 tokenizer inside the pinned student environment; tests inject a stdlib counter.
@@ -42,12 +44,15 @@ STAGE = "distill-dataset"
 MAX_TOKENS = 4096
 DEFAULT_SEED = 27
 DEFAULT_HELD_OUT_FRACTION = 0.10
-DEFAULT_FIT_FRACTION = 0.70
+#: Fractions of the pool left after the held-out carve; selection is the remainder.
+#: Placeholders, exposed as ``build_dataset`` arguments and recorded in the manifest.
+DEFAULT_TRAIN_FRACTION = 0.70
+DEFAULT_FIT_FRACTION = 0.15
 #: Exact, normalised licence strings that pass; everything else is excluded.
 ALLOWED_LICENCES: frozenset[str] = frozenset({"apache-2.0", "mit"})
 TRAIN_SPLIT = "train"
 TEST_SPLIT = "test"
-SIDES = ("fit", "selection", "held_out", "test")
+SIDES = ("train", "fit", "selection", "held_out", "test")
 
 TokenCounter = Callable[[str], int]
 
@@ -186,6 +191,7 @@ def load_sealed(path: Path | str) -> SealedSide:
 class Dataset:
     """The built run dataset; sealed sides keep their records out of sight."""
 
+    train: tuple[Record, ...]
     fit: tuple[Record, ...]
     selection: tuple[Record, ...]
     held_out: SealedSide
@@ -194,9 +200,17 @@ class Dataset:
     _held_out_records: tuple[Record, ...] = field(default=(), repr=False)
     _test_records: tuple[Record, ...] = field(default=(), repr=False)
 
-    def all_records(self) -> tuple[Record, ...]:
-        """The records that may be trained on or selected with (never held-out or test)."""
+    def trainable_records(self) -> tuple[Record, ...]:
+        """The ONLY records that may become training targets (teacher labels, losses)."""
+        return self.train
+
+    def eval_records(self) -> tuple[Record, ...]:
+        """The evaluation folds (fit and selection); never training targets."""
         return self.fit + self.selection
+
+    def all_records(self) -> tuple[Record, ...]:
+        """Every non-sealed record (train + fit + selection); not a training set."""
+        return self.train + self.fit + self.selection
 
 
 def _licence_table(records: Sequence[Record]) -> dict[str, dict[str, Any]]:
@@ -222,9 +236,13 @@ def _count_tokens(records: Sequence[Record], counter: TokenCounter) -> list[int]
 
 
 def _carve(
-    records: Sequence[Record], seed: int, held_out_fraction: float, fit_fraction: float
-) -> tuple[list[Record], list[Record], list[Record]]:
-    """Per-source (fit, selection, held_out) from train records, grouped by state."""
+    records: Sequence[Record],
+    seed: int,
+    held_out_fraction: float,
+    train_fraction: float,
+    fit_fraction: float,
+) -> tuple[list[Record], list[Record], list[Record], list[Record]]:
+    """Per-source (train, fit, selection, held_out) from train-split records, grouped."""
     by_id = {r.id: r for r in records}
     group_of = {
         r.id: (
@@ -235,8 +253,27 @@ def _carve(
         for r in records
     }
     pool, held = make_folds(list(by_id), seed, 1.0 - held_out_fraction, group_of)
-    fit, selection = make_folds(pool, seed, fit_fraction, group_of)
-    return [by_id[i] for i in fit], [by_id[i] for i in selection], [by_id[i] for i in held]
+    train, rest = make_folds(pool, seed, train_fraction, group_of)
+    fit, selection = make_folds(rest, seed, fit_fraction / (1.0 - train_fraction), group_of)
+    return (
+        [by_id[i] for i in train],
+        [by_id[i] for i in fit],
+        [by_id[i] for i in selection],
+        [by_id[i] for i in held],
+    )
+
+
+def _check_fractions(held_out: float, train: float, fit: float) -> None:
+    ok = 0.0 <= held_out < 1.0 and 0.0 < train < 1.0 and 0.0 < fit and train + fit < 1.0
+    if not ok:
+        raise CliError(
+            code=EXIT_USER_ERROR,
+            message=(
+                f"bad fractions held_out={held_out} train={train} fit={fit}: "
+                "need 0<=held_out<1, train>0, fit>0 and train+fit<1 (selection is the remainder)"
+            ),
+            remediation="choose fractions that leave a non-empty selection side",
+        )
 
 
 def build_dataset(
@@ -246,9 +283,11 @@ def build_dataset(
     seed: int = DEFAULT_SEED,
     max_tokens: int = MAX_TOKENS,
     held_out_fraction: float = DEFAULT_HELD_OUT_FRACTION,
+    train_fraction: float = DEFAULT_TRAIN_FRACTION,
     fit_fraction: float = DEFAULT_FIT_FRACTION,
 ) -> Dataset:
     """Build the run dataset from *records*; see the module docstring."""
+    _check_fractions(held_out_fraction, train_fraction, fit_fraction)
     recs = sorted(records, key=lambda r: r.id)
     ids = [r.id for r in recs]
     dupes = sorted(i for i, n in Counter(ids).items() if n > 1)
@@ -266,16 +305,19 @@ def build_dataset(
 
     unused = Counter(r.split for r in kept if r.split not in (TRAIN_SPLIT, TEST_SPLIT))
     test_recs = [r for r in kept if r.split == TEST_SPLIT]
+    train: list[Record] = []
     fit: list[Record] = []
     selection: list[Record] = []
     held: list[Record] = []
     for source in sorted({r.source for r in kept}):
-        train = [r for r in kept if r.source == source and r.split == TRAIN_SPLIT]
-        if train:
-            f, s, h = _carve(train, seed, held_out_fraction, fit_fraction)
+        pool = [r for r in kept if r.source == source and r.split == TRAIN_SPLIT]
+        if pool:
+            t, f, s, h = _carve(pool, seed, held_out_fraction, train_fraction, fit_fraction)
+            train += t
             fit += f
             selection += s
             held += h
+    train.sort(key=lambda r: r.id)
     fit.sort(key=lambda r: r.id)
     selection.sort(key=lambda r: r.id)
     held.sort(key=lambda r: r.id)
@@ -286,6 +328,7 @@ def build_dataset(
             "seed": seed,
             "max_tokens": max_tokens,
             "held_out_fraction": held_out_fraction,
+            "train_fraction": train_fraction,
             "fit_fraction": fit_fraction,
             "licence_allowlist": sorted(ALLOWED_LICENCES),
         },
@@ -296,6 +339,7 @@ def build_dataset(
         "counts": {
             "input": len(recs),
             "licence_excluded": len(recs) - len(licensed),
+            "train": len(train),
             "fit": len(fit),
             "selection": len(selection),
             "held_out": len(held),
@@ -303,6 +347,7 @@ def build_dataset(
         },
     }
     return Dataset(
+        train=tuple(train),
         fit=tuple(fit),
         selection=tuple(selection),
         held_out=_sealed("", held, sha256_bytes(_dump(held))),
@@ -330,10 +375,11 @@ def read_records(path: Path | str) -> list[Record]:
 
 
 def write_dataset(ds: Dataset, out_dir: Path | str) -> dict[str, str]:
-    """Write the four sides and ``manifest.json``; returns side name -> path."""
+    """Write the five sides and ``manifest.json``; returns side name -> path."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     sides = {
+        "train": ds.train,
         "fit": ds.fit,
         "selection": ds.selection,
         "held_out": ds._held_out_records,
@@ -353,3 +399,20 @@ def write_dataset(ds: Dataset, out_dir: Path | str) -> dict[str, str]:
     mpath.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     paths["manifest"] = str(mpath)
     return paths
+
+
+def train_ids(source: "Dataset | Path | str") -> frozenset[str]:
+    """Ids of the train side: from a built :class:`Dataset`, or a dataset directory.
+
+    A directory is read from ``train.jsonl`` only, never from any other side.
+    """
+    if isinstance(source, Dataset):
+        return frozenset(r.id for r in source.train)
+    path = Path(source) / "train.jsonl"
+    if not path.is_file():
+        raise CliError(
+            code=EXIT_USER_ERROR,
+            message=f"{path}: no train side found",
+            remediation="point at a directory written by write_dataset",
+        )
+    return frozenset(r.id for r in read_records(path))

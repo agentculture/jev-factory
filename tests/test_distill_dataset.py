@@ -100,13 +100,18 @@ def test_real_banking77_row_is_excluded_and_go_emotions_kept():
 def test_folds_are_disjoint_deterministic_and_from_train_only():
     a, b = _build(), _build()
     assert [r.id for r in a.fit] == [r.id for r in b.fit]
+    assert [r.id for r in a.train] == [r.id for r in b.train]
+    train = {r.id for r in a.train}
     fit, sel = {r.id for r in a.fit}, {r.id for r in a.selection}
     held = set(a.held_out.ids)
     test = set(a.test.ids)
-    assert fit and sel and held and test
-    assert not (fit & sel) and not (fit & held) and not (sel & held)
-    assert not (test & (fit | sel | held))
-    assert all(r.split == "train" for r in a.fit + a.selection)
+    assert train and fit and sel and held and test
+    four = [train, fit, sel, held]
+    for i, x in enumerate(four):
+        for y in four[i + 1 :]:
+            assert not (x & y)
+    assert not (test & (train | fit | sel | held))
+    assert all(r.split == "train" for r in a.train + a.fit + a.selection)
     assert all(i.startswith(("td_01", "go_emotions/test")) for i in test)
     assert len(test) == 10
 
@@ -122,6 +127,7 @@ def test_selection_groups_never_straddle_folds():
     ds = _build(recs)
     same = {"text": "same"}
     sides = [
+        any(json.loads(r.state) == same for r in ds.train),
         any(json.loads(r.state) == same for r in ds.fit),
         any(json.loads(r.state) == same for r in ds.selection),
         any(json.loads(r.state) == same for r in ds._held_out_records),
@@ -137,7 +143,7 @@ def test_duplicate_ids_refused():
 def test_unknown_splits_are_not_trained_on_and_are_counted():
     recs = _corpus() + [replace(_td(900), split="validation")]
     ds = _build(recs)
-    assert "td_0900" not in {r.id for r in ds.fit + ds.selection}
+    assert "td_0900" not in {r.id for r in ds.train + ds.fit + ds.selection}
     assert ds.manifest["unused_splits"] == {"validation": 1}
 
 
@@ -232,7 +238,7 @@ def test_write_dataset_manifest_and_files(tmp_path):
     out = dataset.write_dataset(ds, tmp_path)
     man = json.loads(Path(out["manifest"]).read_text(encoding="utf-8"))
     assert man["stage"] == "distill-dataset"
-    assert set(man["outputs"]) == {"fit", "selection", "held_out", "test"}
+    assert set(man["outputs"]) == {"train", "fit", "selection", "held_out", "test"}
     for name, info in man["outputs"].items():
         assert info["sha256"] == dataset.sha256_bytes(Path(out[name]).read_bytes())
         assert info["count"] == man["counts"][name]
@@ -241,16 +247,17 @@ def test_write_dataset_manifest_and_files(tmp_path):
     # records round-trip
     back = dataset.read_records(out["fit"])
     assert [r.id for r in back] == [r.id for r in ds.fit]
+    assert man["knobs"]["train_fraction"] == dataset.DEFAULT_TRAIN_FRACTION
+    assert man["knobs"]["fit_fraction"] == dataset.DEFAULT_FIT_FRACTION
+    assert man["knobs"]["held_out_fraction"] == dataset.DEFAULT_HELD_OUT_FRACTION
 
 
 def test_test_rows_never_in_training_files(tmp_path):
     ds = _build()
     out = dataset.write_dataset(ds, tmp_path)
-    train_ids = {r.id for r in dataset.read_records(out["fit"])} | {
-        r.id for r in dataset.read_records(out["selection"])
-    }
-    assert not (train_ids & set(ds.test.ids))
-    assert not (train_ids & set(ds.held_out.ids))
+    seen = {r.id for name in ("train", "fit", "selection") for r in dataset.read_records(out[name])}
+    assert not (seen & set(ds.test.ids))
+    assert not (seen & set(ds.held_out.ids))
 
 
 def test_group_field_is_the_fold_key_when_present_else_state():
@@ -259,6 +266,7 @@ def test_group_field_is_the_fold_key_when_present_else_state():
     def sides(ds, ids):
         where = {}
         for name, recs in (
+            ("train", ds.train),
             ("fit", ds.fit),
             ("selection", ds.selection),
             ("held", ds._held_out_records),
@@ -283,3 +291,44 @@ def test_group_field_is_the_fold_key_when_present_else_state():
     # control: without group every distinct state is its own group, so workflows spread
     plain = _build(corpus(False))
     assert any(len(sides(plain, ids)) > 1 for ids in wf_ids)
+
+
+# --- the separate training side (deviation d2) -------------------------------
+
+
+def test_sides_constant_and_default_fractions():
+    assert dataset.SIDES == ("train", "fit", "selection", "held_out", "test")
+    assert (dataset.DEFAULT_TRAIN_FRACTION, dataset.DEFAULT_FIT_FRACTION) == (0.70, 0.15)
+
+
+def test_train_is_the_only_trainable_side():
+    ds = _build()
+    assert {r.id for r in ds.trainable_records()} == {r.id for r in ds.train}
+    assert not ({r.id for r in ds.trainable_records()} & {r.id for r in ds.fit + ds.selection})
+    ev = {r.id for r in ds.eval_records()}
+    assert ev == {r.id for r in ds.fit + ds.selection}
+    assert {r.id for r in ds.all_records()} == {r.id for r in ds.train} | ev
+
+
+def test_fractions_are_args_recorded_and_roughly_honoured():
+    recs = [replace(_td(i), group=None) for i in range(200)]
+    ds = _build(recs, train_fraction=0.5, fit_fraction=0.25)
+    assert ds.manifest["knobs"]["train_fraction"] == 0.5
+    assert ds.manifest["knobs"]["fit_fraction"] == 0.25
+    n = len(ds.train) + len(ds.fit) + len(ds.selection) + len(ds._held_out_records)
+    assert n == 200
+    assert abs(len(ds.train) / (n - len(ds._held_out_records)) - 0.5) < 0.05
+    assert abs(len(ds.fit) - len(ds.selection)) <= 0.1 * n
+    with pytest.raises(CliError):
+        _build(train_fraction=0.9, fit_fraction=0.2)
+
+
+def test_train_ids_from_dataset_and_from_directory(tmp_path):
+    ds = _build()
+    out = dataset.write_dataset(ds, tmp_path)
+    want = {r.id for r in ds.train}
+    assert set(dataset.train_ids(ds)) == want
+    assert set(dataset.train_ids(tmp_path)) == want
+    assert Path(out["train"]).name == "train.jsonl"
+    man = json.loads(Path(out["manifest"]).read_text(encoding="utf-8"))
+    assert man["counts"]["train"] == len(want)

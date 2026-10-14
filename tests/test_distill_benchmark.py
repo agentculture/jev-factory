@@ -179,7 +179,7 @@ def test_broken_memory_probe_does_not_abort(servers):
 
 def test_held_out_and_test_files_are_refused(tmp_path, servers):
     srv = servers("clef")
-    for name in ("held_out.jsonl", "test.jsonl"):
+    for name in ("held_out.jsonl", "test.jsonl", "train.jsonl"):
         path = tmp_path / name
         path.write_text(json.dumps(_rec(1).to_json()) + "\n", encoding="utf-8")
         with pytest.raises(CliError, match="sealed side refused"):
@@ -189,7 +189,7 @@ def test_held_out_and_test_files_are_refused(tmp_path, servers):
 
 def test_unknown_fold_names_and_sealed_sides_are_refused(tmp_path, servers):
     srv = servers("clef")
-    for name in ("held_out", "test"):
+    for name in ("train", "held_out", "test"):
         with pytest.raises(CliError, match="refused"):
             bm.run_benchmark([srv.target()], {name: [_rec(1)]}, memory_probe=None)
     path = tmp_path / "ho.jsonl"

@@ -1,6 +1,8 @@
 """Teacher-label stage: soft labels on the train split only, resumable, with provenance.
 
-Every train record is sent to a localhost ``/v1/systemone`` teacher. Questions go
+Only the dataset's **train side** is labelled (fit/selection/held-out records, though their
+source split is also ``train``, are refused). Every such record is sent to a localhost
+``/v1/systemone`` teacher. Questions go
 **jointly** by default (the teacher's native mode, one request per record); ``joint=False``
 sends one request per question. The mode is recorded on every row and in the manifest.
 
@@ -18,7 +20,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Collection, Mapping, Sequence
 
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill.records import Record
@@ -85,6 +87,16 @@ def _refuse_non_train(records: Sequence[Record]) -> None:
         )
 
 
+def _refuse_not_on_train_side(records: Sequence[Record], allowed_ids: Collection[str]) -> None:
+    bad = [r.id for r in records if r.id not in allowed_ids]
+    if bad:
+        raise CliError(
+            code=EXIT_USER_ERROR,
+            message=f"refusing to label record(s) not on the dataset's train side: {bad[:5]}",
+            remediation="fit, selection and held-out records are never teacher-labelled",
+        )
+
+
 def _cache_path(cache: Path, key: str) -> Path:
     return cache / f"{key}.json"
 
@@ -126,10 +138,16 @@ def label_records(
     stage_dir: Path,
     cfg: TeacherConfig,
     *,
+    allowed_ids: Collection[str],
     client: Any = None,
 ) -> dict[str, Any]:
-    """Label *records* (train only); write rows and manifest to *stage_dir*; return the manifest."""
+    """Label *records*; write rows and manifest to *stage_dir*; return the manifest.
+
+    *allowed_ids* (the dataset's train-side ids) is required: any record outside it, or whose
+    source split is not ``train``, is refused before any request.
+    """
     _refuse_non_train(records)  # before any request
+    _refuse_not_on_train_side(records, allowed_ids)
     stage_dir = Path(stage_dir)
     cache = stage_dir / CACHE_DIR
     cache.mkdir(parents=True, exist_ok=True)
@@ -177,3 +195,14 @@ def label_records(
     )
     _write_atomic(stage_dir / MANIFEST_FILE, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest
+
+
+def label_dataset(
+    dataset_dir: Path | str, stage_dir: Path, cfg: TeacherConfig, *, client: Any = None
+) -> dict[str, Any]:
+    """Label the train side of a dataset directory (``train.jsonl`` only; no other side is read)."""
+    from jev_factory.distill.dataset import read_records, train_ids
+
+    allowed = train_ids(dataset_dir)
+    records = read_records(Path(dataset_dir) / "train.jsonl")
+    return label_records(records, stage_dir, cfg, allowed_ids=allowed, client=client)
