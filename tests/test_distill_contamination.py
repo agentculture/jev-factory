@@ -45,3 +45,29 @@ def test_bad_manifest(tmp_path):
     p.write_text("{}")
     with pytest.raises(CliError):
         c.load_manifest(p)
+
+
+def test_hate_speech_is_v21_evaluated_and_civil_comments_overlapping():
+    rep = c.check_sources(["civil_comments", "measuring_hate_speech", "jev-bench:banking77"])
+    r = rep["results"]
+    assert r["civil_comments"]["status"] == "overlapping"
+    assert r["jev-bench:banking77"]["status"] == "overlapping"
+    assert r["measuring_hate_speech"]["status"] == "v21-evaluated"
+    assert rep["v21_evaluated"] == ["measuring_hate_speech"]
+
+
+def test_eval_only_source_gets_separate_status():
+    rep = c.check_sources(["hotpotqa", "massive", "emotion"])
+    assert {v["status"] for v in rep["results"].values()} == {"v21-evaluated"}
+    assert rep["overlapping"] == [] and rep["clean"] == []
+
+
+def test_hf_id_match_beats_name():
+    rep = c.check_sources(["mystery"], hf_ids={"mystery": "google/civil_comments"})
+    assert rep["results"]["mystery"]["status"] == "overlapping"
+
+
+def test_all_29_v21_ids_present():
+    names = {s["name"] for s in c.load_manifest()["sources"] if s["card"].endswith("sources.md")}
+    assert len(names) >= 29
+    assert {"legacy-datasets/banking77", "ucberkeley-dlab/measuring-hate-speech"} <= names
