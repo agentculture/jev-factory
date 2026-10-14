@@ -8,6 +8,7 @@ server here is a stdlib fake on 127.0.0.1 that answers in the real server's wire
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import sys
 import threading
@@ -218,7 +219,17 @@ def test_predict_refuses_a_non_localhost_server():
         pb.predict_distributions("http://example.com:8000", [rec], [["lamp_status", "explain"]])
 
 
-def test_client_rekeys_index_keyed_score_answers_to_the_criteria(fake):
+def test_pointer_client_is_the_systemone_client_with_no_overrides():
+    from jev_factory.distill import systemone
+
+    mod = importlib.import_module("jev_factory.backbones.pointer.serve")
+    assert issubclass(mod.PointerClient, systemone.SystemOneClient)
+    assert not hasattr(mod, "rekey_scores")
+    own = {k for k in vars(mod.PointerClient) if not k.startswith("__")}
+    assert own == set()
+
+
+def test_client_reads_index_keyed_score_answers_as_the_criteria(fake):
     srv = fake()
     record = {
         "id": "r",

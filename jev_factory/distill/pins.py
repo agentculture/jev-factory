@@ -19,7 +19,8 @@ from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 BASE_REPO = "Qwen/Qwen3.5-2B-Base"
 DECIDER_REPO = "StrandsAgents/strands-decider-2B-hobson-v21"
 REVISION_FILE = "REVISION"
-ADAPTER_FILE = "adapter_model.safetensors"
+#: v21 stores the adapter under ``lora/`` (with ``lora/adapter_config.json``); no root file.
+ADAPTER_FILE = "lora/adapter_model.safetensors"
 HEAD_FILE = "head.safetensors"
 PROVENANCE_FILE = "provenance.json"
 #: v21's full digests, from its provenance.json.

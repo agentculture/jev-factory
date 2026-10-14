@@ -12,6 +12,9 @@ sums to 1 within ``SUM_TOLERANCE``; anything else is an error result with a mess
 never a distribution. Records are plain mappings ``{id, state, questions}``; gold is never
 put on the wire. Stdlib only; base URLs must be localhost (``measure.preflight``).
 
+Score answers may key ``probabilities`` by criteria text, by level index ("0".."n-1", what
+strands-decider sends) or as a list; the ``legend`` is never read.
+
 The response envelope is not formally specified upstream. The answers are looked up under
 ``answers`` or ``results`` when present, else at the top level, keyed by question id.
 """
@@ -76,7 +79,7 @@ def build_body(record: Mapping[str, Any], *, model: str) -> dict[str, Any]:
         item: dict[str, Any] = {"type": spec["type"]}
         if spec.get("instructions") is not None:
             item["instructions"] = spec["instructions"]
-        item["criteria"] = spec["criteria"]
+        item["criteria"] = spec.get("criteria")  # noul questions may carry none: send null
         questions[qid] = item
     return {"model": model, "state": record["state"], "questions": questions}
 
@@ -110,6 +113,13 @@ def _distribution(spec: Mapping[str, Any], answer: Any) -> dict[str, float]:
     if not isinstance(raw, Mapping):
         raise ValueError("no 'probabilities' in the answer")
     keys = {str(k) for k in raw}
+    index = [str(i) for i in range(len(offered))]
+    if spec["type"] == "score" and keys != set(offered) and keys & set(index):
+        # strands_decider keys score probabilities by level index ("0".."n-1"); the i-th key
+        # is the record's i-th level. Missing, extra or out-of-range indices fall through to
+        # the same fail-closed checks below.
+        raw = {(offered[int(k)] if k in index else str(k)): v for k, v in raw.items()}
+        keys = {str(k) for k in raw}
     if missing := [o for o in offered if o not in keys]:
         raise ValueError(f"missing option(s): {missing}")
     if extra := sorted(keys - set(offered)):

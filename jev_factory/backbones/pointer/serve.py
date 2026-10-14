@@ -15,13 +15,12 @@ provenance.json. The package has no ``__main__``, so the module form is
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from jev_factory.backbones.pointer.layout import TOKENIZER_FILES, read_layout
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
@@ -130,62 +129,8 @@ def wait_ready(
         time.sleep(poll)
 
 
-def rekey_scores(record: Mapping[str, Any], payload: Any) -> Any:
-    """Map a score answer keyed by level index ("0".."n-1") onto the record's criteria.
-
-    ``strands_decider.infer`` keys score ``probabilities`` (and ``legend``) by level index;
-    :mod:`jev_factory.distill.systemone` checks keys against the offered criteria. The legend
-    must name the same rubric in the same order, else the answer is left as is (and fails).
-    """
-    if not isinstance(payload, Mapping) or not isinstance(payload.get("answers"), Mapping):
-        return payload
-    answers = dict(payload["answers"])
-    for qid, spec in record["questions"].items():
-        answer = answers.get(qid)
-        if spec.get("type") != "score" or not isinstance(answer, Mapping):
-            continue
-        criteria = [str(c) for c in spec.get("criteria") or []]
-        probs = answer.get("probabilities")
-        index = [str(i) for i in range(len(criteria))]
-        if not isinstance(probs, Mapping) or sorted(map(str, probs)) != sorted(index):
-            continue
-        legend = answer.get("legend")
-        if isinstance(legend, Mapping) and [str(legend.get(i)) for i in index] != criteria:
-            continue
-        rekeyed = {criteria[int(k)]: v for k, v in probs.items()}
-        answers[qid] = {**answer, "probabilities": rekeyed}
-    return {**payload, "answers": answers}
-
-
 class PointerClient(systemone.SystemOneClient):
-    """A :class:`~jev_factory.distill.systemone.SystemOneClient` for strands-decider's wire.
+    """strands-decider's /v1/systemone client: the shared one, with no overrides.
 
-    Same body, same localhost-only no-redirect transport and the same probability-only parser;
-    the one difference is :func:`rekey_scores` applied before parsing.
+    The shared parser reads score ``probabilities`` keyed by level index directly.
     """
-
-    def ask(self, record: Mapping[str, Any]) -> systemone.CallResult:
-        body = systemone.build_body(record, model=self.model)
-        data = json.dumps(body, sort_keys=True).encode()
-        url = self.base_url + systemone.SYSTEMONE_PATH
-        config = {
-            "url": url,
-            "timeout": self.timeout,
-            "body_sha256": hashlib.sha256(data).hexdigest(),
-        }
-        request = urllib.request.Request(
-            url, data=data, method="POST", headers={"Content-Type": "application/json"}
-        )
-        opener = urllib.request.build_opener(_NoRedirect)
-        try:
-            with opener.open(request, timeout=self.timeout) as response:  # nosec B310
-                raw = response.read()
-        except (OSError, ValueError) as exc:
-            return self._failure(record, config, None, f"request to {url} failed: {exc}")
-        digest = hashlib.sha256(raw).hexdigest()
-        try:
-            payload = json.loads(raw)
-        except ValueError as exc:
-            return self._failure(record, config, digest, f"response is not JSON: {exc}")
-        questions = systemone.parse_response(record, rekey_scores(record, payload))
-        return systemone.CallResult(str(record["id"]), self.model, config, digest, questions)
