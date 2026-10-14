@@ -1,0 +1,494 @@
+"""Distill quantize, heal once and recalibrate (t19).
+
+Every deployed-format candidate is planned, built by an injected builder and measured on the
+fit and selection folds by an injected measurer (faked here: no GPU, no torch, no server);
+the chosen format is a decision citing the measurements; heal runs at most once, only past
+the 3.0-point margin; recalibration fits on the deployed build's own fit-fold predictions.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from jev_factory.cli._errors import CliError
+from jev_factory.decide.rules import HEAL_MARGIN_POINTS, HEAL_ROUNDS
+from jev_factory.distill import prereg as dp
+from jev_factory.distill import quant as Q
+from jev_factory.distill import train as T
+from jev_factory.distill.records import Gold, Question, Record
+
+NEUTRAL = {"head_type": "pointer", "temperature": 1.0, "temperature_by_kind": {}}
+WINNER_KNOBS = {
+    "alpha": 0.9,
+    "temperature": {"choice": 1.0, "score": 1.0, "noul": 1.0},
+    "epochs": 2,
+    "lr": 1e-4,
+    "init_mode": "merge_fresh",
+}
+
+# --------------------------------------------------------------------- fixtures
+
+
+def _rec(i: int) -> Record:
+    return Record(
+        id=f"r{i}",
+        state=f"state {i}",
+        questions={
+            "c": Question("choice", [("fix", "fix it"), ("wait", "wait")]),
+            "s": Question("score", [("0", "low"), ("1", "mid"), ("2", "high")]),
+            "n": Question("noul", [("false", ""), ("true", "")]),
+        },
+        gold={
+            "c": Gold(label="fix" if i % 3 else "wait"),
+            "s": Gold(label=str(i % 3)),
+            "n": Gold(label="true", probability_true=1.0 if i % 2 else 0.0),
+        },
+        split="train",
+        source="src",
+        licence="mit",
+        gold_provenance="human",
+    )
+
+
+def folds():
+    return {"fit": [_rec(i) for i in range(0, 20)], "selection": [_rec(i) for i in range(20, 40)]}
+
+
+def _answer(rec: Record, p_right: float, right: bool) -> dict:
+    qs = {}
+    for qid, q in rec.questions.items():
+        names, gold = q.names, rec.gold[qid]
+        if q.type == "noul":
+            truth = gold.probability_true >= 0.5
+            p_true = p_right if truth == right else 1.0 - p_right
+            qs[qid] = {"kind": "noul", "distribution": None, "p_true": p_true, "error": None}
+            continue
+        g = names.index(gold.label)
+        target = g if right else (g + 1) % len(names)
+        rest = (1.0 - p_right) / (len(names) - 1)
+        dist = {n: (p_right if k == target else rest) for k, n in enumerate(names)}
+        qs[qid] = {"kind": q.type, "distribution": dist, "p_true": None, "error": None}
+    return qs
+
+
+#: format -> (selection accuracy, peak MiB, median s); "healed" keys apply to heal builds.
+PROFILE = {
+    "bf16": (0.9, 5000.0, 0.05),
+    "w4a16_fp32_head": (0.9, 2000.0, 0.04),
+    "onnx_int8": (0.85, 2500.0, 0.03),
+    "onnx_int4": (0.9, 1500.0, 0.03),
+    "gguf_side_head": (0.6, 1000.0, 0.02),
+}
+
+
+class FakeMeasurer:
+    """Answers each record right on ``accuracy`` of them, at a fixed confidence."""
+
+    def __init__(self, profile=None, healed=None, p_right=0.9, fit_p_right=None):
+        self.profile = dict(profile or PROFILE)
+        self.healed = dict(healed or {})
+        self.p_right = p_right
+        self.fit_p_right = fit_p_right or {}
+        self.calls = []
+
+    def __call__(self, fmt, artifact, fold_records):
+        is_heal = Q.HEAL_DIR in Path(artifact).parts
+        self.calls.append((fmt, is_heal, sorted(fold_records)))
+        acc, peak, median = (self.healed if is_heal and fmt in self.healed else self.profile)[fmt]
+        preds = {}
+        for fold, recs in fold_records.items():
+            p = self.fit_p_right.get(fmt, self.p_right) if fold == "fit" else self.p_right
+            rows = []
+            for k, rec in enumerate(recs):
+                right = (k % 20) < round(acc * 20)
+                rows.append(
+                    {
+                        "fold": fold,
+                        "record_id": rec.id,
+                        "error": None,
+                        "questions": _answer(rec, p, right),
+                    }
+                )
+            preds[fold] = rows
+        return {
+            "predictions": preds,
+            "latency": {"n": 40, "median_s": median, "p95_s": median, "max_s": median},
+            "memory": {"probe": "proc-rss", "peak_mib": peak, "measured": True},
+        }
+
+
+class FakeBuilders(dict):
+    def __init__(self, formats=("bf16", *Q.FORMATS), unavailable=None):
+        super().__init__()
+        self.calls = []
+        unavailable = unavailable or {}
+        for fmt in formats:
+            self[fmt] = self._make(unavailable.get(fmt))
+
+    def _make(self, reason):
+        def build(fmt, checkpoint, out_dir):
+            self.calls.append((fmt, Path(checkpoint)))
+            if reason:
+                raise Q.FormatUnavailable(reason)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            return out_dir
+
+        return build
+
+
+class FakeTrainer:
+    def __init__(self, log_path):
+        self.plans = []
+        self.log_path = log_path
+        self.log_at_call = None
+
+    def __call__(self, plan):
+        self.log_at_call = (
+            self.log_path.read_text(encoding="utf-8") if self.log_path.is_file() else None
+        )
+        self.plans.append(plan)
+        out = Path(plan["output_dir"])
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "strands_decider_config.json").write_text(json.dumps(NEUTRAL))
+        return {"dry_run": False, "returncode": 0}
+
+
+def setup(tmp_path, doc=None, lock=True):
+    doc = doc if doc is not None else dp.example_doc()
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path = tmp_path / "prereg.json"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    run_dir = tmp_path / "run"
+    if lock:
+        dp.lock(path, run_dir)
+    ckpt = run_dir / T.TRAIN_REL / "c007" / T.CHECKPOINT_DIR
+    ckpt.mkdir(parents=True)
+    (ckpt / "strands_decider_config.json").write_text(json.dumps(NEUTRAL))
+    summary = {
+        "winner": "c007",
+        "candidates": [{"cid": "c007", "knobs": WINNER_KNOBS, "checkpoint": str(ckpt)}],
+    }
+    sel = run_dir / T.SELECT_REL
+    sel.mkdir(parents=True)
+    (sel / T.SUMMARY_FILE).write_text(json.dumps(summary))
+    train_set = run_dir / "distill" / "assemble" / "train_set.jsonl"
+    train_set.parent.mkdir(parents=True, exist_ok=True)
+    train_set.write_text("{}\n")
+    return path, run_dir, ckpt
+
+
+def run(tmp_path, *, doc=None, apply=True, builders=None, measurer=None, trainer=None, **kw):
+    path, run_dir, ckpt = setup(tmp_path, doc)
+    trainer = trainer or FakeTrainer(run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE)
+    args = dict(
+        prereg_path=path,
+        run_dir=run_dir,
+        folds=folds(),
+        trainer_python="python3",
+        decider_repo=tmp_path / "strands-decider",
+        apply=apply,
+        builders=FakeBuilders() if builders is None else builders,
+        measurer=measurer or FakeMeasurer(),
+        trainer=trainer,
+        resamples=50,
+    )
+    args.update(kw)
+    return Q.run_quant(**args), run_dir, trainer
+
+
+def outputs(run_dir):
+    out = run_dir / Q.QUANT_REL
+    return {
+        name: (out / name).exists()
+        for name in (Q.MEASUREMENTS_FILE, Q.DECISION_FILE, Q.CALIBRATION_FILE, Q.MANIFEST_FILE)
+    }
+
+
+def _read(run_dir, name):
+    return json.loads((run_dir / Q.QUANT_REL / name).read_text())
+
+
+# --------------------------------------------------------------------- refusals
+
+
+def test_refuses_without_a_locked_prereg(tmp_path):
+    path, run_dir, _ = setup(tmp_path, lock=False)
+    with pytest.raises(CliError, match="no distill pre-registration is locked"):
+        Q.run_quant(
+            prereg_path=path,
+            run_dir=run_dir,
+            folds=folds(),
+            trainer_python="python3",
+            decider_repo=tmp_path,
+        )
+
+
+def test_refuses_a_prereg_without_a_heal_block(tmp_path):
+    doc = dp.example_doc()
+    del doc["heal"]
+    with pytest.raises(CliError, match="no heal block"):
+        run(tmp_path, doc=doc, apply=False)
+
+
+def test_refuses_bars_that_disagree_with_the_heal_rule(tmp_path):
+    doc = dp.example_doc()
+    doc["bars"]["quant"]["max_accuracy_drop_points"] = 2.0
+    with pytest.raises(CliError, match="heal margin"):
+        run(tmp_path, doc=doc, apply=False)
+    doc = dp.example_doc()
+    doc["bars"]["quant"]["heal_rounds_max"] = 2
+    with pytest.raises(CliError, match="round only"):
+        run(tmp_path / "b", doc=doc, apply=False)
+
+
+def test_refuses_a_sealed_fold(tmp_path):
+    with pytest.raises(CliError, match="refused"):
+        run(tmp_path, folds={**folds(), "test": [_rec(99)]})
+
+
+def test_the_margin_and_rounds_are_the_decide_rule_constants():
+    assert Q.HEAL_MARGIN_POINTS is HEAL_MARGIN_POINTS and HEAL_MARGIN_POINTS == 3.0
+    assert Q.HEAL_ROUNDS is HEAL_ROUNDS and HEAL_ROUNDS == 1
+
+
+# --------------------------------------------------------------------- the spike
+
+
+def test_dry_run_plans_every_format_and_the_heal_and_writes_nothing(tmp_path):
+    out, run_dir, trainer = run(tmp_path, apply=False, builders={})
+    assert out["dry_run"] is True
+    assert [f["format"] for f in out["formats"]] == list(Q.FORMATS)
+    assert set(Q.FORMATS) == {"w4a16_fp32_head", "onnx_int8", "onnx_int4", "gguf_side_head"}
+    for f in out["formats"]:
+        assert f["builder"] is False and "8b6faa5" in f["unavailable_reason"]
+    hp = out["heal_plan"]["hyperparameters"]
+    assert (hp["epochs"], hp["lr"], hp["init_mode"]) == (1, 5e-5, "continue")
+    assert hp["alpha"] == 0.9  # the winner's other knobs are kept
+    assert out["heal_plan"]["init_from"].endswith("c007/checkpoint")
+    assert out["heal_plan"]["train_file"].endswith("train_set.jsonl")
+    assert not (run_dir / Q.QUANT_REL).exists()
+    assert trainer.plans == []
+
+
+def test_apply_measures_every_format_and_records_the_choice_citing_measurements(tmp_path):
+    builders, measurer = FakeBuilders(), FakeMeasurer()
+    out, run_dir, trainer = run(tmp_path, builders=builders, measurer=measurer)
+    # bf16 plus each candidate, built from the winner, measured on fit + selection only
+    assert [c[0] for c in builders.calls] == ["bf16", *Q.FORMATS]
+    assert all(c[1].name == "checkpoint" for c in builders.calls)
+    assert all(c[2] == ["fit", "selection"] for c in measurer.calls)
+    meas = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]
+    for fmt in Q.FORMATS:
+        m = meas[fmt]
+        assert m["available"] is True
+        assert m["latency"]["median_s"] == PROFILE[fmt][2]
+        assert m["memory"]["peak_mib"] == PROFILE[fmt][1]
+        assert m["ece"] is not None
+        assert m["delta_points"] == pytest.approx(100 * (PROFILE[fmt][0] - 0.9))
+    # within margin: w4a16 (0) and onnx_int4 (0) and onnx_int8 (5 > 3 is out); lowest memory
+    assert out["chosen_format"] == "onnx_int4"
+    decision = _read(run_dir, Q.DECISION_FILE)
+    assert decision["format"] == "onnx_int4"
+    digest = dp.sha256_file(run_dir / Q.QUANT_REL / Q.MEASUREMENTS_FILE)
+    names = {c["name"] for c in decision["cited"]}
+    for fmt in ("bf16", *Q.FORMATS):
+        for metric in (
+            "selection_accuracy",
+            "selection_ece_calibrated",
+            "accuracy_delta_points_vs_bf16",
+            "latency_median_s",
+            "peak_memory_mib",
+        ):
+            assert f"{fmt}.{metric}" in names
+    assert all(c["sha256"] == digest for c in decision["cited"])
+    assert [t["step"] for t in decision["trail"]] == [
+        "available",
+        "safety",
+        "calibration",
+        "accuracy",
+        "footprint",
+    ]
+    assert out["heal_count"] == 0 and trainer.plans == []
+
+
+def test_an_unbuildable_format_is_recorded_unavailable_never_dropped(tmp_path):
+    builders = FakeBuilders(
+        formats=("bf16", "w4a16_fp32_head", "onnx_int8"),
+        unavailable={"onnx_int8": "onnxruntime has no Qwen3.5 linear-attention op"},
+    )
+    out, run_dir, _ = run(tmp_path, builders=builders)
+    meas = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]
+    assert set(meas) == {"bf16", *Q.FORMATS}
+    assert meas["onnx_int8"] == {
+        "format": "onnx_int8",
+        "available": False,
+        "reason": "onnxruntime has no Qwen3.5 linear-attention op",
+    }
+    for fmt in ("onnx_int4", "gguf_side_head"):  # no builder registered at all
+        assert meas[fmt]["available"] is False and Q.UNSUPPORTED[fmt] == meas[fmt]["reason"]
+    unavailable = _read(run_dir, Q.DECISION_FILE)["unavailable"]
+    assert set(unavailable) == {"onnx_int8", "onnx_int4", "gguf_side_head"}
+    assert out["chosen_format"] == "w4a16_fp32_head"
+
+
+def test_bf16_is_the_outcome_when_no_quantized_format_qualifies(tmp_path):
+    builders = FakeBuilders(formats=("bf16",))
+    out, run_dir, trainer = run(tmp_path, builders=builders)
+    assert out["chosen_format"] == "bf16" and out["heal_count"] == 0
+    decision = _read(run_dir, Q.DECISION_FILE)
+    assert "stays bf16" in decision["reason"] and "available" in decision["reason"]
+    assert out["quant_vs_bf16_delta_points"] == 0.0
+    assert trainer.plans == []
+
+
+def test_a_quant_over_the_ece_bar_does_not_qualify(tmp_path):
+    doc = dp.example_doc()
+    doc["bars"]["quant"]["ece_max"] = 0.0
+    out, run_dir, _ = run(tmp_path, doc=doc)
+    assert out["chosen_format"] == "bf16"
+    assert "calibration" in _read(run_dir, Q.DECISION_FILE)["reason"]
+
+
+# --------------------------------------------------------------------- heal
+
+
+def only(fmt, acc, healed_acc=None):
+    profile = {"bf16": PROFILE["bf16"], fmt: (acc, 1000.0, 0.02)}
+    healed = {"bf16": PROFILE["bf16"]}
+    if healed_acc is not None:
+        healed[fmt] = (healed_acc, 1000.0, 0.02)
+    return FakeBuilders(formats=("bf16", fmt)), FakeMeasurer(profile, healed)
+
+
+def test_heal_triggers_only_strictly_past_the_margin():
+    measured = {
+        "bf16": {"format": "bf16", "available": True, "safe": True, "accuracy": 0.9},
+        "onnx_int8": {
+            "format": "onnx_int8",
+            "available": True,
+            "safe": True,
+            "ece": 0.01,
+            "drop_points": HEAL_MARGIN_POINTS,
+            "memory": {},
+            "latency": {},
+        },
+    }
+    choice = Q.choose_format(measured, ece_max=0.1, formats=("onnx_int8",))
+    assert (choice["format"], choice["heal"]) == ("onnx_int8", False)
+    measured["onnx_int8"]["drop_points"] = HEAL_MARGIN_POINTS + 0.01
+    choice = Q.choose_format(measured, ece_max=0.1, formats=("onnx_int8",))
+    assert (choice["format"], choice["heal"]) == ("onnx_int8", True)
+
+
+def test_a_quant_within_the_margin_ships_without_a_heal(tmp_path):
+    builders, measurer = only("onnx_int8", 0.9)
+    out, run_dir, trainer = run(tmp_path, builders=builders, measurer=measurer)
+    assert out["chosen_format"] == "onnx_int8"
+    assert out["heal_count"] == 0 and out["heal"] is None and trainer.plans == []
+    assert not (run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE).exists()
+
+
+def test_heal_runs_once_from_the_winner_and_lands_in_the_manifest(tmp_path):
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    out, run_dir, trainer = run(tmp_path, builders=builders, measurer=measurer)
+    assert len(trainer.plans) == 1
+    plan = trainer.plans[0]
+    hp = plan["hyperparameters"]
+    assert (hp["epochs"], hp["lr"], hp["init_mode"]) == (1, 5e-5, "continue")
+    assert plan["init_from"].endswith("c007/checkpoint")
+    assert plan["train_file"].endswith("distill/assemble/train_set.jsonl")
+    # the trigger was logged before the trainer ran
+    assert trainer.log_at_call and '"heal_trigger"' in trainer.log_at_call
+    # healed checkpoint re-quantized and re-measured (bf16 and the quant)
+    heal_builds = [c for c in builders.calls if Q.HEAL_DIR in c[1].parts]
+    assert [c[0] for c in heal_builds] == ["bf16", "onnx_int8"]
+    manifest = _read(run_dir, Q.MANIFEST_FILE)
+    assert manifest["chosen_format"] == "onnx_int8"
+    assert manifest["heal_count"] == 1
+    assert manifest["quant_vs_bf16_initial_delta_points"] == pytest.approx(-15.0)
+    assert manifest["quant_vs_bf16_delta_points"] == pytest.approx(0.0)
+    assert manifest["heal"]["drop_points"] == pytest.approx(15.0)
+    assert manifest["deployed_checkpoint"].endswith("quant/heal/checkpoint")
+    assert out == {**out, **manifest}
+
+
+def test_a_second_trigger_stops_and_escalates_and_writes_nothing_further(tmp_path):
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.8)
+    with pytest.raises(CliError, match="stop_escalate") as err:
+        run(tmp_path, builders=builders, measurer=measurer)
+    assert "second heal trigger" in err.value.message
+    run_dir = tmp_path / "run"
+    assert outputs(run_dir) == dict.fromkeys(outputs(run_dir), False)
+    log = (run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE).read_text().splitlines()
+    assert [json.loads(line)["event"] for line in log] == ["heal_trigger"]
+
+
+def test_a_spent_heal_round_refuses_a_new_trigger_without_training(tmp_path):
+    path, run_dir, _ = setup(tmp_path)
+    log = run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE
+    log.parent.mkdir(parents=True)
+    log.write_text(json.dumps({"event": "heal_trigger", "format": "onnx_int8"}) + "\n")
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    trainer = FakeTrainer(log)
+    with pytest.raises(CliError, match="stop_escalate"):
+        Q.run_quant(
+            prereg_path=path,
+            run_dir=run_dir,
+            folds=folds(),
+            trainer_python="python3",
+            decider_repo=tmp_path,
+            apply=True,
+            builders=builders,
+            measurer=measurer,
+            trainer=trainer,
+            resamples=50,
+        )
+    assert trainer.plans == []
+    assert not (run_dir / Q.QUANT_REL / Q.MANIFEST_FILE).exists()
+
+
+# --------------------------------------------------------------------- recalibration
+
+
+def test_recalibration_fits_on_the_deployed_quants_own_fit_fold(tmp_path):
+    # the quant is more overconfident on the fit fold than bf16, so its temperature differs
+    measurer = FakeMeasurer(fit_p_right={"onnx_int4": 0.99})
+    builders = FakeBuilders(formats=("bf16", "onnx_int4"))
+    doc = dp.example_doc()
+    doc["bars"]["quant"]["ece_max"] = 1.0  # this test is about the fit, not the ECE bar
+    out, run_dir, _ = run(tmp_path, doc=doc, builders=builders, measurer=measurer)
+    assert out["chosen_format"] == "onnx_int4"
+    written = _read(run_dir, Q.CALIBRATION_FILE)
+    assert written["format"] == written["fitted_on_predictions_of"] == "onnx_int4"
+    assert written["fitted_on"] == "fit"
+
+    recs = folds()
+    preds = measurer("onnx_int4", tmp_path / "x", recs)["predictions"]
+    items = {f: T.question_items(recs[f], preds[f])[0] for f in T.FOLDS}
+    expected = T.fit_calibration(
+        T.calibration_rows(items["fit"]), T.calibration_rows(items["selection"])
+    )
+    assert written["temperature_by_kind"] == expected["temperature_by_kind"]
+    meas = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]
+    assert meas["bf16"]["calibration"]["temperature_by_kind"] != written["temperature_by_kind"]
+    manifest = _read(run_dir, Q.MANIFEST_FILE)
+    assert manifest["outputs"][str(run_dir / Q.QUANT_REL / Q.CALIBRATION_FILE)] == (
+        dp.sha256_file(run_dir / Q.QUANT_REL / Q.CALIBRATION_FILE)
+    )
+
+
+# --------------------------------------------------------------------- served measurer
+
+
+def test_served_measurer_records_a_non_bundle_artifact_as_unavailable(tmp_path):
+    measure = Q.served_measurer(env=None, jobdir=tmp_path / "jobs", port=8123)
+    with pytest.raises(Q.FormatUnavailable, match="hobson-hf-export/1"):
+        measure("onnx_int8", tmp_path / "model.onnx", folds())
+
+
+def test_default_builders_register_bf16_only():
+    assert set(Q.default_builders("a" * 40)) == {"bf16"}
+    assert set(Q.UNSUPPORTED) == set(Q.FORMATS)

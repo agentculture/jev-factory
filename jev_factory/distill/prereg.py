@@ -124,6 +124,14 @@ def _nonempty_str(v: Any) -> bool:
 UPSTREAM_SOURCE = "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21/raw/main"
 TRAIN_CONFIG = "train_config.json"
 DECIDER_CONFIG = "strands_decider_config.json"
+#: Where the heal recipe in :func:`example_doc` comes from: nvsh's d18, a short bf16
+#: continuation (not quantization-aware training) from the healed model's own checkpoint.
+HEAL_SOURCE = (
+    "nvsh#46 decision d18 (docs/deliveries/2026-09-23-qwen3-5-0-8b-tool-jev-fine-tune-"
+    "issue-46.md): "
+    "heal = 1 epoch, lr 5e-5, continuing from the model's own checkpoint on the frozen "
+    "train set (a plain continued fine-tune, not QAT)"
+)
 #: v21's ``lora_targets`` (train_config.json and strands_decider_config.json agree).
 V21_LORA_TARGETS = (
     "q_proj",
@@ -146,8 +154,9 @@ def example_doc() -> dict[str, Any]:
 
     Carries every hyperparameter the pointer distill trainer resolves (``init_mode`` in the
     grid; the fixed upstream values, each citing :data:`UPSTREAM_SOURCE` file and key) and
-    the selection rule's ``confident_wrong_threshold``. All values are drafts for the
-    operator to confirm before the lock.
+    the selection rule's ``confident_wrong_threshold``, and the one ``heal`` round's knobs
+    (:data:`HEAL_SOURCE`) that :mod:`jev_factory.distill.quant` reads. All values are drafts
+    for the operator to confirm before the lock.
     """
     upstream = [
         ("lr", 1e-4, TRAIN_CONFIG, "lr"),
@@ -203,6 +212,15 @@ def example_doc() -> dict[str, Any]:
             "epochs": [1, 2],
             "lr": [5e-5, 1e-4],
             "init_mode": ["continue", "merge_fresh"],
+        },
+        # The one heal round (distill quant): one more pass from the winner's own checkpoint
+        # on the same frozen train set, with the winner's other knobs. Each value must be in
+        # knob_grid (the trainer refuses an unregistered value).
+        "heal": {
+            "epochs": 1,
+            "lr": 5e-5,
+            "init_mode": "continue",
+            "source": HEAL_SOURCE,
         },
         "reference_rows": {
             "clef": {"model": "Clef 27B", "role": "teacher"},
