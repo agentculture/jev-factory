@@ -30,6 +30,7 @@ _VERBS = [
     "status <run> — stage manifests, staleness and detached-job progress",
     "decide <run> — apply the pre-registered rule and append a decision record",
     "ask <request> — propose one jev verb from a bundle; executes nothing",
+    "distill <stage> — one stage of a teacher -> student distill run (dry-run by default)",
     "whoami — identity probe (nick, version, backend, model)",
     "learn — structured self-teaching prompt",
     "explain <path> — markdown docs for a topic",

@@ -41,6 +41,7 @@ from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.core import metrics as core_metrics
 from jev_factory.distill import benchmark as bench
 from jev_factory.distill import dataset
+from jev_factory.distill import gate as dgate
 from jev_factory.distill import prereg as dp
 from jev_factory.distill import quant as dquant
 from jev_factory.distill import report as dreport
@@ -127,6 +128,32 @@ def deployed_student(run_dir: Path) -> dict[str, Any]:
     }
 
 
+def fitted_gate(run_dir: Path, calibration_sha256: str) -> dict[str, Any] | None:
+    """The fitted ``distill/gate/gate.json`` the report gates with, or None if none was fitted.
+
+    A gate fitted on any calibration other than the deployed student's (by sha256), or a file
+    that is not a fitted gate, is refused: the report would gate with the wrong thresholds.
+    """
+    path = run_dir / dgate.GATE_REL / dgate.GATE_FILE
+    if not (path.exists() or path.is_symlink()):
+        return None
+    doc = _read_json(path, "fitted decision gate")
+    fitted_on = doc.get("calibration_sha256")
+    if fitted_on != calibration_sha256:
+        raise _refuse(
+            f"{path}: the gate was fitted on calibration {str(fitted_on)[:12]}, but the "
+            f"deployed student ships calibration {calibration_sha256[:12]}",
+            "rerun the distill gate stage on the deployed calibration",
+        )
+    if doc.get("fitted") is not True or not isinstance(doc.get("thresholds_by_kind"), dict):
+        raise _refuse(f"{path}: not a fitted gate (no thresholds_by_kind)")
+    return {
+        "file": f"{dgate.GATE_REL}/{dgate.GATE_FILE}",
+        "sha256": dp.sha256_file(path),
+        "doc": doc,
+    }
+
+
 def _check_models(models: Mapping[str, FinalModel]) -> None:
     missing = [m for m in MODELS if m not in models]
     extra = sorted(set(models) - set(MODELS))
@@ -206,6 +233,7 @@ def run_final(
             )
         sealed[stem] = dataset.load_sealed(path)
     student = deployed_student(run_dir)
+    gate = fitted_gate(run_dir, student["calibration_sha256"])
     calibrations: dict[str, dict[str, Any]] = {
         dreport.CLEF: {"source": CAL_RAW, "sha256": None, "calibration": None},
         dreport.V21: {"source": CAL_SERVED, "sha256": None, "calibration": None},
@@ -236,6 +264,7 @@ def run_final(
         "earlier_measurements": earlier,
         "deployed": {"format": student["format"], "artifact": student["artifact"]},
         "calibrations": calibrations,
+        "gate": None if gate is None else {k: gate[k] for k in ("file", "sha256")},
     }
     if not apply:
         return {**base, "dry_run": True}
@@ -256,6 +285,7 @@ def run_final(
             contamination_manifest=contamination_manifest,
             seed=seed,
             resamples=resamples,
+            gate=None if gate is None else gate["doc"],
         )
 
 
@@ -275,6 +305,7 @@ def _measure(
     contamination_manifest: Mapping[str, Any] | None,
     seed: int,
     resamples: int,
+    gate: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     records = {stem: _read_side(side) for stem, side in sealed.items()}
     started = now()
@@ -347,6 +378,7 @@ def _measure(
         contamination_manifest=contamination_manifest,
         seed=seed,
         resamples=resamples,
+        gate=gate,
     )
     _write_json(out_dir / FINAL_FILE, final)
     _write_json(out_dir / REPORT_FILE, report)

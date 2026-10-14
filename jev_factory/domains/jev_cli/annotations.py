@@ -100,5 +100,9 @@ _FACTORY: dict[str, Annotation] = {
     # and writes the seed with --apply, so it is mutating.
     verb_name(("review",)): Annotation(read_only=False, args=(ArgSpec(name="domain", kind="str"),)),
     **{verb_name(("run", stage)): Annotation(read_only=False) for stage in stage_names()},
+    # ``distill <stage>`` has --apply, so it is mutating (dry-run by default). The stage is a
+    # positional, not a subcommand, so the distillery adds one candidate, not fourteen.
+    # Minimal entry (t22); paraphrases, seed entries and grounding are t23's.
+    verb_name(("distill",)): Annotation(read_only=False, args=(ArgSpec(name="stage", kind="str"),)),
 }
 ANNOTATIONS = {**ANNOTATIONS, **_FACTORY}

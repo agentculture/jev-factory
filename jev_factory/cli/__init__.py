@@ -3,7 +3,8 @@
 The agent-first global verbs (``whoami``, ``learn``, ``explain``, ``overview``,
 ``doctor``) are registered here under :mod:`jev_factory.cli._commands`,
 alongside the ``cli`` noun group and the factory verbs (``init``, ``run``,
-``status``, ``decide``), ``ask`` and ``review``. Every verb registers via its own ``register()``.
+``status``, ``decide``), ``ask``, ``review`` and ``distill``. Every verb registers via its
+own ``register()``.
 
 Error propagation contract
 --------------------------
@@ -65,6 +66,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from jev_factory.cli._commands import ask as _ask_cmd
     from jev_factory.cli._commands import cli as _cli_group
     from jev_factory.cli._commands import decide as _decide_cmd
+    from jev_factory.cli._commands import distill as _distill_cmd
     from jev_factory.cli._commands import doctor as _doctor_cmd
     from jev_factory.cli._commands import explain as _explain_cmd
     from jev_factory.cli._commands import init as _init_cmd
@@ -103,6 +105,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _decide_cmd.register(sub)
     _ask_cmd.register(sub)
     _review_cmd.register(sub)
+    _distill_cmd.register(sub)
 
     return parser
 
