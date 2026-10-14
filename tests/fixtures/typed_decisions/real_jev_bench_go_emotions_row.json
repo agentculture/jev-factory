@@ -1,0 +1,11 @@
+{
+ "id": "go_emotions/test/1392",
+ "source": "go_emotions",
+ "primitive": "choice",
+ "split": "test",
+ "state": "\"I'd worry about traffic more than the TSA.\"",
+ "question": "{\"type\": \"choice\", \"instructions\": \"Which emotion does the comment primarily express?\", \"criteria\": {\"admiration\": null, \"amusement\": null, \"anger\": null, \"annoyance\": null, \"approval\": null, \"caring\": null, \"confusion\": null, \"curiosity\": null, \"desire\": null, \"disappointment\": null, \"disapproval\": null, \"disgust\": null, \"embarrassment\": null, \"excitement\": null, \"fear\": null, \"gratitude\": null, \"grief\": null, \"joy\": null, \"love\": null, \"nervousness\": null, \"optimism\": null, \"pride\": null, \"realization\": null, \"relief\": null, \"remorse\": null, \"sadness\": null, \"surprise\": null, \"neutral\": null}}",
+ "label": "nervousness",
+ "soft_label": "{\"admiration\": 0.0, \"amusement\": 0.0, \"anger\": 0.0, \"annoyance\": 0.0, \"approval\": 0.0, \"caring\": 0.14285714285714285, \"confusion\": 0.0, \"curiosity\": 0.0, \"desire\": 0.0, \"disappointment\": 0.0, \"disapproval\": 0.0, \"disgust\": 0.0, \"embarrassment\": 0.0, \"excitement\": 0.0, \"fear\": 0.14285714285714285, \"gratitude\": 0.0, \"grief\": 0.0, \"joy\": 0.0, \"love\": 0.0, \"nervousness\": 0.2857142857142857, \"optimism\": 0.0, \"pride\": 0.0, \"realization\": 0.14285714285714285, \"relief\": 0.0, \"remorse\": 0.0, \"sadness\": 0.14285714285714285, \"surprise\": 0.0, \"neutral\": 0.14285714285714285}",
+ "meta": "{\"hf_id\": \"google-research-datasets/go_emotions\", \"license\": \"apache-2.0\", \"domain\": \"social\", \"task_family\": \"emotion\", \"hf_config\": \"raw\", \"reddit_id\": \"eeuku5e\", \"n_raters\": 5, \"rater_agreement\": 0.4}"
+}
