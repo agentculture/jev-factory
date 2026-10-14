@@ -1,0 +1,27 @@
+{
+  "plan_slug": "distillery-clef-27b-to-strands-decider-2b",
+  "schema_version": 2,
+  "created": "2026-10-14T06:13:50Z",
+  "updated": "2026-10-14T06:13:50Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "Wave 0 merges carry swapped labels and one task was recovered by the main agent: merge 'distill t4' (agent/t4, 33faf95) contains t2's metrics; merge 'distill t6' (agent/t6, e39c388) contains t5's backbone base/registry/seam test; t6's envs were merged from commit 97c94c4 (left on agent/t5); t4's systemone files were stranded untracked in t2's worktree and committed by the main agent on agent/t4-recovered (2ddce91). t5's follow-up (causal_lm BACKBONE adapter, BackboneUnavailable for pointer, negative control) was not completed and is re-dispatched. Content of every task is the task agent's own work; all merges were TDD-gated (final suite 2370 passed, 14 skipped).",
+      "task_ref": "t5",
+      "reason": "Task agents ran git stash/stash pop to check a load-dependent test failure; git's stash is shared across all worktrees, so concurrent stashes swapped untracked files between agents. The common agent rules did not forbid git stash. The operator approved the recovery (merge by content, recover t4, re-dispatch t5's follow-up, force-remove dirty worktrees).",
+      "affects": [
+        "t2",
+        "t4",
+        "t5",
+        "t6"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
