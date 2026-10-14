@@ -74,6 +74,30 @@ supplier), [`steward`](https://github.com/agentculture/steward) (alignment),
 and [`teken`](https://github.com/agentculture/teken) (the CLI scaffolder this
 package is cited from).
 
+## The distillery (`jev distill`)
+
+jev-factory also has a second build path that distils the teacher **Clef 27B**
+into the student **Strands Decider 2B**. The full write-up is
+`docs/distill.md`. If asked about it:
+
+- **Strands Decider is not jev-factory's Layer-3 decider.** It is the name of
+  an external model. The Layer-3 decider (candidates are `jev decide`
+  verdicts) is a different thing, and the distillery does not build it.
+- The verb is `jev distill <stage>`, with the stage as a positional argument.
+  There are 14 stages, in order: `preregister`, `dataset`, `contamination`,
+  `teacher-label`, `audit`, `corrections-draft`, `assemble`, `benchmark`,
+  `train`, `quantize`, `gate`, `final`, `bundle`, `upload`. All are dry-run
+  unless `--apply` is passed; do not describe that as tunable.
+- Data is `/v1/systemone` records (`choice`, `noul`, `score` questions) with
+  gold. Sides are train, fit, selection, a sealed held-out set and test; the
+  teacher labels train only and the sealed sides are measured once.
+- Drafted corrections need operator review (`jev review --corrections`)
+  before they can train.
+- Serving of the result belongs to the lobes `decider` role; training belongs
+  here. The two consumers are the operator and that role.
+- **Current state.** The code is built and tested on fixtures. No distill run
+  has happened, so report no distilled student or bundle as shipped.
+
 ## Four harnesses, four files, no shared base
 
 This repo's root carries one prompt file per harness, each read by exactly

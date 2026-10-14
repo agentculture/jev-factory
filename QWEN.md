@@ -71,6 +71,34 @@ It is a sibling to [`guildmaster`](https://github.com/agentculture/guildmaster)
 [`teken`](https://github.com/agentculture/teken) (the **afi-cli** scaffolder
 this CLI is cited from) within the Organic Development framework.
 
+## The distillery
+
+A second build path, `jev distill <stage>`, distils the teacher **Clef 27B**
+into the student **Strands Decider 2B** (a pointer-scorer on
+`Qwen/Qwen3.5-2B-Base`). Read `docs/distill.md` before touching
+`jev_factory/distill/`.
+
+**Strands Decider is not jev-factory's Layer-3 decider.** It is an external
+model name; the Layer-3 decider (candidates are `jev decide` verdicts) is
+unrelated and the distillery does not build it.
+
+- 14 stages in order (`jev_factory/distill/pipeline.py`): `preregister`,
+  `dataset`, `contamination`, `teacher-label`, `audit`, `corrections-draft`,
+  `assemble`, `benchmark`, `train`, `quantize`, `gate`, `final`, `bundle`,
+  `upload`. The stage is a positional argument (one `jev.distill` domain
+  operation). Every stage is dry-run unless `--apply`.
+- Records are `/v1/systemone` bodies plus gold (`distill/records.py`); only
+  per-option probabilities are read, never the vendor `confidence` field.
+- Sides: train, fit, selection, sealed held-out, test. The teacher labels
+  train only; test and held-out are measured once.
+- Corrections are operator-reviewed (`jev review --corrections FILE`) before
+  they can train. The student's int8/int4 path is torchao weight-only. The
+  decision gate is per question kind and fitted on the fit fold.
+- Headline numbers use human-gold records from clean sources only.
+- Serving belongs to lobes (its `decider` role); training belongs here.
+- The code is built, but no distill run has happened and no student bundle
+  exists yet.
+
 ## Prompt files by harness
 
 This repo's root carries one prompt file per agent harness, each read by
