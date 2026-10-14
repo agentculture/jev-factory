@@ -24,14 +24,15 @@ def test_every_manifest_entry_cites_a_url():
     m = c.load_manifest()
     assert m["sources"]
     assert all(
-        s["url"].startswith("https://") and s["card"].startswith("https://") for s in m["sources"]
+        s["source_url"].startswith("https://") and s["card"].startswith("https://")
+        for s in m["sources"]
     )
     assert {s["role"] for s in m["sources"]} >= {"v21-training", "clef-decision-index-eval"}
 
 
 def test_matches_carry_url():
     rep = c.check_sources(["banking77"])
-    assert rep["results"]["banking77"]["matches"][0]["url"].startswith("https://")
+    assert rep["results"]["banking77"]["matches"][0]["source_url"].startswith("https://")
 
 
 def test_report_written_to_run(tmp_path):

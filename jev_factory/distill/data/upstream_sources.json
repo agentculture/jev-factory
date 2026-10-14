@@ -7,7 +7,7 @@
         "arxiv_class"
       ],
       "role": "v21-eval-only",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "registered held-out probe, not in current recipe",
       "dataset_url": "https://huggingface.co/datasets/ccdv/arxiv-classification"
@@ -20,7 +20,7 @@
         "clinc-oos"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/clinc/clinc_oos"
@@ -31,7 +31,7 @@
         "yahoo_topics"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/community-datasets/yahoo_answers_topics"
@@ -42,7 +42,7 @@
         "emotion"
       ],
       "role": "v21-eval-only",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "held out: calibration and evaluation",
       "dataset_url": "https://huggingface.co/datasets/dair-ai/emotion"
@@ -54,7 +54,7 @@
         "agnews"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/fancyzhx/ag_news"
@@ -65,7 +65,7 @@
         "dbpedia"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/fancyzhx/dbpedia_14"
@@ -76,7 +76,7 @@
         "paws"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/google-research-datasets/paws"
@@ -87,7 +87,7 @@
         "boolq"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/google/boolq"
@@ -99,7 +99,7 @@
         "toxicity"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/google/civil_comments"
@@ -111,7 +111,7 @@
         "PolyAI/banking77"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/legacy-datasets/banking77"
@@ -124,7 +124,7 @@
         "amazon_massive_intent"
       ],
       "role": "v21-eval-only",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "held out: calibration and evaluation",
       "dataset_url": "https://huggingface.co/datasets/mteb/amazon_massive_intent"
@@ -137,7 +137,7 @@
         "wnli"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "mnli and wnli train; rte, qnli, cola are held-out probes",
       "dataset_url": "https://huggingface.co/datasets/nyu-mll/glue"
@@ -148,7 +148,7 @@
         "formality"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/osyvokon/pavlick-formality-scores"
@@ -159,7 +159,7 @@
         "lang_id"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/papluca/language-identification"
@@ -171,7 +171,7 @@
         "pubmedqa"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/qiaojin/PubMedQA"
@@ -182,7 +182,7 @@
         "sarcasm"
       ],
       "role": "v21-eval-only",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "held out: calibration and evaluation",
       "dataset_url": "https://huggingface.co/datasets/raquiba/Sarcasm_News_Headline"
@@ -193,7 +193,7 @@
         "app_reviews"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/sealuzh/app_reviews"
@@ -204,7 +204,7 @@
         "newsgroups"
       ],
       "role": "v21-eval-only",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "registered held-out probe, not in current recipe",
       "dataset_url": "https://huggingface.co/datasets/SetFit/20_newsgroups"
@@ -216,7 +216,7 @@
         "sst5_sentiment"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/SetFit/sst5"
@@ -227,7 +227,7 @@
         "subjectivity"
       ],
       "role": "v21-eval-only",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "registered held-out probe, not in current recipe",
       "dataset_url": "https://huggingface.co/datasets/SetFit/subj"
@@ -238,7 +238,7 @@
         "trec_qc"
       ],
       "role": "v21-eval-only",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "registered held-out probe, not in current recipe",
       "dataset_url": "https://huggingface.co/datasets/SetFit/TREC-QC"
@@ -249,7 +249,7 @@
         "vitaminc"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/tals/vitaminc"
@@ -260,7 +260,7 @@
         "ruletaker"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "depths 0-2 train; depths 3, 5 and NatLang held out of training",
       "dataset_url": "https://huggingface.co/datasets/tasksource/ruletaker"
@@ -272,7 +272,7 @@
         "hate_severity"
       ],
       "role": "v21-eval-only",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "held out: calibration and evaluation",
       "dataset_url": "https://huggingface.co/datasets/ucberkeley-dlab/measuring-hate-speech"
@@ -284,7 +284,7 @@
         "spam"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/ucirvine/sms_spam"
@@ -296,7 +296,7 @@
         "yelp_stars"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "short-task, train",
       "dataset_url": "https://huggingface.co/datasets/Yelp/yelp_review_full"
@@ -310,7 +310,7 @@
         "adequacy_hs2"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "train and evaluation",
       "dataset_url": "https://huggingface.co/datasets/nvidia/HelpSteer2"
@@ -322,7 +322,7 @@
         "boardgame"
       ],
       "role": "v21-training",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "train and evaluation",
       "dataset_url": "https://huggingface.co/datasets/tasksource/Boardgame-QA"
@@ -334,7 +334,7 @@
         "hotpot_qa"
       ],
       "role": "v21-eval-only",
-      "url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "evaluation only",
       "dataset_url": "https://huggingface.co/datasets/hotpotqa/hotpot_qa"
@@ -345,7 +345,7 @@
         "contractnli"
       ],
       "role": "v21-training",
-      "url": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
+      "source_url": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "train and evaluation; not on the Hub"
     },
@@ -355,7 +355,7 @@
         "musique"
       ],
       "role": "v21-training",
-      "url": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
+      "source_url": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
       "detail": "train and evaluation; not on the Hub"
     },
@@ -367,7 +367,7 @@
         "Praveenrajus/jev-bench"
       ],
       "role": "v21-eval-only",
-      "url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
       "detail": "external benchmark v21 was evaluated on"
     },
@@ -375,7 +375,7 @@
       "name": "NaturalBench",
       "aliases": [],
       "role": "v21-eval-only",
-      "url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
       "detail": "image eval"
     },
@@ -385,7 +385,7 @@
         "pope"
       ],
       "role": "v21-eval-only",
-      "url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
+      "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
       "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
       "detail": "image eval"
     },
@@ -393,7 +393,7 @@
       "name": "BFCL",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -401,7 +401,7 @@
       "name": "ToolRet",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -409,7 +409,7 @@
       "name": "API-Bank",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -421,7 +421,7 @@
         "legacy-datasets/banking77"
       ],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -434,7 +434,7 @@
         "clinc/clinc_oos"
       ],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -442,7 +442,7 @@
       "name": "RouterBench",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -450,7 +450,7 @@
       "name": "Home appliance simulator",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -462,7 +462,7 @@
         "sgdx"
       ],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -470,7 +470,7 @@
       "name": "ContractNLI",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -478,7 +478,7 @@
       "name": "ANLI",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -486,7 +486,7 @@
       "name": "BPoMP",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -494,7 +494,7 @@
       "name": "Humicroedit",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -502,7 +502,7 @@
       "name": "POP909-CL",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -510,7 +510,7 @@
       "name": "cfcolor",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -518,7 +518,7 @@
       "name": "MMLU",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -526,7 +526,7 @@
       "name": "GPQA Diamond",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -534,7 +534,7 @@
       "name": "ARC-Easy",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -542,7 +542,7 @@
       "name": "ARC-Challenge",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -550,7 +550,7 @@
       "name": "WinoGrande",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -558,7 +558,7 @@
       "name": "HellaSwag",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -566,7 +566,7 @@
       "name": "GSM8K",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -574,7 +574,7 @@
       "name": "ChessBench",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -582,7 +582,7 @@
       "name": "MuSR",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -590,7 +590,7 @@
       "name": "SATA-Bench",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -598,7 +598,7 @@
       "name": "BRIGHT",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -608,7 +608,7 @@
         "esci"
       ],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -616,7 +616,7 @@
       "name": "ACOS",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -624,7 +624,7 @@
       "name": "FinEntity",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -632,7 +632,7 @@
       "name": "VAST",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -640,7 +640,7 @@
       "name": "NLI4CT",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -648,7 +648,7 @@
       "name": "CRUXEval",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -656,7 +656,7 @@
       "name": "CLadder",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -664,7 +664,7 @@
       "name": "ForecastBench",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -672,7 +672,7 @@
       "name": "Habermas Machine",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -680,7 +680,7 @@
       "name": "PhishNChips",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -688,7 +688,7 @@
       "name": "MMLU-Pro",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -696,7 +696,7 @@
       "name": "BBH",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -704,7 +704,7 @@
       "name": "RAGTruth",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -712,7 +712,7 @@
       "name": "HoVer",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -720,7 +720,7 @@
       "name": "When2Call MCQ",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     },
@@ -728,7 +728,7 @@
       "name": "New Yorker",
       "aliases": [],
       "role": "clef-decision-index-eval",
-      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
       "card": "https://huggingface.co/Cloudflare/clef",
       "detail": "Clef training data is unreleased; only the eval suite is known"
     }

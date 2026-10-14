@@ -53,7 +53,7 @@ def load_manifest(path: Path | str = MANIFEST_PATH) -> dict[str, Any]:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         sources = data["sources"]
         for s in sources:
-            if not (s["name"] and s["url"] and isinstance(s["aliases"], list)):
+            if not (s["name"] and s["source_url"] and isinstance(s["aliases"], list)):
                 raise ValueError("entry needs name, url and aliases")
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise CliError(
@@ -105,7 +105,12 @@ def check_sources(
         results[name] = {
             "status": _status(hits),
             "matches": [
-                {"name": h["name"], "role": h["role"], "url": h["url"], "card": h["card"]}
+                {
+                    "name": h["name"],
+                    "role": h["role"],
+                    "source_url": h["source_url"],
+                    "card": h["card"],
+                }
                 for h in hits
             ],
         }
