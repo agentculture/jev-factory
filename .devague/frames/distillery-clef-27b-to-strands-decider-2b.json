@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-14T04:03:15Z",
-  "updated": "2026-10-14T08:06:04Z",
+  "updated": "2026-10-14T11:56:26Z",
   "claims": [
     {
       "id": "c1",
@@ -1555,7 +1555,7 @@
         "tests/test_distill_pins.py"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l3",
@@ -1567,7 +1567,7 @@
         "jev_factory/distill/pins.py"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l4",
@@ -1579,7 +1579,7 @@
         "jev_factory/distill/envs.py"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l5",
@@ -1591,7 +1591,7 @@
         "tests/test_backbone_seam.py"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l6",
@@ -1603,7 +1603,7 @@
         "t4"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l7",
@@ -1615,7 +1615,7 @@
         "d1"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l8",
@@ -1628,7 +1628,7 @@
         "t11"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l9",
@@ -1642,7 +1642,7 @@
         "t12"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l10",
@@ -1653,7 +1653,7 @@
         "t13"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l11",
@@ -1665,7 +1665,7 @@
         "d2"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l12",
@@ -1678,7 +1678,7 @@
         "c43"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l13",
@@ -1691,7 +1691,7 @@
         "t20"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l14",
@@ -1702,7 +1702,7 @@
         "tq"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": [

@@ -2,7 +2,7 @@
   "plan_slug": "distillery-clef-27b-to-strands-decider-2b",
   "schema_version": 2,
   "created": "2026-10-14T06:13:50Z",
-  "updated": "2026-10-14T09:10:41Z",
+  "updated": "2026-10-14T11:56:28Z",
   "deviations": [
     {
       "id": "d1",
@@ -16,7 +16,7 @@
         "t6"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 1
     },
@@ -97,7 +97,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 6
     },
@@ -116,7 +116,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 7
     },
@@ -135,7 +135,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 8
     },
@@ -154,7 +154,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 9
     },
@@ -173,7 +173,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 10
     },
@@ -192,7 +192,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 11
     },
@@ -211,7 +211,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 12
     },
@@ -230,7 +230,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 13
     },
@@ -249,7 +249,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 14
     },
@@ -268,7 +268,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 15
     },
@@ -287,7 +287,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 16
     },
@@ -306,7 +306,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 17
     },
@@ -325,7 +325,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 18
     },
@@ -344,7 +344,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 19
     },
@@ -363,7 +363,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 20
     },
@@ -382,7 +382,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 21
     },
@@ -401,7 +401,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 22
     },
@@ -420,7 +420,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 23
     },
@@ -439,7 +439,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 24
     },
@@ -458,7 +458,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 25
     },
@@ -477,7 +477,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 26
     },
@@ -496,7 +496,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 27
     },
@@ -515,7 +515,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 28
     },
@@ -534,7 +534,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 29
     },
@@ -553,7 +553,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 30
     },
@@ -572,7 +572,7 @@
         "commit": "da03022ea24216da674ba59125660f5c4434a957"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 31
     }
@@ -591,7 +591,7 @@
         "e18"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -607,7 +607,7 @@
         "e24"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -622,7 +622,7 @@
         "e21"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -638,7 +638,7 @@
         "e2"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -653,7 +653,7 @@
         "e4"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     }
   ],

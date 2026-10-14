@@ -77,7 +77,7 @@ Quoted verbatim from the `devague summary` skeleton (26 confirmed tasks, 11 wave
 - `d3` — Add a real quantized student path (task 'tq', outside the confirmed plan): merge the v21-based winner's LoRA into its torso, build weight-only int8 and int4 variants with torchao in the torch engine, keep the pointer head fp32, serve them through a thin jev-factory wrapper around `strands_decider`'s model on 127.0.0.1 behind the same /v1/systemone wire, and register them as quant.py builders so the spike measures them on the Spark (accuracy delta vs bf16, ECE, latency, proc-rss). W4A16/ONNX/GGUF stay recorded as unavailable follow-ups. — t19 found no buildable quantized format on the strands-decider stack (bf16 base + unmerged LoRA, torch/MLX only), so a real run would always ship bf16 and the operator's 'quant and heal' would not be exercised; operator chose to add one real quant path.
 - `d4` — Add a decision-gate fit task ('tg', outside the confirmed plan): per question kind (choice, noul, score), sweep floor / margin / max-entropy thresholds on the FIT fold, evaluate answer-vs-abstain on the SELECTION fold, re-fit on the deployed quant's fit-fold predictions after recalibration, ship gate.json in the bundle; the final report gains per-kind coverage and selective accuracy. — c41 says the bundle carries 'its gate', but no plan task fits one for typed questions (t21 shipped gate.json fitted:false); operator chose to add the gate fit rather than leave thresholds to callers.
 - `d5` — jev distill takes the stage as a positional argument (one jev.distill operation with a stage argument) instead of one subcommand per stage; t23 annotates the single jev.distill operation (paraphrases, >= 4 operator-reviewed seed entries, optionally a distill-stage ground kind) instead of each stage. — 14 stage subcommands would put the jev-CLI domain at 53 candidates (60 with reasons), over the jev-tool model's 52-letter cap; operator approved the single-operation shape.
-- pending approval (not yet a decision): `d1` — wave-0 merges carry swapped labels after a shared `git stash` between parallel worktrees; all content was recovered and TDD-gated (operator approved the recovery in conversation; the record awaits `devague deviate --confirm d1`).
+- `d1` — wave-0 merges carry swapped labels after a shared `git stash` between parallel worktrees; all content was recovered and TDD-gated (operator approved the recovery and confirmed the record).
 - Fixups outside the plan, each TDD-gated and within an existing task's contract (no record needed beyond the lapses they answer): `t5b` (causal_lm adapter outside the absorbed package, negative control), `fx1` (systemone/envs/pins aligned with the real strands-decider @8b6faa5 and v21 layout), `fx2` (record hf_id/workflow, hf_id contamination, workflow fold grouping, proc-rss memory probe, review catalog), `fx4` (audit records the teacher build; assemble enforces it), `fx5` (contamination on real `Praveenrajus/jev-bench:<config>` sources), `fx6` (torchao builds under the capped GPU runner).
 - Interpretations recorded for operator confirmation before the t26 lock (not deviations; placeholders): prereg knob grid and selection-rule semantics, split fractions/seed, audit thresholds, Hinton-KD temperature with `kl_frozen_weight`/`teacher_weight` not applied, `init_mode`, precedence reading in assemble, weak-flag union, confident-wrong 0.9, gate objective/coverage 0.8, shipped scalar temperature 1.0.
 
@@ -89,17 +89,17 @@ Quoted verbatim from the `devague summary` skeleton (26 confirmed tasks, 11 wave
 | `t19` (`d3`) | t19 found no buildable quantized format on the strands-decider stack (bf16 base + unmerged LoRA, torch/MLX only), so a real run would always ship bf16 and the operator's 'quant and heal' would not be exercised; operator chose to add one real quant path. | `acceptable` |
 | `t21` (`d4`) | c41 says the bundle carries 'its gate', but no plan task fits one for typed questions (t21 shipped gate.json fitted:false); operator chose to add the gate fit rather than leave thresholds to callers. | `acceptable` |
 | `t1`, `t4`, `t6`, `t7` | Passed acceptance against invented fixtures but were wrong against the real upstream source and HF rows (l6, l9); corrected in t1's follow-up and fx1 within their contracts | acceptable |
-| `t2`, `t4`, `t5`, `t6` (`d1`, pending) | Shared `git stash` swapped files between parallel worktrees; merges carry swapped labels; content recovered and verified (metrics sha256 identical, 38 recovered tests green) | acceptable |
+| `t2`, `t4`, `t5`, `t6` (`d1`) | Shared `git stash` swapped files between parallel worktrees; merges carry swapped labels; content recovered and verified (metrics sha256 identical, 38 recovered tests green) | acceptable |
 | `t22` (`d5`) | 14 stage subcommands would put the jev-CLI domain at 53 candidates (60 with reasons), over the jev-tool model's 52-letter cap; operator approved the single-operation shape. | `acceptable` |
 
 ## Evidence
 
 - tests: full suite `NVSH_ROOT=… uv run pytest -n auto -q --cov=jev_factory` at `3567e1c` — 2837 passed, 21 skipped, coverage 91.91% (floor 60%)
-- tests: per-obligation runs for o1–o27 at `3567e1c` (2026-10-14) — 26 pass (evidence `e1`–`e26`, proposed); `o22` unchecked (`tests/test_backbone_pointer_integration.py::test_served_bundle_answers_choice_noul_and_score` skipped: no strands-decider env)
+- tests: per-obligation runs for o1–o27 at `3567e1c` (2026-10-14) — 26 pass (evidence `e1`–`e26`, operator-approved); `o22` unchecked (`tests/test_backbone_pointer_integration.py::test_served_bundle_answers_choice_noul_and_score` skipped: no strands-decider env)
 - tests: `tests/test_distill_e2e.py::test_every_stage_dry_runs_then_applies_end_to_end_into_a_complete_bundle` — pass (fakes only)
 - lint: `uv run black --check jev_factory tests`, `isort --check-only`, `flake8`, `bandit -c pyproject.toml -r jev_factory` — clean; `markdownlint-cli2` on tracked docs — 0 errors; `python3 scripts/scan-secrets.py` — clean; `uv run teken cli doctor . --strict` — 26/26; `scripts/harness-smoke.py --stage config` — 6/6
 - commits: `8aec9c4..3567e1c` (branch `spec/distillery-issue-18`; version 0.11.0 at `da03022`)
-- behavioral deltas: `b1`–`b5` (proposed)
+- behavioral deltas: `b1`–`b5` (operator-approved)
 - PRs / issues: issue #18; PR not yet opened (gate 3)
 
 ## Delivery Claims
@@ -142,7 +142,7 @@ Lapse ledger evidence:
 |-------|------|------|
 | `l1` | `grader-unverified` | During /think I proposed success signal c42 (beat v21, close >=50% of the v21-to-Clef accuracy gap) and teacher-audit c32 against dataset gold without reading the typed-decisions card, which says its gold is a ~4B teacher's 3-sample mean, so accuracy measures agreement with that teacher, not correctness, and a better model can score lower. |
 
-pending approval (not yet evidence): `l2`, `l3`, `l4`, `l5`, `l6`, `l7`, `l8`, `l9`, `l10`, `l11`, `l12`, `l13`, `l14`
+Lapses `l2`–`l14` are operator-approved: each caps the confidence of the claims it names (most record fixture-only verification), consistent with the `medium` ceiling above.
 
 ## Remaining Work / Follow-up
 
@@ -153,5 +153,4 @@ pending approval (not yet evidence): `l2`, `l3`, `l4`, `l5`, `l6`, `l7`, `l8`, `
 - Student checkpoints must be plain local directories (e.g. `hf download --local-dir`): since the Sonar path-containment fix (`jev_factory/factory/safepath.py`), any symlinked member in a bundle, artifact or checkpoint is refused, so an HF hub-cache layout cannot be read directly.
 - banking77 excluded by the Apache/MIT rule (compound `cc-by-4.0` licence) — operator to confirm.
 - Operator seed review: jev-CLI `jcs-op-191..198` (jev.distill) must be reviewed before the extraction plan's t34 freezes the jev-tool seed (r2); `cli_surface_sha256` changed.
-- Adjudicate records: deviation `d1`; lapses `l2`–`l14`; evidence `e1`–`e26`; deltas `b1`–`b5`.
 - Follow-ups: W4A16 / ONNX / GGUF student formats remain unavailable (recorded with reasons); distill-specific `jev decide` verdicts (r12); coordinate the bundle hand-off with lobes (orin-decision-models) via the communicate skill.
