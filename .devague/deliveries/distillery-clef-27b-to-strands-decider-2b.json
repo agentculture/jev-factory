@@ -2,7 +2,7 @@
   "plan_slug": "distillery-clef-27b-to-strands-decider-2b",
   "schema_version": 2,
   "created": "2026-10-14T06:13:50Z",
-  "updated": "2026-10-14T07:54:00Z",
+  "updated": "2026-10-14T08:16:41Z",
   "deviations": [
     {
       "id": "d1",
@@ -49,6 +49,22 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Add a decision-gate fit task ('tg', outside the confirmed plan): per question kind (choice, noul, score), sweep floor / margin / max-entropy thresholds on the FIT fold, evaluate answer-vs-abstain on the SELECTION fold, re-fit on the deployed quant's fit-fold predictions after recalibration, ship gate.json in the bundle; the final report gains per-kind coverage and selective accuracy.",
+      "task_ref": "t21",
+      "reason": "c41 says the bundle carries 'its gate', but no plan task fits one for typed questions (t21 shipped gate.json fitted:false); operator chose to add the gate fit rather than leave thresholds to callers.",
+      "affects": [
+        "t19",
+        "t20",
+        "t21",
+        "t22"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],

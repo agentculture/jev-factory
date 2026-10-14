@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-14T05:54:33Z",
-  "updated": "2026-10-14T08:11:28Z",
+  "updated": "2026-10-14T08:16:41Z",
   "targets": [
     {
       "id": "c1",
@@ -1158,8 +1158,8 @@
       "text": "No plan task fits a decision gate for typed questions (per-kind floor/margin/entropy thresholds fitted on the fit fold, e.g. via core.sweep_gate), although c41's after-state says the bundle carries 'its gate'; t21 ships gate.json with fitted:false. Either add a gate-fit task (deviation) or confirm the gate is the caller's (lobes) job.",
       "kind": "unknown_blocking",
       "task_id": "t21",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "operator: add a gate-fit task (deviation d4)"
     }
   ],
   "obligations": []
