@@ -118,16 +118,58 @@ def _nonempty_str(v: Any) -> bool:
     return isinstance(v, str) and bool(v.strip())
 
 
+#: Where every ``upstream_knobs`` value in :func:`example_doc` was read (once, by hand):
+#: ``<UPSTREAM_SOURCE>/<source_file>``, key ``source_key``. Placeholders for the operator to
+#: confirm before the lock; nothing fetches these at run time.
+UPSTREAM_SOURCE = "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21/raw/main"
+TRAIN_CONFIG = "train_config.json"
+DECIDER_CONFIG = "strands_decider_config.json"
+#: v21's ``lora_targets`` (train_config.json and strands_decider_config.json agree).
+V21_LORA_TARGETS = (
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
+    "in_proj_qkv",
+    "in_proj_z",
+    "in_proj_a",
+    "in_proj_b",
+    "out_proj",
+)
+
+
 def example_doc() -> dict[str, Any]:
-    """A valid pre-registration draft, seeded from strands-decider-2B-hobson-v21."""
-    src = "train_config.json"
+    """A valid pre-registration draft, seeded from strands-decider-2B-hobson-v21.
+
+    Carries every hyperparameter the pointer distill trainer resolves (``init_mode`` in the
+    grid; the fixed upstream values, each citing :data:`UPSTREAM_SOURCE` file and key) and
+    the selection rule's ``confident_wrong_threshold``. All values are drafts for the
+    operator to confirm before the lock.
+    """
     upstream = [
-        ("lr", 1e-4, "lr"),
-        ("head_lr", 1e-3, "head_lr"),
-        ("epochs", 1, "epochs"),
-        ("kl_frozen_weight", 0.3, "kl_frozen_weight"),
-        ("teacher_weight", 1.0, "teacher_weight"),
-        ("ordinal_smoothing", 0.1, "ordinal_smoothing"),
+        ("lr", 1e-4, TRAIN_CONFIG, "lr"),
+        ("head_lr", 1e-3, TRAIN_CONFIG, "head_lr"),
+        ("epochs", 1, TRAIN_CONFIG, "epochs"),
+        ("kl_frozen_weight", 0.3, TRAIN_CONFIG, "kl_frozen_weight"),
+        ("teacher_weight", 1.0, TRAIN_CONFIG, "teacher_weight"),
+        ("ordinal_smoothing", 0.1, TRAIN_CONFIG, "ordinal_smoothing"),
+        ("micro_batch_size", 8, TRAIN_CONFIG, "micro_batch_size"),
+        ("grad_accum", 4, TRAIN_CONFIG, "grad_accum"),
+        ("weight_decay", 0.01, TRAIN_CONFIG, "weight_decay"),
+        ("warmup_ratio", 0.03, TRAIN_CONFIG, "warmup_ratio"),
+        ("max_grad_norm", 1.0, TRAIN_CONFIG, "max_grad_norm"),
+        ("max_length", 4096, TRAIN_CONFIG, "max_length"),
+        ("seed", 5, TRAIN_CONFIG, "seed"),
+        ("shuffle_options", True, TRAIN_CONFIG, "shuffle_options"),
+        ("reverse_score_prob", 0.5, TRAIN_CONFIG, "reverse_score_prob"),
+        ("lora_r", 16, TRAIN_CONFIG, "lora_r"),
+        ("lora_alpha", 32, TRAIN_CONFIG, "lora_alpha"),
+        # train_config.json has no lora_dropout; the model config carries v21's value.
+        ("lora_dropout", 0.05, DECIDER_CONFIG, "lora_dropout"),
+        ("lora_targets", list(V21_LORA_TARGETS), TRAIN_CONFIG, "lora_targets"),
     ]
     return {
         "schema_version": SCHEMA_VERSION,
@@ -149,6 +191,8 @@ def example_doc() -> dict[str, Any]:
         "selection_rule": {
             "order": list(SELECTION_ORDER),
             "tolerances": {"accuracy_floor_margin": 0.05, "ece": 0.01},
+            # A wrong answer at or above this top probability is "confident-wrong".
+            "confident_wrong_threshold": 0.9,
         },
         "knob_grid": {
             "alpha": [0.5, 0.7, 0.9],
@@ -158,6 +202,7 @@ def example_doc() -> dict[str, Any]:
             "data_mix": ["teacher_only", "teacher_plus_corrections"],
             "epochs": [1, 2],
             "lr": [5e-5, 1e-4],
+            "init_mode": ["continue", "merge_fresh"],
         },
         "reference_rows": {
             "clef": {"model": "Clef 27B", "role": "teacher"},
@@ -167,7 +212,7 @@ def example_doc() -> dict[str, Any]:
             },
         },
         "upstream_knobs": [
-            {"name": n, "value": v, "source_file": src, "source_key": k} for n, v, k in upstream
+            {"name": n, "value": v, "source_file": f, "source_key": k} for n, v, f, k in upstream
         ],
     }
 

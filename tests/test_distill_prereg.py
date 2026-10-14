@@ -30,7 +30,81 @@ def test_example_doc_validates_and_seeds_upstream_knobs():
     assert seeded["kl_frozen_weight"].value == 0.3
     assert seeded["teacher_weight"].value == 1.0
     assert seeded["ordinal_smoothing"].value == 0.1
-    assert all(k.source_file == "train_config.json" and k.source_key for k in seeded.values())
+    assert all(
+        k.source_file in ("train_config.json", "strands_decider_config.json") and k.source_key
+        for k in seeded.values()
+    )
+
+
+#: The values read once from StrandsAgents/strands-decider-2B-hobson-v21 (raw/main).
+TRAINER_UPSTREAM = {
+    "micro_batch_size": (8, "train_config.json"),
+    "grad_accum": (4, "train_config.json"),
+    "weight_decay": (0.01, "train_config.json"),
+    "warmup_ratio": (0.03, "train_config.json"),
+    "max_grad_norm": (1.0, "train_config.json"),
+    "max_length": (4096, "train_config.json"),
+    "seed": (5, "train_config.json"),
+    "shuffle_options": (True, "train_config.json"),
+    "reverse_score_prob": (0.5, "train_config.json"),
+    "lora_r": (16, "train_config.json"),
+    "lora_alpha": (32, "train_config.json"),
+    "lora_dropout": (0.05, "strands_decider_config.json"),
+}
+
+
+def test_example_doc_carries_every_knob_the_trainer_needs_with_cited_sources():
+    from jev_factory.backbones.pointer import train_distill as td
+
+    reg = dp.validate(good_doc())
+    seeded = {k.name: k for k in reg.upstream_knobs}
+    for name, (value, source) in TRAINER_UPSTREAM.items():
+        assert seeded[name].value == value, name
+        assert seeded[name].source_file == source, name
+        assert seeded[name].source_key == name, name
+    targets = seeded["lora_targets"]
+    assert targets.source_file == "train_config.json" and targets.source_key == "lora_targets"
+    assert "q_proj" in targets.value and "out_proj" in targets.value
+    assert reg.knob_grid["init_mode"] == list(td.INIT_MODES)
+    needed = set(td.REQUIRED_UPSTREAM) | set(td.LORA_UPSTREAM)
+    assert needed <= set(seeded) | set(reg.knob_grid)
+
+
+def test_example_doc_preregisters_the_confident_wrong_threshold():
+    reg = dp.validate(good_doc())
+    assert 0.0 < reg.selection_rule["confident_wrong_threshold"] <= 1.0
+
+
+@pytest.mark.parametrize("init_mode", ["continue", "merge_fresh"])
+def test_trainer_plan_accepts_the_example_doc(tmp_path, init_mode):
+    from jev_factory.backbones.pointer import train_distill as td
+
+    path = write(tmp_path, good_doc())
+    run_dir = tmp_path / "run"
+    dp.lock(path, run_dir)
+    knobs = {
+        "alpha": 0.7,
+        "temperature": {"choice": 2.0, "score": 1.0, "noul": 1.0},
+        "epochs": 1,
+        "lr": 1e-4,
+        "init_mode": init_mode,
+    }
+    plan = td.plan_train(
+        prereg_path=path,
+        run_dir=run_dir,
+        run_knobs=knobs,
+        train_file=tmp_path / "train.jsonl",
+        init_from=tmp_path / "v21",
+        output_dir=tmp_path / "out",
+        trainer_python="python3",
+        decider_repo=tmp_path / "strands-decider",
+    )
+    hp = plan["hyperparameters"]
+    assert hp["init_mode"] == init_mode
+    assert hp["seed"] == 5 and hp["micro_batch_size"] == 8
+    if init_mode == "merge_fresh":
+        assert hp["lora_r"] == 16 and hp["lora_dropout"] == 0.05
+        assert hp["sources"]["lora_dropout"] == "upstream:strands_decider_config.json#lora_dropout"
 
 
 def test_schema_covers_bars_rule_grid_and_references():
