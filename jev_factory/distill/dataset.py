@@ -14,7 +14,8 @@ and the jev-bench configs). The build
 4. keeps each source's own ``test`` split as the test side, never trains on it,
 5. carves a sealed held-out set, then grouped fit/selection folds, out of each
    source's ``train`` split with :func:`jev_factory.core.split.make_folds`
-   (a group is every record sharing one state, so duplicates never straddle).
+   (a group is the record's ``group``, e.g. its workflow, when set, else every record
+   sharing one state, so duplicates never straddle).
 
 The real counter is :func:`subprocess_token_counter`, which runs the student
 tokenizer inside the pinned student environment; tests inject a stdlib counter.
@@ -225,7 +226,14 @@ def _carve(
 ) -> tuple[list[Record], list[Record], list[Record]]:
     """Per-source (fit, selection, held_out) from train records, grouped by state."""
     by_id = {r.id: r for r in records}
-    group_of = {r.id: sha256_bytes(r.state.encode("utf-8")) for r in records}
+    group_of = {
+        r.id: (
+            f"group:{r.source}:{r.group}"
+            if r.group is not None
+            else sha256_bytes(r.state.encode("utf-8"))
+        )
+        for r in records
+    }
     pool, held = make_folds(list(by_id), seed, 1.0 - held_out_fraction, group_of)
     fit, selection = make_folds(pool, seed, fit_fraction, group_of)
     return [by_id[i] for i in fit], [by_id[i] for i in selection], [by_id[i] for i in held]

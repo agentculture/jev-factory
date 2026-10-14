@@ -117,6 +117,17 @@
       "dataset_url": "https://huggingface.co/datasets/legacy-datasets/banking77"
     },
     {
+      "name": "mteb/banking77",
+      "aliases": [
+        "mteb/banking77"
+      ],
+      "role": "v21-training",
+      "source_url": "https://huggingface.co/datasets/mteb/banking77",
+      "card": "https://huggingface.co/datasets/mteb/banking77",
+      "detail": "MTEB mirror of the same PolyAI banking77 data v21 trained on (legacy-datasets/banking77); the jev-bench meta.hf_id is this mirror",
+      "dataset_url": "https://huggingface.co/datasets/mteb/banking77"
+    },
+    {
       "name": "mteb/amazon_massive_intent",
       "aliases": [
         "massive",

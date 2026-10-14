@@ -4,7 +4,11 @@ Each model is served in turn (one GPU job at a time): ``start`` brings the serve
 record of the requested folds is sent through :class:`SystemOneClient`, the answers are kept
 as *predictions records* with per-call latency, and ``stop`` always runs before the next model
 starts. Peak memory is the maximum of the samples taken from a probe (default: ``nvidia-smi``
-used memory) before, during and after the run, on the same box for every model.
+used memory) before, during and after the run, on the same box for every model. On unified-memory
+boxes (DGX Spark GB10) ``nvidia-smi`` reports ``[N/A]``; the fallback is then the summed resident
+set (``VmRSS`` from ``/proc``) of the :class:`Target`'s served process and its descendants. The
+report names the probe that produced the figure (``nvidia-smi`` or ``proc-rss``) and stays
+``measured: false`` when neither works.
 
 Only training-side folds are accepted. A :class:`SealedSide`, a held-out or test file, a record
 whose split is ``test`` or whose id is in a sealed side is refused (fail closed): the sealed
@@ -14,6 +18,7 @@ sides are touched once, in the final run only. Stdlib only; servers are localhos
 from __future__ import annotations
 
 import math
+import re
 import statistics
 import subprocess  # nosec B404 - fixed argv, no shell
 import threading
@@ -64,6 +69,58 @@ def nvidia_smi_used_mib() -> float | None:
         except ValueError:
             continue
     return sum(values) if values else None
+
+
+PROBE_NVIDIA = "nvidia-smi"
+PROBE_PROC = "proc-rss"
+PROC_ROOT = Path("/proc")
+_VMRSS = re.compile(r"^VmRSS:\s+(\d+)\s*kB", re.MULTILINE)
+
+
+def _ppid(stat_text: str) -> int | None:
+    """Parent pid from ``/proc/<pid>/stat``; the comm field may hold spaces and parentheses."""
+    try:
+        return int(stat_text.rsplit(")", 1)[1].split()[1])
+    except (IndexError, ValueError):
+        return None
+
+
+def proc_rss_mib(pid: int, proc_root: Path | str = PROC_ROOT) -> float | None:
+    """Sum of ``VmRSS`` (MiB) over process *pid* and all its descendants, from ``/proc``.
+
+    ``None`` when *pid* does not exist or nothing could be read.
+    """
+    root = Path(proc_root)
+    children: dict[int, list[int]] = {}
+    try:
+        entries = [p for p in root.iterdir() if p.name.isdigit()]
+    except OSError:
+        return None
+    for entry in entries:
+        try:
+            parent = _ppid((entry / "stat").read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+        if parent is not None:
+            children.setdefault(parent, []).append(int(entry.name))
+    if not (root / str(pid)).is_dir():
+        return None
+    total_kb, seen, todo, found = 0, set(), [pid], False
+    while todo:
+        cur = todo.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        todo.extend(children.get(cur, ()))
+        try:
+            text = (root / str(cur) / "status").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        m = _VMRSS.search(text)
+        if m:
+            total_kb += int(m.group(1))
+            found = True
+    return total_kb / 1024.0 if found else None
 
 
 # ---------------------------------------------------------------------------
@@ -149,8 +206,15 @@ def latency_summary(latencies: Sequence[float]) -> dict[str, Any]:
 class _PeakSampler:
     """Track the maximum of a memory probe, sampled in a thread and on demand."""
 
-    def __init__(self, probe: MemoryProbe | None, interval: float = SAMPLE_INTERVAL):
+    def __init__(
+        self,
+        probe: MemoryProbe | None,
+        interval: float = SAMPLE_INTERVAL,
+        fallback: MemoryProbe | None = None,
+    ):
         self.probe = probe
+        self.fallback = fallback
+        self.peak_probe: str | None = None
         self.interval = interval
         self.peak: float | None = None
         self.baseline: float | None = None
@@ -158,17 +222,29 @@ class _PeakSampler:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
+    @staticmethod
+    def _read(probe: MemoryProbe | None) -> float | None:
+        if probe is None:
+            return None
+        try:
+            return probe()
+        except Exception:  # noqa: BLE001 - a broken probe must not abort the benchmark
+            return None
+
+    def _label(self) -> str:
+        return PROBE_NVIDIA if self.probe is nvidia_smi_used_mib else "custom"
+
     def sample(self) -> None:
         if self.probe is None:
             return
-        try:
-            value = self.probe()
-        except Exception:  # noqa: BLE001 - a broken probe must not abort the benchmark
-            value = None
+        value, label = self._read(self.probe), self._label()
+        if value is None:
+            value, label = self._read(self.fallback), PROBE_PROC
         if value is None:
             return
         self.samples += 1
-        self.peak = value if self.peak is None else max(self.peak, value)
+        if self.peak is None or value > self.peak:
+            self.peak, self.peak_probe = value, label
 
     def __enter__(self) -> _PeakSampler:
         self.sample()
@@ -190,11 +266,7 @@ class _PeakSampler:
 
     def report(self) -> dict[str, Any]:
         return {
-            "probe": (
-                "nvidia-smi memory.used (MiB)"
-                if self.probe is nvidia_smi_used_mib
-                else ("custom" if self.probe else None)
-            ),
+            "probe": self.peak_probe,
             "baseline_mib": self.baseline,
             "peak_mib": self.peak,
             "samples": self.samples,
@@ -217,6 +289,9 @@ class Target:
     start: Callable[[], Any] | None = None
     stop: Callable[[], Any] | None = None
     ready: Callable[[], Any] | None = None
+    #: Pid of the served process (or a callable returning it, read at each sample), for the
+    #: ``/proc`` RSS fallback when the GPU probe has no figure.
+    pid: int | Callable[[], int | None] | None = None
 
 
 def _prediction_row(
@@ -269,6 +344,7 @@ def benchmark_model(
     memory_probe: MemoryProbe | None = nvidia_smi_used_mib,
     client: SystemOneClient | None = None,
     clock: Callable[[], float] = time.perf_counter,
+    proc_root: Path | str = PROC_ROOT,
 ) -> dict[str, Any]:
     """Start *target*, score every record, stop it; return predictions, latency and memory."""
     client = client or SystemOneClient(target.base_url, model=target.model)
@@ -279,7 +355,7 @@ def benchmark_model(
             target.start()
         if target.ready is not None:
             target.ready()
-        with _PeakSampler(memory_probe) as peak:
+        with _PeakSampler(memory_probe, fallback=_rss_probe(target, proc_root)) as peak:
             for fold, records in folds.items():
                 for rec in records:
                     t0 = clock()
@@ -304,6 +380,17 @@ def benchmark_model(
     }
 
 
+def _rss_probe(target: Target, proc_root: Path | str) -> MemoryProbe | None:
+    if target.pid is None:
+        return None
+
+    def probe() -> float | None:
+        pid = target.pid() if callable(target.pid) else target.pid
+        return None if pid is None else proc_rss_mib(pid, proc_root)
+
+    return probe
+
+
 def _has_error(row: Mapping[str, Any]) -> bool:
     return any(q["error"] for q in row["questions"].values())
 
@@ -315,6 +402,7 @@ def run_benchmark(
     sealed: Sequence[SealedSide] = (),
     memory_probe: MemoryProbe | None = nvidia_smi_used_mib,
     clients: Mapping[str, SystemOneClient] | None = None,
+    proc_root: Path | str = PROC_ROOT,
 ) -> dict[str, Any]:
     """Benchmark each target in sequence (never two at once) on the same folds.
 
@@ -336,6 +424,7 @@ def run_benchmark(
             resolved,
             memory_probe=memory_probe,
             client=(clients or {}).get(target.name),
+            proc_root=proc_root,
         )
     return out
 
