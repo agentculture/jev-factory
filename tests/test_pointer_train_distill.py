@@ -60,6 +60,8 @@ def prereg_doc(**grid_overrides):
         ("lora_dropout", 0.05, "strands_decider_config.json"),
         ("lora_targets", ["q_proj", "v_proj"], "train_config.json"),
     ]
+    names = {n for n, _, _ in extra}  # these fixture values replace example_doc's own
+    doc["upstream_knobs"] = [k for k in doc["upstream_knobs"] if k["name"] not in names]
     doc["upstream_knobs"] += [
         {"name": n, "value": v, "source_file": f, "source_key": n} for n, v, f in extra
     ]
