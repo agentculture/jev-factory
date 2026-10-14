@@ -17,15 +17,19 @@ from typing import Any
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 
 BASE_REPO = "Qwen/Qwen3.5-2B-Base"
-DECIDER_REPO = "strands-decider-2B-hobson-v21"
+DECIDER_REPO = "StrandsAgents/strands-decider-2B-hobson-v21"
 REVISION_FILE = "REVISION"
 ADAPTER_FILE = "adapter_model.safetensors"
 HEAD_FILE = "head.safetensors"
 PROVENANCE_FILE = "provenance.json"
-#: Known v21 hash prefixes; the full digests are checked against its provenance.json.
-V21_ADAPTER_PREFIX = "59be987f"
-V21_HEAD_PREFIX = "0fc78684"
+#: v21's full digests, from its provenance.json.
+V21_ADAPTER_SHA256 = "59be987f5eb664a7f74f11ef69383a0de526fe30c684932102984eb9c11f4028"
+V21_HEAD_SHA256 = "0fc78684d7504d334082d6ac8e6cb7825b5eb0e230601181cd273757f9f6ebef"
+#: Default base pin. Upstream marks it "inferred: Hub main at training time; hosts did not pin
+#: it", so it is our pin; a run config may override it.
+DEFAULT_BASE_REVISION = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
 _HEX = re.compile(r"^[0-9a-f]{8,64}$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 def cache_dirname(repo_id: str) -> str:
@@ -53,14 +57,25 @@ class StudentPins:
     adapter_sha256: str
     head_sha256: str
 
+    def __post_init__(self) -> None:
+        for name in ("adapter_sha256", "head_sha256"):
+            if not _SHA256.match(getattr(self, name)):
+                raise CliError(
+                    EXIT_USER_ERROR,
+                    f"{name} must be a full 64-hex sha256, got {getattr(self, name)!r}",
+                    "pin the full digest from provenance.json; prefixes are not accepted",
+                )
 
-def default_pins(*, base_revision: str, decider_revision: str) -> StudentPins:
-    """Pins with v21's known hash prefixes; revisions must come from the run config."""
+
+def default_pins(
+    *, decider_revision: str, base_revision: str = DEFAULT_BASE_REVISION
+) -> StudentPins:
+    """v21 pins: full digests built in, base revision overridable, decider commit required."""
     return StudentPins(
         base=RepoPin(BASE_REPO, base_revision),
         decider=RepoPin(DECIDER_REPO, decider_revision),
-        adapter_sha256=V21_ADAPTER_PREFIX,
-        head_sha256=V21_HEAD_PREFIX,
+        adapter_sha256=V21_ADAPTER_SHA256,
+        head_sha256=V21_HEAD_SHA256,
     )
 
 
@@ -97,7 +112,7 @@ def _check_file(root: Path, name: str, expected: str) -> str:
     if not path.is_file():
         raise _fail("missing", name, f"not found under {root}")
     got = sha256_file(path)
-    if not got.startswith(expected.lower()) and not expected.lower().startswith(got):
+    if got != expected.lower():
         raise _fail("hash-mismatch", name, f"sha256 {got} does not match expected {expected}")
     return got
 
@@ -127,9 +142,9 @@ def verify_pins(cache: Path, pins: StudentPins) -> dict[str, Any]:
         ("head_sha256", HEAD_FILE, pins.head_sha256),
     ):
         want = prov.get(key)
-        if not isinstance(want, str) or not _HEX.match(want.lower()):
+        if not isinstance(want, str) or not _SHA256.match(want.lower()):
             raise _fail("bad-provenance", PROVENANCE_FILE, f"missing or malformed {key}")
-        if not want.lower().startswith(run_pin.lower()):
+        if want.lower() != run_pin.lower():
             raise _fail("provenance", PROVENANCE_FILE, f"{key} {want} disagrees with pin {run_pin}")
         out[key] = _check_file(root, fname, want)
     out["base_revision"] = pins.base.revision

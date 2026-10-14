@@ -25,8 +25,8 @@ def _run_pins() -> pins.StudentPins:
     return pins.StudentPins(
         base=pins.RepoPin(pins.BASE_REPO, BASE_REV),
         decider=pins.RepoPin(pins.DECIDER_REPO, DECIDER_REV),
-        adapter_sha256=_sha(ADAPTER)[:8],
-        head_sha256=_sha(HEAD)[:8],
+        adapter_sha256=_sha(ADAPTER),
+        head_sha256=_sha(HEAD),
     )
 
 
@@ -109,7 +109,29 @@ def test_unpinned_revision_is_rejected() -> None:
         pins.RepoPin(pins.BASE_REPO, "main")
 
 
-def test_default_pins_carry_the_known_prefixes() -> None:
-    d = pins.default_pins(base_revision=BASE_REV, decider_revision=DECIDER_REV)
-    assert d.adapter_sha256.startswith("59be987f")
-    assert d.head_sha256.startswith("0fc78684")
+def test_default_pins_carry_full_v21_digests_and_base_revision() -> None:
+    d = pins.default_pins(decider_revision=DECIDER_REV)
+    assert d.adapter_sha256 == "59be987f5eb664a7f74f11ef69383a0de526fe30c684932102984eb9c11f4028"
+    assert d.head_sha256 == "0fc78684d7504d334082d6ac8e6cb7825b5eb0e230601181cd273757f9f6ebef"
+    assert d.base.revision == "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
+    assert pins.default_pins(
+        decider_revision=DECIDER_REV, base_revision=BASE_REV
+    ).base.revision == (BASE_REV)
+
+
+def test_decider_revision_is_required() -> None:
+    with pytest.raises(TypeError):
+        pins.default_pins()  # type: ignore[call-arg]
+
+
+def test_prefix_only_adapter_or_head_pin_is_rejected() -> None:
+    for kw in ({"adapter_sha256": "59be987f"}, {"head_sha256": "0fc78684"}):
+        args = {
+            "base": pins.RepoPin(pins.BASE_REPO, BASE_REV),
+            "decider": pins.RepoPin(pins.DECIDER_REPO, DECIDER_REV),
+            "adapter_sha256": _sha(ADAPTER),
+            "head_sha256": _sha(HEAD),
+            **kw,
+        }
+        with pytest.raises(CliError, match="64-hex"):
+            pins.StudentPins(**args)
