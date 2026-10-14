@@ -2,7 +2,7 @@
   "plan_slug": "distillery-clef-27b-to-strands-decider-2b",
   "schema_version": 2,
   "created": "2026-10-14T06:13:50Z",
-  "updated": "2026-10-14T09:00:04Z",
+  "updated": "2026-10-14T09:10:41Z",
   "deviations": [
     {
       "id": "d1",
@@ -81,7 +81,581 @@
       "seq": 5
     }
   ],
-  "evidence": [],
-  "deltas": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/test_cli_distill.py::test_every_distill_stage_is_in_its_own_registry_in_dependency_order ; tests/test_cli_distill.py::test_every_stage_writes_nothing_without_apply ; tests/test_cli_distill.py::test_status_shows_distill_stages ; tests/test_cli_distill.py::test_explain_learn_and_overview_cover_distill ; tests/test_distill_e2e.py::test_the_cli_lists_all_fourteen_stages_and_status_sees_the_run",
+      "behavior_text": "'jev distill --help' lists every distill stage; each side-effecting stage prints its plan and writes nothing without --apply; 'jev status <work>' reads every distill stage's manifest",
+      "contract_text": "'jev distill --help' lists every distill stage; each side-effecting stage prints its plan and writes nothing without --apply; 'jev status <work>' reads every distill stage's manifest",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/test_jev_cli_domain.py::test_distill_is_one_mutating_operation_with_a_grounded_stage ; tests/test_jev_cli_content.py::test_distill_seed_is_pending_review_dry_run_and_apply_across_stages",
+      "behavior_text": "The distill verb (and each distill stage) has an annotation with read_only=False where --apply exists, >= 2 paraphrases and >= 4 seed entries marked pending operator review; the generated operation list still matches argparse exactly",
+      "contract_text": "The distill verb (and each distill stage) has an annotation with read_only=False where --apply exists, >= 2 paraphrases and >= 4 seed entries marked pending operator review; the generated operation list still matches argparse exactly",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/test_distill_teacher.py::test_labels_carry_full_provenance ; tests/test_distill_teacher.py::test_incomplete_answer_is_error_not_label ; tests/test_distill_teacher.py::test_transport_failure_is_error",
+      "behavior_text": "For every (record id, question id) on the train side it stores a probability vector over exactly the offered options summing to 1 within 0.01, with teacher repo id, revision, build/quant, engine, request config and response sha256; an incomplete or malformed answer is recorded as a teacher error, never as a label",
+      "contract_text": "For every (record id, question id) on the train side it stores a probability vector over exactly the offered options summing to 1 within 0.01, with teacher repo id, revision, build/quant, engine, request config and response sha256; an incomplete or malformed answer is recorded as a teacher error, never as a label",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/test_distill_systemone.py::test_wrong_confidence_gives_byte_identical_parse ; tests/test_distill_systemone.py::test_bad_choice_probabilities_are_errors_never_distributions",
+      "behavior_text": "Predictions are built from 'probabilities' (or noul P(true)) only: a fake server returning a deliberately wrong 'confidence' produces a byte-identical predictions record",
+      "contract_text": "Predictions are built from 'probabilities' (or noul P(true)) only: a fake server returning a deliberately wrong 'confidence' produces a byte-identical predictions record",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/test_backbone_seam.py::test_distribution_only_modules_do_not_import_a_backbone ; tests/test_backbone_seam.py::test_negative_control_closure_flags_leaking_modules",
+      "behavior_text": "They run on a synthetic typed-question predictions record with no model present and import neither backbones.causal_lm nor the pointer backbone",
+      "contract_text": "They run on a synthetic typed-question predictions record with no model present and import neither backbones.causal_lm nor the pointer backbone",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/test_pointer_train_distill.py::test_alpha_zero_equals_gold_ce_within_1e_6 ; tests/test_pointer_train_distill.py::test_row_without_teacher_has_zero_kl ; tests/test_pointer_train_distill.py::test_kl_is_zero_when_student_equals_teacher_at_any_temperature",
+      "behavior_text": "alpha = 0 reproduces gold cross-entropy within 1e-6 on fixture rows; a row with no teacher target contributes zero KL; KL is >= 0 and equals 0 when student and teacher distributions match",
+      "contract_text": "alpha = 0 reproduces gold cross-entropy within 1e-6 on fixture rows; a row with no teacher target contributes zero KL; KL is >= 0 and equals 0 when student and teacher distributions match",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/test_distill_metrics.py::test_macro_f1_hand_computed ; tests/test_distill_metrics.py::test_jsd_known_values ; tests/test_distill_metrics.py::test_jsd_to_teacher_only_over_items_with_teacher ; tests/test_distill_metrics.py::test_confident_wrong_rate_uses_preregistered_threshold ; tests/test_distill_metrics.py::test_log_loss_hand_computed ; tests/test_distill_metrics.py::test_ci_identical_across_runs_with_same_seed ; tests/test_distill_benchmark.py::test_proc_rss_sums_the_target_and_its_descendants_only",
+      "behavior_text": "macro-F1, JSD to gold, JSD to teacher, confident-wrong rate, log-loss and peak memory each match a hand-computed fixture and report a seeded bootstrap CI that is identical across reruns",
+      "contract_text": "macro-F1, JSD to gold, JSD to teacher, confident-wrong rate, log-loss and peak memory each match a hand-computed fixture and report a seeded bootstrap CI that is identical across reruns",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "tests/test_distill_report.py::test_the_three_models_are_resampled_jointly ; tests/test_distill_report.py::test_paired_bootstrap_hands_every_statistic_one_shared_draw ; tests/test_distill_report.py::test_higher_accuracy_with_higher_ece_than_v21_is_a_regression",
+      "behavior_text": "Student, teacher and v21 are resampled with the same item indices per bootstrap draw; a student with higher accuracy but higher ECE than v21 is reported as a regression",
+      "contract_text": "Student, teacher and v21 are resampled with the same item indices per bootstrap draw; a student with higher accuracy but higher ECE than v21 is reported as a regression",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/test_distill_report.py::test_a_good_run_passes_every_c42_and_c43_bar_each_with_n_and_ci ; tests/test_distill_report.py::test_every_c42_bar_follows_the_locked_prereg ; tests/test_distill_report.py::test_headline_is_human_gold_from_clean_sources_and_overlap_is_reported_apart ; tests/test_distill_report.py::test_a_miss_is_recorded_as_a_miss",
+      "behavior_text": "Each success-signal bar (accuracy vs v21 with paired CI, >= 50% gap closure to Clef, ECE <= 0.10 and <= v21, confident-wrong <= v21, latency <= 1/5 Clef) is computed from the single final measurement on human-gold clean sources, cited with n and CI against the prereg; a miss is recorded as a miss",
+      "contract_text": "Each success-signal bar (accuracy vs v21 with paired CI, >= 50% gap closure to Clef, ECE <= 0.10 and <= v21, confident-wrong <= v21, latency <= 1/5 Clef) is computed from the single final measurement on human-gold clean sources, cited with n and CI against the prereg; a miss is recorded as a miss",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "tests/test_pointer_train_distill.py::test_plan_refuses_without_a_locked_prereg ; tests/test_pointer_train_distill.py::test_plan_refuses_a_prereg_changed_after_the_lock ; tests/test_distill_train.py::test_refuses_without_a_locked_prereg ; tests/test_distill_prereg.py::test_changed_file_refused_without_deviation_id",
+      "behavior_text": "Distill train refuses without a schema-valid, hashed distill prereg (bars, rule, knob grid incl. alpha, temperature, teacher filter, teacher-weak floor); a changed prereg is refused without a deviation id",
+      "contract_text": "Distill train refuses without a schema-valid, hashed distill prereg (bars, rule, knob grid incl. alpha, temperature, teacher filter, teacher-weak floor); a changed prereg is refused without a deviation id",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "tests/test_distill_teacher.py::test_non_train_refused_before_any_request ; tests/test_distill_teacher.py::test_fit_selection_heldout_records_refused_with_no_request ; tests/test_distill_assemble.py::test_near_duplicate_of_held_out_fails_closed ; tests/test_distill_assemble.py::test_exact_duplicate_of_a_protected_side_fails_closed",
+      "behavior_text": "A non-train record sent to teacher labelling is refused; teacher-labelled and corrected rows are leakage-checked (exact, near-duplicate) against fit/selection, test and held-out before assemble, failing closed and printing ids only",
+      "contract_text": "A non-train record sent to teacher labelling is refused; teacher-labelled and corrected rows are leakage-checked (exact, near-duplicate) against fit/selection, test and held-out before assemble, failing closed and printing ids only",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "tests/test_distill_final.py::test_a_second_final_is_refused_without_a_deviation_id ; tests/test_distill_final.py::test_a_final_for_only_some_of_the_models_is_refused",
+      "behavior_text": "A second final measurement of test or held-out, for any of teacher, v21 or student, exits non-zero without a deviation id",
+      "contract_text": "A second final measurement of test or held-out, for any of teacher, v21 or student, exits non-zero without a deviation id",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o13",
+      "test_ref": "tests/test_distill_audit.py::test_per_source_metrics_and_weak_flag ; tests/test_distill_audit.py::test_model_generated_gold_reported_never_flagged ; tests/test_distill_audit.py::test_require_audit_refuses_until_written ; tests/test_distill_assemble.py::test_refuses_without_the_teacher_audit",
+      "behavior_text": "It runs on train-side items only, uses only sources with human-labelled gold, and writes a per-source table (n, accuracy, log-loss, ECE, teacher-weak flag vs the prereg floor) before any soft label reaches assemble",
+      "contract_text": "It runs on train-side items only, uses only sources with human-labelled gold, and writes a per-source table (n, accuracy, log-loss, ECE, teacher-weak flag vs the prereg floor) before any soft label reaches assemble",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o14",
+      "test_ref": "tests/test_distill_assemble.py::test_clef_teacher_plus_gold_one_row_per_record_question ; tests/test_distill_assemble.py::test_alternative_teacher_takes_precedence_over_clef ; tests/test_distill_assemble.py::test_approved_correction_replaces_both_targets ; tests/test_distill_assemble.py::test_agrees_with_gold_filter_drops_disagreeing_teacher",
+      "behavior_text": "Every row names exactly one target source (operator correction, human gold, alternative teacher, Clef), the precedence rule applied, the correction id or teacher build id, and whether the agree-with-gold filter kept its teacher target",
+      "contract_text": "Every row names exactly one target source (operator correction, human gold, alternative teacher, Clef), the precedence rule applied, the correction id or teacher build id, and whether the agree-with-gold filter kept its teacher target",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o15",
+      "test_ref": "tests/test_review_corrections.py::test_a_proposed_correction_is_never_exported_as_trainable ; tests/test_review_corrections.py::test_apply_writes_the_decisions_to_the_review_file ; tests/test_distill_assemble.py::test_only_approved_or_edited_corrections_are_used",
+      "behavior_text": "Agent/model-drafted corrections stay proposed until the operator approves or edits them via --serve/--apply; an unreviewed correction never reaches assemble, and the review file records each decision",
+      "contract_text": "Agent/model-drafted corrections stay proposed until the operator approves or edits them via --serve/--apply; an unreviewed correction never reaches assemble, and the review file records each decision",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o16",
+      "test_ref": "tests/test_distill_corrections.py::test_refuses_missing_author_date_or_reason ; tests/test_distill_corrections.py::test_refuses_exact_duplicate_of_protected_item ; tests/test_distill_corrections.py::test_refuses_near_duplicate_of_protected_item",
+      "behavior_text": "A correction lacking author/source, date or reason (weak|outdated), or matching a protected-side item exactly or near-duplicate, is refused",
+      "contract_text": "A correction lacking author/source, date or reason (weak|outdated), or matching a protected-side item exactly or near-duplicate, is refused",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o17",
+      "test_ref": "tests/test_distill_assemble.py::test_mixed_teacher_build_ids_refused_without_deviation ; tests/test_distill_assemble.py::test_alt_falling_back_to_clef_is_a_mixed_build",
+      "behavior_text": "A training set whose soft-label rows carry more than one teacher build id is refused unless a deviation id is supplied",
+      "contract_text": "A training set whose soft-label rows carry more than one teacher build id is refused unless a deviation id is supplied",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o18",
+      "test_ref": "tests/test_distill_dataset.py::test_over_length_records_dropped_not_truncated_with_per_source_counts ; tests/test_distill_dataset.py::test_boundary_exactly_max_is_kept",
+      "behavior_text": "Records over the student's 4096-token window are dropped with a per-source count in the manifest; no record is truncated",
+      "contract_text": "Records over the student's 4096-token window are dropped with a per-source count in the manifest; no record is truncated",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o19",
+      "test_ref": "tests/test_distill_contamination.py::test_real_banking77_record_source_overlaps_with_and_without_records ; tests/test_distill_report.py::test_headline_is_human_gold_from_clean_sources_and_overlap_is_reported_apart",
+      "behavior_text": "Each evaluation source is marked clean or overlapping with v21's training data and Clef's eval suites; headline numbers use clean sources only unless the prereg says otherwise",
+      "contract_text": "Each evaluation source is marked clean or overlapping with v21's training data and Clef's eval suites; headline numbers use clean sources only unless the prereg says otherwise",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o20",
+      "test_ref": "tests/test_distill_quant.py::test_apply_measures_every_format_and_records_the_choice_citing_measurements ; tests/test_distill_quant.py::test_heal_triggers_only_strictly_past_the_margin ; tests/test_distill_quant.py::test_a_second_trigger_stops_and_escalates_and_writes_nothing_further ; tests/test_distill_quant.py::test_recalibration_fits_on_the_deployed_quants_own_fit_fold ; tests/test_distill_quant.py::test_an_unbuildable_format_is_recorded_unavailable_never_dropped",
+      "behavior_text": "The deployed format is a recorded decision citing spike measurements of each candidate; heal runs at most once and a second trigger exits with stop/escalate; recalibration fits on the deployed quant's own fit-fold predictions",
+      "contract_text": "The deployed format is a recorded decision citing spike measurements of each candidate; heal runs at most once and a second trigger exits with stop/escalate; recalibration fits on the deployed quant's own fit-fold predictions",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o21",
+      "test_ref": "tests/test_distill_bundle.py::test_model_bundle_has_the_layout_and_the_fitted_temperatures ; tests/test_distill_bundle.py::test_upstream_temperatures_in_calibration_refuse ; tests/test_distill_bundle.py::test_a_symlink_in_the_student_or_inputs_is_refused ; tests/test_distill_bundle.py::test_the_bundle_ships_the_fitted_gate_from_the_gate_stage",
+      "behavior_text": "strands_decider_config.json carries jev-factory's fitted temperature_by_kind (never the upstream values), and calibration.json, gate.json, the training set with per-row target sources and the comparison report are present; no symlinks",
+      "contract_text": "strands_decider_config.json carries jev-factory's fitted temperature_by_kind (never the upstream values), and calibration.json, gate.json, the training set with per-row target sources and the comparison report are present; no symlinks",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o23",
+      "test_ref": "tests/test_distill_pins.py::test_flipped_head_byte_fails_closed_naming_file ; tests/test_distill_pins.py::test_wrong_base_revision_fails ; tests/test_distill_pins.py::test_wrong_decider_revision_fails ; tests/test_distill_train.py::test_refuses_without_verified_pins",
+      "behavior_text": "A Qwen3.5-2B-Base revision, v21 commit, adapter_sha256 or head_sha256 that differs from the pinned values makes distill train refuse with a hash-mismatch error",
+      "contract_text": "A Qwen3.5-2B-Base revision, v21 commit, adapter_sha256 or head_sha256 that differs from the pinned values makes distill train refuse with a hash-mismatch error",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o24",
+      "test_ref": "tests/test_distill_envs.py::test_three_environments_described_and_recorded ; tests/test_distill_envs.py::test_import_with_heavy_modules_blocked_and_no_dependencies",
+      "behavior_text": "Each environment's lockfile hash or image digest is recorded in the run; importing jev_factory with torch, transformers, peft and strands_decider blocked succeeds and pyproject dependencies == []",
+      "contract_text": "Each environment's lockfile hash or image digest is recorded in the run; importing jev_factory with torch, transformers, peft and strands_decider blocked succeeds and pyproject dependencies == []",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 28
+    },
+    {
+      "id": "e24",
+      "obligation_ref": "o25",
+      "test_ref": "tests/test_distill_envs.py::test_unpinned_hf_revision_refused ; tests/test_distill_envs.py::test_unpinned_package_version_refused ; tests/test_distill_envs.py::test_non_loopback_bind_refused ; tests/test_pointer_quantized.py::test_serve_argv_is_loopback_only",
+      "behavior_text": "Launching with an unpinned model revision or package version, or binding anything but 127.0.0.1, is refused",
+      "contract_text": "Launching with an unpinned model revision or package version, or binding anything but 127.0.0.1, is refused",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 29
+    },
+    {
+      "id": "e25",
+      "obligation_ref": "o26",
+      "test_ref": "tests/test_distill_teacher.py::test_resume_after_kill_resends_only_unanswered ; tests/test_cli_distill.py::test_a_resumed_teacher_label_asks_only_unanswered_items ; tests/test_cli_distill.py::test_teacher_label_progress_is_shown_by_status",
+      "behavior_text": "Killed halfway and re-run, it re-sends only unanswered items (cache hits counted in the manifest) and its progress shows in 'jev status <work>'",
+      "contract_text": "Killed halfway and re-run, it re-sends only unanswered items (cache hits counted in the manifest) and its progress shows in 'jev status <work>'",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e26",
+      "obligation_ref": "o27",
+      "test_ref": "tests/test_distill_bundle.py::test_upload_without_apply_sends_nothing ; tests/test_distill_bundle.py::test_upload_apply_is_private_fetched_back_and_hash_verified ; tests/test_distill_e2e.py::test_every_stage_dry_runs_then_applies_end_to_end_into_a_complete_bundle",
+      "behavior_text": "Without --apply nothing is sent; with --apply repos are created private, fetched back and every sha256 compared; no visibility-to-public call is ever made",
+      "contract_text": "Without --apply nothing is sent; with --apply repos are created private, fetched back and every sha256 compared; no visibility-to-public call is ever made",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named tests (located by explicit node id; the repo's behavioral(obligation_id) marker is not applied to the distill tests) ran green at the run commit, CPU-only, against fakes/fixtures and fake servers - not against a real Clef, a real Strands checkpoint, a real torchao build or a real GPU run (those are the operator run t26).",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-14T09:09:36Z",
+        "commit": "da03022ea24216da674ba59125660f5c4434a957"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 31
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "The dataset build carves each source's train split into five sides (train / fit / selection / sealed held-out / test) instead of fit / selection / held-out; only the train side can become training targets, and teacher labelling refuses fit/selection/held-out ids even though their source split is 'train'.",
+      "caused_by": [
+        "d2",
+        "c11"
+      ],
+      "evidence_refs": [
+        "e11",
+        "e18"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "added",
+      "behavior_text": "The quantize stage can build torchao weight-only int8 and int4 students (merged torso, fp32 pointer head) served by jev-factory's /v1/systemone wrapper on 127.0.0.1, under the memory-capped GPU runner; a failed build is recorded unavailable with its error.",
+      "caused_by": [
+        "d3",
+        "c9"
+      ],
+      "evidence_refs": [
+        "e20",
+        "e24"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "A per-question-kind answer-or-abstain decision gate (floor, margin, max_entropy) is fitted on the fit fold of the deployed student, shipped as gate.json in the bundle, and reported (coverage, selective accuracy) in the final report.",
+      "caused_by": [
+        "d4",
+        "c41"
+      ],
+      "evidence_refs": [
+        "e21"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "jev distill takes the stage as a positional argument: the jev-CLI domain has one jev.distill operation with a grounded stage argument instead of one operation per stage.",
+      "caused_by": [
+        "d5",
+        "c21"
+      ],
+      "evidence_refs": [
+        "e1",
+        "e2"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "amended",
+      "behavior_text": "The SystemOne parser accepts score probabilities keyed by level index ('0'..'n-1', as the real strands-decider server and typed-decisions gold emit) in addition to criteria-keyed and list forms, still failing closed on missing/extra/out-of-range/bad-sum answers.",
+      "caused_by": [
+        "c27",
+        "c28"
+      ],
+      "evidence_refs": [
+        "e4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }
