@@ -82,12 +82,16 @@ def _closure(root: str) -> set[str]:
     return found
 
 
+def _leaks(imported) -> list[str]:
+    return sorted(i for i in imported if any(i == f or i.startswith(f + ".") for f in FORBIDDEN))
+
+
 @pytest.mark.parametrize("module", DISTRIBUTION_ONLY)
 def test_distribution_only_modules_do_not_import_a_backbone(module):
     if _find(module) is None:
         pytest.skip(f"{module} not present in this tree yet")
     imported = _closure(module)
-    bad = sorted(i for i in imported if any(i == f or i.startswith(f + ".") for f in FORBIDDEN))
+    bad = _leaks(imported)
     assert not bad, f"{module} reaches a backbone adapter: {bad}"
 
 
@@ -143,3 +147,102 @@ def test_protocol_declares_the_adapter_surface():
         "quantize_candidates",
     ):
         assert hasattr(base.Backbone, member), member
+
+
+def test_get_causal_lm_returns_a_backbone():
+    from jev_factory.backbones import base, registry
+
+    adapter = registry.get("causal_lm")
+    assert isinstance(adapter, base.Backbone)
+    assert adapter.name == "causal_lm"
+    assert tuple(adapter.quantize_candidates({})) == ("gguf-q4_k_m",)
+    with pytest.raises(NotImplementedError, match="merge_verify"):
+        adapter.merge_verify("a", "b")
+    with pytest.raises(NotImplementedError, match="export"):
+        adapter.export("a", "b")
+
+
+def test_causal_lm_adapter_delegates_to_scorer_and_train():
+    from jev_factory.backbones import registry
+    from jev_factory.backbones.causal_lm import scorer, train
+
+    adapter = registry.get("causal_lm")
+    calls = {}
+
+    class Pred:
+        probabilities = {"a": 0.75, "b": 0.25}
+
+    def fake_score(domain, top_k, prompt, request_text, *, offered=None, **_):
+        calls["score"] = (domain, top_k, prompt, request_text, offered)
+        return Pred()
+
+    def fake_messages(domain, request, offered=None, **_):
+        calls["messages"] = (domain, request, offered)
+        return [{"role": "user", "content": request}]
+
+    def fake_plan(**kw):
+        calls["plan"] = kw
+        return {"stage": "train"}
+
+    orig = (scorer.score, scorer.prompt_messages, train.plan_train)
+    try:
+        scorer.score, scorer.prompt_messages, train.plan_train = (
+            fake_score,
+            fake_messages,
+            fake_plan,
+        )
+        assert adapter.render("dom", "hi", ["a", "b"])[0]["content"] == "hi"
+        assert calls["messages"] == ("dom", "hi", ["a", "b"])
+        row = {"domain": "dom", "prompt": "P", "request_text": "hi"}
+        assert adapter.predict_distributions("topk", [row], [["a", "b"]]) == [
+            {"a": 0.75, "b": 0.25}
+        ]
+        assert calls["score"] == ("dom", "topk", "P", "hi", ["a", "b"])
+        assert adapter.train_plan({"run_dir": "r"}) == {"stage": "train"}
+        assert calls["plan"] == {"run_dir": "r"}
+    finally:
+        scorer.score, scorer.prompt_messages, train.plan_train = orig
+
+
+def test_get_pointer_names_the_missing_module(monkeypatch):
+    from jev_factory.backbones import registry
+
+    missing = "jev_factory.backbones.no_such_backbone_xyz"
+    monkeypatch.setitem(registry._LOADERS, "pointer", (missing, "BACKBONE"))
+    with pytest.raises(registry.BackboneUnavailable, match=missing) as info:
+        registry.get("pointer")
+    assert isinstance(info.value, LookupError)
+    assert not isinstance(info.value, ImportError)
+
+
+def test_registry_does_not_mask_a_missing_dependency_of_a_present_module(monkeypatch, tmp_path):
+    from jev_factory.backbones import registry
+
+    (tmp_path / "zz_present_mod.py").write_text("import zz_not_installed_dep\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setitem(registry._LOADERS, "x", ("zz_present_mod", "BACKBONE"))
+    with pytest.raises(ModuleNotFoundError, match="zz_not_installed_dep"):
+        registry.get("x")
+
+
+def test_negative_control_closure_flags_leaking_modules(tmp_path, monkeypatch):
+    """Throwaway 'distribution-only' modules: direct and transitive leaks flagged, clean not."""
+    pkg = tmp_path / "jev_factory_fake"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "direct.py").write_text("import jev_factory.backbones.causal_lm\n")
+    (pkg / "direct_from.py").write_text("from jev_factory.backbones.causal_lm import scorer\n")
+    (pkg / "mid.py").write_text("from . import direct\n")
+    clean_pkg = tmp_path / "jev_factory_fake_clean"  # a package walk covers every file in it
+    clean_pkg.mkdir()
+    (clean_pkg / "__init__.py").write_text("")
+    (clean_pkg / "helper.py").write_text("X = 1\n")
+    (clean_pkg / "clean.py").write_text("import json\nfrom . import helper\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+
+    assert _leaks(_closure("jev_factory_fake.direct"))
+    assert _leaks(_closure("jev_factory_fake.direct_from"))
+    transitive = _leaks(_closure("jev_factory_fake.mid"))
+    assert "jev_factory.backbones.causal_lm" in transitive
+    assert _leaks(_closure("jev_factory_fake_clean.clean")) == []
