@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-14T05:54:33Z",
-  "updated": "2026-10-14T07:03:10Z",
+  "updated": "2026-10-14T08:11:28Z",
   "targets": [
     {
       "id": "c1",
@@ -1150,6 +1150,14 @@
       "text": "Selection runtime: the example distill grid is 96 candidates (alpha x per-kind temperature x epochs x lr x init_mode) and t18 has no per-candidate resume, so a full apply run is many GPU-days on one GB10 and any interruption retrains everything; the operator must shrink the grid before the lock and/or a per-candidate resume must be added before t26.",
       "kind": "unknown_nonblocking",
       "task_id": "t26",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r15",
+      "text": "No plan task fits a decision gate for typed questions (per-kind floor/margin/entropy thresholds fitted on the fit fold, e.g. via core.sweep_gate), although c41's after-state says the bundle carries 'its gate'; t21 ships gate.json with fitted:false. Either add a gate-fit task (deviation) or confirm the gate is the caller's (lobes) job.",
+      "kind": "unknown_blocking",
+      "task_id": "t21",
       "resolved": false,
       "resolution": ""
     }
