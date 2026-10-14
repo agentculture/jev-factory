@@ -43,6 +43,7 @@ from jev_factory.distill import assemble as dassemble
 from jev_factory.distill import audit as daudit
 from jev_factory.distill import dataset as ddataset
 from jev_factory.distill import final as dfinal
+from jev_factory.distill import gate as dgate
 from jev_factory.distill import prereg as dprereg
 from jev_factory.distill import quant as dquant
 from jev_factory.release import hub, scan
@@ -149,18 +150,41 @@ def _sealed_ids(dataset_dir: Path | None) -> frozenset[str]:
     return frozenset(ids)
 
 
-def _gate(prereg_path: Path, run_dir: Path, deviation_id: str | None) -> dict[str, Any]:
+def _gate(
+    prereg_path: Path, run_dir: Path, deviation_id: str | None, calibration_sha256: str
+) -> dict[str, Any]:
+    """The decision gate to ship: ``distill/gate/gate.json`` when the gate stage ran.
+
+    A fitted gate must name the sha256 of the calibration the bundle ships (the one it was
+    fitted on); any other is refused. Without the gate stage the bundle records that no gate
+    was fitted: a pre-registered gate objective and grid is not a fitted gate.
+    """
     reg = dprereg.require_locked(prereg_path, run_dir, deviation_id)
     del reg
-    doc = json.loads(prereg_path.read_text(encoding="utf-8"))
     sha = dprereg.sha256_file(prereg_path)
-    by_kind = doc.get("gate")
-    if isinstance(by_kind, dict) and by_kind:
-        return {"fitted": True, "by_kind": by_kind, "source": "locked prereg", "prereg_sha256": sha}
+    path = run_dir / dgate.GATE_REL / dgate.GATE_FILE
+    if path.exists() or path.is_symlink():
+        doc = _read_json(path, "fitted decision gate")
+        fitted_on = doc.get("calibration_sha256")
+        if fitted_on != calibration_sha256:
+            raise _refuse(
+                f"{path}: the gate was fitted on calibration {str(fitted_on)[:12]}, "
+                f"but the bundle ships calibration {calibration_sha256[:12]}",
+                "rerun the distill gate stage on the shipped calibration",
+            )
+        if not isinstance(doc.get("thresholds_by_kind"), dict) or doc.get("fitted") is not True:
+            raise _refuse(f"{path}: not a fitted gate (no thresholds_by_kind)")
+        return {
+            **doc,
+            "fitted": True,
+            "source": f"{dgate.GATE_REL}/{dgate.GATE_FILE}",
+            "gate_sha256": dprereg.sha256_file(path),
+            "bundle_prereg_sha256": sha,
+        }
     return {
         "fitted": False,
-        "reason": "the locked pre-registration registers no gate thresholds; none was fitted",
-        "by_kind": {},
+        "reason": "the distill gate stage has not run (no distill/gate/gate.json); none fitted",
+        "thresholds_by_kind": {},
         "prereg_sha256": sha,
     }
 
@@ -293,8 +317,8 @@ def build_bundles(
     for target in (model_out, data_out):
         if target.exists() and any(target.iterdir()):
             raise _refuse(f"{target} exists and is not empty", "bundle into a fresh directory")
-    gate = _gate(prereg_path, run_dir, deviation_id)
     student = dfinal.deployed_student(run_dir)
+    gate = _gate(prereg_path, run_dir, deviation_id, student["calibration_sha256"])
     blob, rows = _train_rows(run_dir)
     sealed = _sealed_ids(Path(dataset_dir) if dataset_dir else None)
     leaked = sorted({r["record_id"] for r in rows if r.get("record_id") in sealed})
@@ -317,7 +341,7 @@ def build_bundles(
     info = _stage_student(src, model_out, calibration)
     train_sha = _sha256_bytes(blob)
     prov = _provenance(
-        run_dir, student, gate["prereg_sha256"], provenance_extra or {}, deviations, info
+        run_dir, student, dprereg.sha256_file(prereg_path), provenance_extra or {}, deviations, info
     )
     identity = {"format": BUNDLE_FORMAT, "surface_sha256": train_sha, "surface_kind": SURFACE_KIND}
     index = {

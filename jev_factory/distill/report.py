@@ -23,6 +23,9 @@ re-measured. A bar that cannot be computed (no items, no v21-to-Clef gap) is a m
 reason; a miss is recorded as a miss and the report is still written. Student accuracy above
 v21 with ECE above v21 is flagged as a regression. Latency (median/p95) and peak memory are
 reported for all three models with the host they ran on, so "same box" is checkable.
+Given the fitted decision gate (deviation d4, ``distill/gate/gate.json``), the student's
+calibrated final predictions are gated per kind and their coverage and selective accuracy
+(with CIs) are reported under ``decision_gate``; reported only, not a c42/c43 bar.
 
 A failed or unanswered question counts as wrong for accuracy and confident-wrong and is left
 out of ECE (it has no confidence); the per-model ``unanswered`` count says how many.
@@ -38,6 +41,7 @@ from typing import Any
 
 from jev_factory.core import metrics as core_metrics
 from jev_factory.distill import contamination
+from jev_factory.distill import gate as dgate
 from jev_factory.distill import prereg as dp
 from jev_factory.distill import train as dtrain
 from jev_factory.distill.records import JEV_BENCH_SOURCE, Record
@@ -409,6 +413,90 @@ def regression(stats: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------- the decision gate
+
+
+GATE_NOT_GATED = (
+    "reported only: the pre-registration registers no coverage bar, so the decision gate "
+    "is not a c42/c43 bar"
+)
+
+
+def gate_units(
+    records: Sequence[Record],
+    rows: Sequence[Mapping[str, Any]],
+    calibration: Mapping[str, Any] | None,
+    thresholds: Mapping[str, Mapping[str, Any]],
+) -> dict[str, list[tuple[dgate.Unit, bool]]]:
+    """Per kind, ``((answered, correct), unanswered)`` for every gold-bearing question.
+
+    The student's final distribution is calibrated (as :func:`outcomes` does) and gated
+    with its kind's thresholds. An unanswered question cannot be answered by the gate, so
+    it counts as an abstention.
+    """
+    by_id = {str(r.get("record_id")): r for r in rows}
+    out: dict[str, list[tuple[dgate.Unit, bool]]] = {k: [] for k in dgate.KINDS}
+    for rec in records:
+        row = by_id.get(rec.id) or {}
+        answers = row.get("questions") or {}
+        for qid, q in rec.questions.items():
+            gold = dtrain._gold_label(rec, qid)
+            if gold is None or q.type not in out:
+                continue
+            ans = answers.get(qid)
+            probs = None
+            if ans is not None and not ans.get("error") and not row.get("error"):
+                probs = dtrain._answer_probs(rec, qid, ans)
+            if probs is None:
+                out[q.type].append(((False, False), True))
+                continue
+            item = dtrain.QItem(q.type, q.names, probs, gold)
+            if calibration:
+                item = dtrain.calibrate_item(item, calibration)
+            th = dgate.KindThresholds.from_json(thresholds.get(q.type))
+            out[q.type].append((dgate.unit(dtrain._pred_item(item), th), False))
+    return out
+
+
+def decision_gate(
+    records_by_side: Mapping[str, Sequence[Record]],
+    rows: Sequence[Mapping[str, Any]],
+    calibration: Mapping[str, Any] | None,
+    gate: Mapping[str, Any] | None,
+    *,
+    seed: int,
+    resamples: int,
+) -> dict[str, Any]:
+    """Per side and kind: coverage and selective accuracy of the gated student (reported)."""
+    if not gate or gate.get("fitted") is not True:
+        return {
+            "fitted": False,
+            "gated": False,
+            "reason": "no fitted decision gate (the distill gate stage has not run)",
+            "sides": {},
+        }
+    thresholds = dgate.thresholds_by_kind(gate)
+    sides: dict[str, Any] = {}
+    for side in SIDES:
+        per_kind = gate_units(records_by_side.get(side, ()), rows, calibration, thresholds)
+        block = {}
+        for group in (*dgate.KINDS, "all"):
+            pairs = [p for kind, ps in per_kind.items() if group in ("all", kind) for p in ps]
+            stats = dgate.summarize([u for u, _ in pairs], seed=seed, resamples=resamples)
+            stats["unanswered"] = sum(1 for _, missing in pairs if missing)
+            block[group] = stats
+        sides[side] = block
+    return {
+        "fitted": True,
+        "gated": False,
+        "reason": GATE_NOT_GATED,
+        "thresholds_by_kind": thresholds,
+        "calibration_sha256": gate.get("calibration_sha256"),
+        "unanswered_rule": "an unanswered question counts as an abstention",
+        "sides": sides,
+    }
+
+
 # --------------------------------------------------------------------- the report
 
 
@@ -473,8 +561,14 @@ def build_report(
     contamination_manifest: Mapping[str, Any] | None = None,
     seed: int = core_metrics.DEFAULT_BOOTSTRAP_SEED,
     resamples: int = core_metrics.DEFAULT_BOOTSTRAP_RESAMPLES,
+    gate: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The final report (see the module docstring); pure, writes nothing."""
+    """The final report (see the module docstring); pure, writes nothing.
+
+    *gate* is the fitted ``distill/gate/gate.json``; when given, the student's final
+    predictions are gated with it and per-kind coverage and selective accuracy are reported
+    under ``decision_gate`` (reported only, never a bar).
+    """
     threshold = float(prereg.selection_rule["confident_wrong_threshold"])
     every = [r for side in SIDES for r in records_by_side.get(side, ())]
     sources = source_table(every, contamination_manifest)
@@ -512,5 +606,13 @@ def build_report(
         "c43": c43,
         "regression": reg["regression"],
         "runtime": runtime_table(runtime),
+        "decision_gate": decision_gate(
+            records_by_side,
+            predictions.get(STUDENT, ()),
+            calibrations.get(STUDENT),
+            gate,
+            seed=seed,
+            resamples=resamples,
+        ),
         "result": PASSED if c42["result"] == PASSED and c43["result"] == PASSED else MISSED,
     }

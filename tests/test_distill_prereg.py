@@ -241,3 +241,44 @@ def test_example_doc_registers_one_heal_round_with_cited_knobs_in_the_grid():
     for name in ("epochs", "lr", "init_mode"):
         assert knobs[name] in doc["knob_grid"][name]
     assert doc["bars"]["quant"]["heal_rounds_max"] == 1
+
+
+# --------------------------------------------------------------------- the decision gate (d4)
+
+
+def test_example_doc_registers_a_per_kind_gate_objective_and_grid_as_placeholders():
+    reg = dp.validate(good_doc())
+    gate = reg.gate
+    assert gate is not None
+    assert gate["objective"] == "max_selective_accuracy"
+    assert set(gate["min_coverage"]) == set(dp.GATE_KINDS) == {"choice", "noul", "score"}
+    assert all(0.0 < v <= 1.0 for v in gate["min_coverage"].values())
+    assert set(gate["grid"]) == {"floor", "margin", "max_entropy"}
+    for values in gate["grid"].values():
+        assert None in values  # a disabled threshold is always on the grid
+    assert "placeholder" in gate["status"]
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda g: g.update(objective="max_accuracy"),
+        lambda g: g["min_coverage"].pop("noul"),
+        lambda g: g["min_coverage"].update(choice=1.5),
+        lambda g: g["grid"].pop("margin"),
+        lambda g: g["grid"].update(floor=[]),
+        lambda g: g["grid"].update(floor=[None, 1.2]),
+        lambda g: g["grid"].update(max_entropy=["x"]),
+    ],
+)
+def test_an_invalid_gate_block_is_refused(mutate):
+    doc = good_doc()
+    mutate(doc["gate"])
+    with pytest.raises(CliError):
+        dp.validate(doc)
+
+
+def test_a_prereg_without_a_gate_block_still_validates():
+    doc = good_doc()
+    del doc["gate"]
+    assert dp.validate(doc).gate is None

@@ -49,6 +49,16 @@ QUANT_BARS: dict[str, str] = {
     "ece_max": "rate",
     "heal_rounds_max": "int",
 }
+#: Question kinds the decision gate is fitted for (deviation d4), one threshold set each.
+GATE_KINDS: tuple[str, ...] = ("choice", "noul", "score")
+#: The gate thresholds swept per kind (floor, margin, max_entropy; ``None`` = disabled).
+GATE_THRESHOLDS: tuple[str, ...] = ("floor", "margin", "max_entropy")
+#: Registered gate objectives: maximise selective accuracy subject to a coverage minimum.
+GATE_OBJECTIVES: tuple[str, ...] = ("max_selective_accuracy",)
+GATE_PLACEHOLDER = (
+    "operator placeholder (deviation d4): confirm the objective, coverage minimums and grid "
+    "before the lock"
+)
 SELECTION_ORDER: tuple[str, ...] = (
     "safety",
     "accuracy_floor",
@@ -95,6 +105,7 @@ class DistillPrereg:
     knob_grid: dict[str, Any]
     reference_rows: dict[str, dict[str, Any]]
     upstream_knobs: tuple[UpstreamKnob, ...]
+    gate: dict[str, Any] | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
@@ -222,6 +233,20 @@ def example_doc() -> dict[str, Any]:
             "init_mode": "continue",
             "source": HEAL_SOURCE,
         },
+        # The decision gate (deviation d4): per question kind, sweep floor / margin /
+        # max_entropy on the deployed build's calibrated fit-fold predictions and keep the
+        # point with the best selective accuracy whose coverage meets the kind's minimum.
+        # Every value here is an operator placeholder until the lock.
+        "gate": {
+            "objective": GATE_OBJECTIVES[0],
+            "min_coverage": {"choice": 0.8, "noul": 0.8, "score": 0.8},
+            "grid": {
+                "floor": [None, 0.5, 0.6, 0.7, 0.8],
+                "margin": [None, 0.1, 0.2],
+                "max_entropy": [None, 0.8, 0.9],
+            },
+            "status": GATE_PLACEHOLDER,
+        },
         "reference_rows": {
             "clef": {"model": "Clef 27B", "role": "teacher"},
             "stock_v21": {
@@ -312,6 +337,31 @@ def _grid(doc: Any) -> dict[str, Any]:
     return dict(doc)
 
 
+def _gate(doc: Any) -> dict[str, Any] | None:
+    """The optional decision-gate block; validated in full when present."""
+    if doc is None:
+        return None
+    if not isinstance(doc, dict):
+        raise _err("gate must be an object")
+    if doc.get("objective") not in GATE_OBJECTIVES:
+        raise _err(f"gate.objective must be one of {list(GATE_OBJECTIVES)}")
+    cov = doc.get("min_coverage")
+    if not isinstance(cov, dict) or sorted(cov) != sorted(GATE_KINDS):
+        raise _err(f"gate.min_coverage must map exactly {list(GATE_KINDS)} to a rate")
+    if not all(_is_num(v) and 0.0 < v <= 1.0 for v in cov.values()):
+        raise _err("gate.min_coverage values must be numbers in (0, 1]")
+    grid = doc.get("grid")
+    if not isinstance(grid, dict) or sorted(grid) != sorted(GATE_THRESHOLDS):
+        raise _err(f"gate.grid must carry exactly {list(GATE_THRESHOLDS)}")
+    for name in GATE_THRESHOLDS:
+        values = grid[name]
+        if not isinstance(values, list) or not values:
+            raise _err(f"gate.grid.{name} must be a non-empty list")
+        if not all(v is None or (_is_num(v) and 0.0 <= v <= 1.0) for v in values):
+            raise _err(f"gate.grid.{name} values must be null or numbers in [0, 1]")
+    return dict(doc)
+
+
 def _references(doc: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(doc, dict):
         raise _err("reference_rows must be an object")
@@ -356,6 +406,7 @@ def validate(doc: Any) -> DistillPrereg:
         knob_grid=_grid(doc.get("knob_grid")),
         reference_rows=_references(doc.get("reference_rows")),
         upstream_knobs=_upstream(doc.get("upstream_knobs")),
+        gate=_gate(doc.get("gate")),
         raw=doc,
     )
 
