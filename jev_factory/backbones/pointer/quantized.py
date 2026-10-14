@@ -59,6 +59,7 @@ from typing import Any, Callable, Mapping, Sequence
 from jev_factory.backbones.pointer import layout as player
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from jev_factory.distill.envs import EnvSpec
+from jev_factory.factory import gpu
 from jev_factory.factory.detach import start_detached
 
 MODULE = "jev_factory.backbones.pointer.quantized"
@@ -335,17 +336,6 @@ def plan_weight_only(
 Runner = Callable[[Sequence[str], Mapping[str, str]], "subprocess.CompletedProcess[str]"]
 
 
-def _run(argv: Sequence[str], env: Mapping[str, str], timeout: float | None = None) -> Any:
-    return subprocess.run(  # nosec B603 - argv built by plan_weight_only
-        list(argv),
-        env={**os.environ, **env},
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
-
-
 def build_weight_only(
     checkpoint_dir: Path | str,
     out_dir: Path | str,
@@ -358,8 +348,17 @@ def build_weight_only(
     device: str = "cuda",
     runner: Runner | None = None,
     timeout: float | None = None,
+    memory_max: str | None = None,
+    memory_floor: str = "8G",
+    allow_foreign: bool = False,
 ) -> dict[str, Any]:
-    """Dry-run: the plan (argv, env), nothing written. *apply*: build and verify the artifact."""
+    """Dry-run: the plan (argv, env), nothing written. *apply*: build and verify the artifact.
+
+    The build runs through ``factory.gpu.run_gpu_stage("quantize", ...)``: the GPU residency
+    guard, a hard *memory_max* cap and the *memory_floor* watchdog (GB10 GPU allocations are
+    not charged to the cgroup). *apply* is refused without *memory_max*. *runner* replaces
+    that call (a test seam); the cap is still required.
+    """
     plan = plan_weight_only(
         checkpoint_dir,
         out_dir,
@@ -371,15 +370,37 @@ def build_weight_only(
     )
     if not apply:
         return plan
+    if not memory_max:
+        raise _refuse(
+            "a GPU quantize build needs a memory cap",
+            "pass memory_max (e.g. '100G') with apply; GB10 GPU memory skips the cgroup cap",
+        )
     if runner is None:
-        done = _run(plan["argv"], plan["env"], timeout)
+        out_path = Path(plan["out_dir"])
+        run_dir = out_path.parent / f"{out_path.name}.capped"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        done = gpu.run_gpu_stage(
+            "quantize",
+            run_dir,
+            list(plan["argv"]),
+            allow_foreign=allow_foreign,
+            memory_max=memory_max,
+            memory_floor=memory_floor,
+            env={**os.environ, **plan["env"]},
+            timeout=timeout,
+        )
     else:
         done = runner(plan["argv"], plan["env"])
     if done.returncode != 0:
         tail = (done.stderr or "").strip().splitlines()[-5:]
+        why = (
+            f"stopped by the memory-floor watchdog (MemAvailable below {memory_floor})"
+            if done.returncode == gpu.WATCHDOG_STATUS
+            else f"exited {done.returncode}"
+        )
         raise CliError(
             EXIT_ENV_ERROR,
-            f"the torchao {plan['format']} build exited {done.returncode}: {' | '.join(tail)}",
+            f"the torchao {plan['format']} build {why}: {' | '.join(tail)}",
             "read the build's stderr; the student env needs torch, torchao and strands_decider",
         )
     try:
@@ -389,10 +410,22 @@ def build_weight_only(
             EXIT_ENV_ERROR,
             f"the build exited 0 but left no valid {MANIFEST_FILE} artifact: {exc.message}",
         ) from exc
-    return {**plan, "dry_run": False, "artifact": info}
+    return {
+        **plan,
+        "dry_run": False,
+        "artifact": info,
+        "capped": {"memory_max": memory_max, "memory_floor": memory_floor},
+    }
 
 
 # --------------------------------------------------------------------- serving (here)
+
+
+#: Recorded in ``<name>.serve.json``: servers are long-lived and run without the build cap.
+UNCAPPED_NOTE = (
+    "long-lived server, not run under capped.sh (no hard memory cap, no floor watchdog); "
+    "residual risk: it can use GPU/unified memory the cgroup does not charge"
+)
 
 
 def serve_argv(
@@ -469,6 +502,8 @@ def launch(
             "files": manifest["files"],
             "manifest_sha256": player.sha256_file(Path(artifact) / MANIFEST_FILE),
         },
+        "capped": False,
+        "capped_note": UNCAPPED_NOTE,
     }
     (jobdir / f"{name}.serve.json").write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
     return start_detached(jobdir, name, argv)

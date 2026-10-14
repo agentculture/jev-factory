@@ -293,12 +293,18 @@ def torch_wo_builder(
     runner: qz.Runner | None = None,
     guard: Callable[[str], Any] | None = None,
     timeout: float | None = None,
+    memory_max: str | None = None,
+    memory_floor: str = "8G",
+    allow_foreign: bool = False,
 ) -> Builder:
     """Build a torchao weight-only artifact in the student env; a failure is unavailable.
 
     The GPU residency guard runs before each build (one GPU job at a time). A build that
-    exits non-zero, cannot start, or leaves no verified artifact raises
-    :class:`FormatUnavailable` carrying the error, so the spike records it, never drops it.
+    exits non-zero (a memory-floor watchdog stop included), cannot start, or leaves no
+    verified artifact raises :class:`FormatUnavailable` carrying the error, so the spike
+    records it, never drops it. The build runs through ``run_gpu_stage("quantize", ...)``
+    under *memory_max* / *memory_floor*; a missing *memory_max* is refused (a ``CliError``,
+    not an unavailable format), since the box would otherwise be unprotected.
     """
 
     def build(fmt: str, checkpoint: Path, out_dir: Path) -> Path:
@@ -307,6 +313,8 @@ def torch_wo_builder(
         out_dir = Path(out_dir)
         if _reusable(out_dir, Path(checkpoint), fmt):
             return out_dir
+        if not memory_max:
+            raise _refuse("a GPU quantize build needs a memory cap", "pass memory_max with apply")
         (guard or _gpu_guard)("quantize")
         try:
             qz.build_weight_only(
@@ -320,6 +328,9 @@ def torch_wo_builder(
                 device=device,
                 runner=runner,
                 timeout=timeout,
+                memory_max=memory_max,
+                memory_floor=memory_floor,
+                allow_foreign=allow_foreign,
             )
         except CliError as exc:
             raise FormatUnavailable(f"torchao build failed for {fmt}: {exc.message}") from exc
@@ -341,6 +352,9 @@ def default_builders(
     runner: qz.Runner | None = None,
     guard: Callable[[str], Any] | None = None,
     timeout: float | None = None,
+    memory_max: str | None = None,
+    memory_floor: str = "8G",
+    allow_foreign: bool = False,
 ) -> dict[str, Builder]:
     """bf16, plus the torchao weight-only formats when the student env is given.
 
@@ -357,6 +371,9 @@ def default_builders(
             runner=runner,
             guard=guard,
             timeout=timeout,
+            memory_max=memory_max,
+            memory_floor=memory_floor,
+            allow_foreign=allow_foreign,
         )
         builders.update(dict.fromkeys(TORCH_FORMATS, torch_build))
     return builders
@@ -853,6 +870,15 @@ def _default_trainer(**kw: Any) -> Trainer:
 # --------------------------------------------------------------------- served measurer
 
 
+def _record_uncapped(jobdir: Path, name: str) -> None:
+    """Add ``capped: false`` (and why) to ``<name>.serve.json``: servers run without capped.sh."""
+    path = Path(jobdir) / f"{name}.serve.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["capped"] = False
+    record["capped_note"] = qz.UNCAPPED_NOTE
+    _write_json(path, record)
+
+
 def served_measurer(
     *,
     env: Any,
@@ -920,7 +946,9 @@ def served_measurer(
                 ) from exc
 
             def start() -> Any:
-                return pserve.launch(jobdir, name, env, artifact, port=port, device=device)
+                pid = pserve.launch(jobdir, name, env, artifact, port=port, device=device)
+                _record_uncapped(jobdir, name)
+                return pid
 
         gpu.assert_gpu_free("measure")
         target = bench.Target(
