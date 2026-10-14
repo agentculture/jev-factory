@@ -234,12 +234,47 @@ Approving changes nothing in the seed; the review file is the record.
 Rejecting removes the entry. An edit replaces the entry. A proposal adds a
 new entry, whose source defaults to `operator-review-<date>`.
 
+`--corrections FILE` reviews distillery corrections instead of a domain seed;
+see `jev-factory explain review corrections`.
+
 ## Usage
 
     jev-factory review <domain>
     jev-factory review <domain> --serve
     jev-factory review <domain> --serve --port 0 --json
     jev-factory review <domain> --apply
+"""
+
+_REVIEW_CORRECTIONS = """\
+# jev-factory review --corrections <file>
+
+Operator review of a distillery corrections file (JSONL of proposed gold
+corrections). It takes the same three modes as the seed review, with the
+corrections file in place of a domain. The review file, `<file stem>.review.jsonl`
+beside the corrections unless `--review-file` names another, is the append-only
+record, and an entry's latest record is its decision. The corrections file is
+never edited. Only approved and edited corrections are trainable.
+
+- Default (dry run): reads the corrections, the review file and any staged
+  decisions, and reports the decision counts, how many staged decisions would
+  be recorded, and any that are stale (the correction changed since the
+  decision) or conflicting. Nothing is written.
+- `--serve`: starts the local corrections review site on 127.0.0.1 (`--port`,
+  default 18765). Decisions made there are only staged in a draft file beside
+  the corrections; nothing reaches the review file yet.
+- `--apply`: appends the staged decisions to the review file and removes the
+  draft. It refuses, and writes nothing, if any staged decision is stale.
+
+`--serve` and `--apply` are separate steps. A missing corrections file is an
+environment error (exit 2); an unreadable one or a stale decision is a user
+error (exit 1).
+
+## Usage
+
+    jev-factory review --corrections <file>
+    jev-factory review --corrections <file> --serve
+    jev-factory review --corrections <file> --serve --port 0 --json
+    jev-factory review --corrections <file> --apply
 """
 
 _DECIDE = """\
@@ -350,6 +385,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("decide",): _DECIDE,
     ("ask",): _ASK,
     ("review",): _REVIEW,
+    ("review", "corrections"): _REVIEW_CORRECTIONS,
     ("domain",): _DOMAIN,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,

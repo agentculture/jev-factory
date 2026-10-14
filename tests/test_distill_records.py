@@ -162,3 +162,26 @@ def test_import_pulls_no_third_party():
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "[]", out.stdout
+
+
+def test_source_metadata_defaults_to_none_and_roundtrips():
+    rec = _rec()
+    assert rec.hf_id is None and rec.group is None
+    assert "hf_id" not in rec.to_json() and "group" not in rec.to_json()
+    rich = _rec(hf_id="mteb/banking77", group="agent_trace_observability")
+    assert R.Record.from_json(rich.to_json()) == rich
+    assert rich.to_json()["hf_id"] == "mteb/banking77"
+    assert rich.to_json()["group"] == "agent_trace_observability"
+
+
+def test_jev_bench_row_carries_meta_hf_id():
+    rec = R.from_jev_bench_row(_fx("real_jev_bench_banking77_row.json"))
+    assert rec.hf_id == "mteb/banking77"
+    assert rec.group is None
+
+
+def test_typed_decisions_row_carries_workflow_as_group():
+    row = _fx("real_typed_decisions_row.json")
+    rec = R.from_typed_decisions_row(row)
+    assert rec.group == row["workflow"] == "agent_trace_observability"
+    assert rec.hf_id is None

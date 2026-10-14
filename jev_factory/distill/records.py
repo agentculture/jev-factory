@@ -232,6 +232,10 @@ class Record:
     source: str
     licence: str
     gold_provenance: str
+    #: Upstream dataset id (jev-bench ``meta.hf_id``); feeds the contamination check.
+    hf_id: str | None = None
+    #: Fold-grouping key (typed-decisions ``workflow``); falls back to identical state.
+    group: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "questions", dict(self.questions))
@@ -258,7 +262,7 @@ class Record:
             raise GoldOutsideOptions(f"record {self.id!r}: gold for unknown questions {extra}")
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "id": self.id,
             "state": self.state,
             "questions": {qid: q.to_json() for qid, q in self.questions.items()},
@@ -268,6 +272,10 @@ class Record:
             "licence": self.licence,
             "gold_provenance": self.gold_provenance,
         }
+        for name in ("hf_id", "group"):
+            if getattr(self, name) is not None:
+                out[name] = getattr(self, name)
+        return out
 
     @classmethod
     def from_json(cls, data: Mapping[str, Any]) -> Record:
@@ -283,6 +291,8 @@ class Record:
             source=str(data["source"]),
             licence=str(data["licence"]),
             gold_provenance=str(data.get("gold_provenance", "")),
+            hf_id=None if data.get("hf_id") is None else str(data["hf_id"]),
+            group=None if data.get("group") is None else str(data["group"]),
         )
 
 
@@ -327,6 +337,7 @@ def from_typed_decisions_row(row: Mapping[str, Any]) -> Record:
         source=TYPED_DECISIONS_SOURCE,
         licence=TYPED_DECISIONS_LICENCE,
         gold_provenance="model-generated",
+        group=None if row.get("workflow") in (None, "") else str(row["workflow"]),
     )
 
 
@@ -367,6 +378,7 @@ def from_jev_bench_row(row: Mapping[str, Any]) -> Record:
         source=f"{JEV_BENCH_SOURCE}:{row['source']}",
         licence=str(meta["license"]),
         gold_provenance="human",
+        hf_id=None if not meta.get("hf_id") else str(meta["hf_id"]),
     )
 
 

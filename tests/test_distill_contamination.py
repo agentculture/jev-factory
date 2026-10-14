@@ -72,3 +72,28 @@ def test_all_29_v21_ids_present():
     names = {s["name"] for s in c.load_manifest()["sources"] if s["card"].endswith("sources.md")}
     assert len(names) >= 29
     assert {"legacy-datasets/banking77", "ucberkeley-dlab/measuring-hate-speech"} <= names
+
+
+def test_hf_id_is_derived_from_records_automatically():
+    import json as _json
+    from pathlib import Path
+
+    from jev_factory.distill import records as R
+
+    row = _json.loads(
+        (
+            Path(__file__).parent / "fixtures/typed_decisions/real_jev_bench_banking77_row.json"
+        ).read_text()
+    )
+    rec = R.from_jev_bench_row(row)
+    assert rec.hf_id == "mteb/banking77"
+    name = rec.source  # "Praveenrajus/jev-bench:banking77"
+    # the source name alone would not be recognised by the name match
+    assert c.check_sources([name])["results"][name]["status"] == "clean"
+    rep = c.check_sources([name], records=[rec])
+    assert rep["results"][name]["status"] == "overlapping"
+    m = rep["results"][name]["matches"][0]
+    assert m["source_url"].startswith("https://huggingface.co/")
+    # an explicit hf_ids argument still wins
+    rep = c.check_sources([name], records=[rec], hf_ids={name: "nobody/nothing"})
+    assert rep["results"][name]["status"] == "clean"

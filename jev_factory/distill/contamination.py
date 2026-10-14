@@ -11,9 +11,10 @@ URL it came from):
 * ``clean``: not found.
 
 jev-bench configs are matched through aliases (``banking77``, ``clinc150``, ``massive``,
-``civil_comments``, ``measuring_hate_speech`` ...) or by upstream HF id. ``Record`` does not
-carry ``meta.hf_id``, so a caller that has it passes ``hf_ids={source: hf_id}`` and the id is
-tried first; a ``jev-bench:<config>`` source name is also accepted.
+``civil_comments``, ``measuring_hate_speech`` ...) or by upstream HF id. ``Record.hf_id`` holds
+``meta.hf_id`` for jev-bench rows: pass ``records=`` and each record's ``hf_id`` is
+derived automatically (keyed by its ``source``); an explicit ``hf_ids={source: hf_id}`` wins and
+the id is tried first; a ``jev-bench:<config>`` source name is also accepted.
 
 Known limitations (v1): matching is by NAME only, after normalisation (lowercase,
 alphanumerics only) plus the manifest's alias table. No row-level or near-duplicate
@@ -34,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
+from jev_factory.distill.records import Record
 
 STAGE = "distill-contamination"
 MANIFEST_PATH = Path(__file__).parent / "data" / "upstream_sources.json"
@@ -83,15 +85,17 @@ def check_sources(
     names: Iterable[str],
     manifest: dict[str, Any] | None = None,
     hf_ids: Mapping[str, str] | None = None,
+    records: Iterable[Record] | None = None,
 ) -> dict[str, Any]:
     """Mark each source name clean, v21-evaluated or overlapping; returns the report dict.
 
     *hf_ids* optionally maps a source name to its upstream HF id (``meta.hf_id``); when
-    present the id is matched in addition to the name.
+    present the id is matched in addition to the name. *records* supplies ``Record.hf_id``
+    values for their ``source`` names; an explicit *hf_ids* entry overrides them.
     """
     manifest = manifest if manifest is not None else load_manifest()
     idx = _index(manifest)
-    hf_ids = hf_ids or {}
+    hf_ids = {**{r.source: r.hf_id for r in (records or ()) if r.hf_id}, **(hf_ids or {})}
     results: dict[str, Any] = {}
     for name in sorted(set(names)):
         keys = [name.removeprefix(JEV_BENCH_PREFIX)]

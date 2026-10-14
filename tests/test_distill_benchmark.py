@@ -235,3 +235,63 @@ def test_pred_items_feed_metrics(servers):
     items = bm.pred_items(FOLDS["fit"], out["models"]["clef"]["predictions"])
     assert len(items) == 9  # 3 records x (choice, score, noul)
     assert {i.kind for i in items} == {"choice", "score", "noul"}
+
+
+# --- /proc RSS fallback --------------------------------------------------------
+
+
+def _fake_proc(root, procs):
+    """procs: {pid: (ppid, rss_kb)}; writes /proc/<pid>/{stat,status} under *root*."""
+    for pid, (ppid, rss) in procs.items():
+        d = root / str(pid)
+        d.mkdir(parents=True)
+        # comm may contain spaces and parentheses; the parser must cope
+        (d / "stat").write_text(f"{pid} (my (srv) x) S {ppid} 1 1 0 -1 0\n")
+        (d / "status").write_text(f"Name:\tsrv\nVmRSS:\t{rss} kB\nThreads:\t1\n")
+    (root / "self").mkdir()
+    (root / "stat").write_text("cpu 1 2 3\n")
+
+
+def test_proc_rss_sums_the_target_and_its_descendants_only(tmp_path):
+    _fake_proc(tmp_path, {10: (1, 1024), 11: (10, 2048), 12: (11, 1024), 20: (1, 99999)})
+    assert bm.proc_rss_mib(10, proc_root=tmp_path) == 4.0
+    assert bm.proc_rss_mib(12, proc_root=tmp_path) == 1.0
+    assert bm.proc_rss_mib(999, proc_root=tmp_path) is None
+
+
+def test_gpu_probe_none_falls_back_to_proc_rss_and_records_the_probe(servers, tmp_path):
+    _fake_proc(tmp_path, {10: (1, 2048), 11: (10, 2048)})
+    srv = servers("clef")
+    t = srv.target()
+    t = bm.Target(t.name, t.base_url, t.model, start=t.start, stop=t.stop, pid=lambda: 10)
+    out = bm.run_benchmark([t], {"fit": [_rec(1)]}, memory_probe=lambda: None, proc_root=tmp_path)
+    mem = out["models"]["clef"]["memory"]
+    assert mem["measured"] is True and mem["peak_mib"] == 4.0
+    assert mem["probe"] == "proc-rss"
+
+
+def test_gpu_probe_figure_wins_and_is_labelled_nvidia_smi(servers, tmp_path):
+    _fake_proc(tmp_path, {10: (1, 2048)})
+    srv = servers("clef")
+    t = srv.target()
+    t = bm.Target(t.name, t.base_url, t.model, pid=10)
+    out = bm.run_benchmark(
+        [t], {"fit": [_rec(1)]}, memory_probe=bm.nvidia_smi_used_mib, proc_root=tmp_path
+    )
+    mem = out["models"]["clef"]["memory"]
+    if mem["probe"] == "nvidia-smi":
+        assert mem["measured"] is True
+    else:  # no usable GPU probe on this box: the fallback produced the figure
+        assert mem["probe"] == "proc-rss" and mem["peak_mib"] == 2.0
+
+
+def test_neither_probe_working_stays_unmeasured(servers, tmp_path):
+    srv = servers("clef")
+    t = srv.target()  # no pid
+    out = bm.run_benchmark([t], {"fit": [_rec(1)]}, memory_probe=lambda: None, proc_root=tmp_path)
+    mem = out["models"]["clef"]["memory"]
+    assert mem["measured"] is False and mem["probe"] is None and mem["peak_mib"] is None
+    # a pid whose process is gone is also unmeasured
+    t2 = bm.Target(t.name, t.base_url, t.model, pid=4242)
+    out = bm.run_benchmark([t2], {"fit": [_rec(1)]}, memory_probe=lambda: None, proc_root=tmp_path)
+    assert out["models"]["clef"]["memory"]["measured"] is False

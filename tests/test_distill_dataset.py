@@ -251,3 +251,35 @@ def test_test_rows_never_in_training_files(tmp_path):
     }
     assert not (train_ids & set(ds.test.ids))
     assert not (train_ids & set(ds.held_out.ids))
+
+
+def test_group_field_is_the_fold_key_when_present_else_state():
+    from dataclasses import replace
+
+    def sides(ds, ids):
+        where = {}
+        for name, recs in (
+            ("fit", ds.fit),
+            ("selection", ds.selection),
+            ("held", ds._held_out_records),
+        ):
+            for r in recs:
+                where[r.id] = name
+        return {where[i] for i in ids if i in where}
+
+    # 12 workflows of 10 records each, every record with its own distinct state
+    def corpus(grouped):
+        out = []
+        for w in range(12):
+            for k in range(10):
+                rec = _td(w * 10 + k)
+                out.append(replace(rec, group=f"wf-{w}" if grouped else None))
+        return out
+
+    wf_ids = [[f"td_{w * 10 + k:04d}" for k in range(10)] for w in range(12)]
+    ds = _build(corpus(True))
+    assert all(len(sides(ds, ids)) == 1 for ids in wf_ids)
+    assert len({n for ids in wf_ids for n in sides(ds, ids)}) > 1  # not all on one side
+    # control: without group every distinct state is its own group, so workflows spread
+    plain = _build(corpus(False))
+    assert any(len(sides(plain, ids)) > 1 for ids in wf_ids)
