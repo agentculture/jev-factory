@@ -49,9 +49,12 @@ distillery code (`jev_factory/distill/`, `jev_factory/backbones/pointer/`).
    teacher into a student. They approve every `--apply`, review drafted
    corrections, and make the call on going public (always a human decision).
 2. **lobes' `decider` role** and the mesh callers behind it (routing, triage,
-   guardrails) consume the distilled student over `/v1/systemone`. The bundle
-   is therefore the `hobson-hf-export/1` layout that `strands-decider serve`
-   loads unmodified.
+   guardrails) consume the distilled student over `/v1/systemone`. A bf16
+   student ships in the `hobson-hf-export/1` layout that `strands-decider serve`
+   loads unmodified; a torchao int8/int4 student (deviation d3) ships as a
+   `jev_quant.json` artifact served by jev-factory's thin wrapper
+   (`python -m jev_factory.backbones.pointer.quantized serve`), which answers
+   the same wire.
 
 ## The lobes split
 
