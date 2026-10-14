@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-14T04:03:15Z",
-  "updated": "2026-10-14T06:43:29Z",
+  "updated": "2026-10-14T07:13:03Z",
   "claims": [
     {
       "id": "c1",
@@ -1663,6 +1663,19 @@
       "refs": [
         "t8",
         "d2"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l12",
+      "code": "assumption-for-measurement",
+      "what": "t19 declares all four quantized deployed formats (W4A16 torso + fp32 head, ONNX int8/int4, GGUF + side-loaded head) unavailable by reading strands-decider @8b6faa5 (torch/MLX engine, base + unmerged PeftModel), without attempting a build; only bf16 has a builder, so the 'spike' measures nothing quantized and c43 is met trivially by bf16",
+      "skipped_check": "attempt each format build on the Spark and record the measured failure or result",
+      "refs": [
+        "t19",
+        "c9",
+        "c43"
       ],
       "origin": "llm",
       "status": "proposed"
