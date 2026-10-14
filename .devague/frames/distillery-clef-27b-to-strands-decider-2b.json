@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-14T04:03:15Z",
-  "updated": "2026-10-14T05:50:00Z",
+  "updated": "2026-10-14T06:13:50Z",
   "claims": [
     {
       "id": "c1",
@@ -1544,6 +1544,78 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l2",
+      "code": "control-absent",
+      "what": "t7 task agent wrote tests and implementation in one step, never observing the new tests fail first (TDD red step skipped)",
+      "skipped_check": "run the new tests against the pre-change tree and see them fail",
+      "refs": [
+        "t7",
+        "tests/test_distill_pins.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "assumption-for-measurement",
+      "what": "t7 assumed the v21 provenance.json schema (top-level adapter_sha256/head_sha256, full hex) without reading the real file; the main agent's earlier probe of HF StrandsAgents/strands-decider-2B-hobson-v21 provenance.json confirms that schema and the full digests",
+      "skipped_check": "read the real provenance.json before coding the parser",
+      "refs": [
+        "t7",
+        "jev_factory/distill/pins.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l4",
+      "code": "assumption-for-measurement",
+      "what": "t6 guessed the server entry points and flags in envs.build_argv (strands_decider serve, a transformers load_release_model sidecar module, sglang.launch_server) without reading the real CLIs; tests only check argv shape. Research earlier this session saw 'strands-decider serve <repo> --port 8000' in the strands-decider README; the Clef sidecar module is not a published entry point",
+      "skipped_check": "confirm each server's real command line before encoding it",
+      "refs": [
+        "t6",
+        "jev_factory/distill/envs.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l5",
+      "code": "control-absent",
+      "what": "t5 did not observe its tests failing first and did not seed a deliberate import violation to prove the import-graph test can fail (only a positive control: measure.serve reaches causal_lm)",
+      "skipped_check": "a negative control: a distribution-only module that imports a backbone must make test_backbone_seam fail",
+      "refs": [
+        "t5",
+        "tests/test_backbone_seam.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l6",
+      "code": "assumption-for-measurement",
+      "what": "t1 and t4 coded dataset/response schemas without real samples: t1 guessed typed-decisions and jev-bench row shapes (wrong on noul gold, jev-bench options source, id column) and invented a noul 'none' sentinel; t4 guessed the /v1/systemone response envelope. The main agent fetched real rows (HF datasets-server) and is feeding them back as fixtures",
+      "skipped_check": "fetch one real row / response before coding a parser",
+      "refs": [
+        "t1",
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l7",
+      "code": "control-absent",
+      "what": "The main agent's common rules for wave-0 task agents did not forbid git stash, although all worktrees share one stash list; concurrent stashes swapped files between seven agents",
+      "skipped_check": "a worktree-isolation rule (no git stash, no reset/clean, commit only own files, show --stat before reporting) in the shared agent brief",
+      "refs": [
+        "common.md",
+        "d1"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [
