@@ -81,6 +81,14 @@ def _status(hits: list[dict[str, Any]]) -> str:
     return OVERLAPPING
 
 
+def _config_name(name: str) -> str:
+    """Strip ``jev-bench:`` or ``<org>/jev-bench:`` so the config name is matched."""
+    head, sep, config = name.partition(JEV_BENCH_PREFIX)
+    if sep and head.rstrip("/").count("/") == 0 and (head == "" or head.endswith("/")):
+        return config
+    return name
+
+
 def check_sources(
     names: Iterable[str],
     manifest: dict[str, Any] | None = None,
@@ -98,7 +106,7 @@ def check_sources(
     hf_ids = {**{r.source: r.hf_id for r in (records or ()) if r.hf_id}, **(hf_ids or {})}
     results: dict[str, Any] = {}
     for name in sorted(set(names)):
-        keys = [name.removeprefix(JEV_BENCH_PREFIX)]
+        keys = [_config_name(name)]
         if name in hf_ids:
             keys.insert(0, hf_ids[name])
         hits: list[dict[str, Any]] = []
