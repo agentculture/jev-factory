@@ -68,7 +68,7 @@ from typing import Any, Callable, Mapping, Sequence
 from jev_factory.backbones.pointer import distill_loss as dl
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from jev_factory.distill import prereg as dp
-from jev_factory.factory import gpu
+from jev_factory.factory import gpu, safepath
 
 MODULE = "jev_factory.backbones.pointer.train_distill"
 STAGE = "train"
@@ -680,13 +680,13 @@ def _save_stacked(model: Any, info: Mapping[str, Any], out: Path) -> dict[str, A
     v21 = {k: v.cpu() for k, v in info["v21_state"].items()}
     state, rank, alpha = stack_lora(v21, info["v21_scale"], fresh, _lora_scale(model.torso))
     lora = out / "lora"
-    st.save_file(state, str(lora / "adapter_model.safetensors"))
-    cfg_path = lora / "adapter_config.json"
+    st.save_file(state, str(safepath.contained(lora / "adapter_model.safetensors", out)))
+    cfg_path = safepath.regular_file(lora / "adapter_config.json", out)
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     targets = sorted(set(info["v21_targets"]) | set(model.config.lora_targets))
     cfg.update(r=rank, lora_alpha=alpha, target_modules=targets, rank_pattern={}, alpha_pattern={})
     cfg_path.write_text(json.dumps(cfg, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    sd_path = out / "strands_decider_config.json"
+    sd_path = safepath.regular_file(out / "strands_decider_config.json", out)
     sd = json.loads(sd_path.read_text(encoding="utf-8"))
     sd.update(lora_r=rank, lora_alpha=alpha, lora_targets=targets)
     sd_path.write_text(json.dumps(sd, indent=2) + "\n", encoding="utf-8")
@@ -768,8 +768,10 @@ def _train(args: argparse.Namespace, hp: dict[str, Any], items: list[TrainItem])
         "stacked_lora": stacked,
         "upstream": UPSTREAM_PROVENANCE,
     }
-    (out / CONFIG_FILE).write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
-    (out / HISTORY_FILE).write_text(json.dumps(history, indent=2) + "\n")
+    safepath.contained(out / CONFIG_FILE, out).write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n"
+    )
+    safepath.contained(out / HISTORY_FILE, out).write_text(json.dumps(history, indent=2) + "\n")
     print(json.dumps({"output_dir": str(out), "steps": len(history)}))
     return 0
 
@@ -786,15 +788,32 @@ def _parser() -> argparse.ArgumentParser:
     return p
 
 
+def _contain(args: argparse.Namespace) -> None:
+    """Hold every path the trainer reads or writes to ``--run-dir``, in place.
+
+    The pipeline puts the registration (``distill/prereg.json``), the assembled rows and every
+    checkpoint it trains under the run directory, so a path that resolves outside it (``..``,
+    an absolute path elsewhere, a symlink out) is refused before anything is read. Only
+    ``--init-from`` (the verified v21 checkpoint in the pin cache) may live elsewhere.
+    """
+    run_dir = safepath.resolved(args.run_dir)
+    args.run_dir = str(run_dir)
+    args.prereg = str(safepath.regular_file(args.prereg, run_dir))
+    args.train_file = str(safepath.contained(args.train_file, run_dir))
+    args.output_dir = str(safepath.contained(args.output_dir, run_dir))
+    args.init_from = str(safepath.resolved(args.init_from))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Trainer entry: re-check the lock, resolve hyperparameters, read rows, then train."""
     args = _parser().parse_args(argv)
     try:
+        _contain(args)
         knobs = json.loads(args.knobs)
         if not isinstance(knobs, dict):
             raise _refuse("--knobs must be a JSON object")
         hp = resolve_from_locked(args.prereg, args.run_dir, knobs, args.deviation)
-        items = load_items(args.train_file, hp)
+        items = load_items(safepath.regular_file(args.train_file, args.run_dir), hp)
         return _train(args, hp, items)
     except json.JSONDecodeError as exc:
         print(f"error: --knobs is not valid JSON: {exc}", file=sys.stderr)

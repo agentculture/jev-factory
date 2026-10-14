@@ -133,3 +133,14 @@ def test_real_go_emotions_record_source_matches_manifest_status():
 )
 def test_any_org_jev_bench_prefix_is_normalised(name):
     assert c.check_sources([name])["results"][name]["status"] == "overlapping"
+
+
+def test_report_refuses_a_contamination_file_symlinked_out_of_the_run(tmp_path):
+    run = tmp_path / "run"
+    run.mkdir()
+    target = tmp_path / "elsewhere.json"
+    target.write_text("keep", encoding="utf-8")
+    (run / "contamination.json").symlink_to(target)
+    with pytest.raises(CliError, match="escapes"):
+        c.write_report(c.check_sources(["banking77"]), run)
+    assert target.read_text(encoding="utf-8") == "keep"

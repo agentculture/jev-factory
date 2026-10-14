@@ -444,25 +444,57 @@ def test_run_train_apply_reports_a_failed_trainer(tmp_path, monkeypatch):
         td.run_train(plan(tmp_path), apply=True, memory_max="100G")
 
 
+def _main_argv(tmp_path, **paths):
+    """The trainer's argv in the pipeline's layout: prereg, rows and output under the run."""
+    run = tmp_path / "run"
+    (run / "distill").mkdir(parents=True, exist_ok=True)
+    prereg = run / "distill" / "prereg.json"
+    prereg.write_text(json.dumps(prereg_doc()), encoding="utf-8")
+    values = {
+        "prereg": prereg,
+        "run_dir": run,
+        "train_file": run / "t.jsonl",
+        "init_from": tmp_path / "v21",
+        "output_dir": run / "out",
+    }
+    values.update(paths)
+    argv = ["--knobs", json.dumps(RUN_KNOBS)]
+    for key, value in values.items():
+        argv += ["--" + key.replace("_", "-"), str(value)]
+    return argv
+
+
 def test_trainer_main_refuses_without_a_lock_before_loading_torch(tmp_path, capsys):
-    path = tmp_path / "prereg.json"
-    path.write_text(json.dumps(prereg_doc()), encoding="utf-8")
-    argv = [
-        "--prereg",
-        str(path),
-        "--run-dir",
-        str(tmp_path / "run"),
-        "--knobs",
-        json.dumps(RUN_KNOBS),
-        "--train-file",
-        str(tmp_path / "t.jsonl"),
-        "--init-from",
-        str(tmp_path / "v21"),
-        "--output-dir",
-        str(tmp_path / "out"),
-    ]
-    assert td.main(argv) == 1
+    assert td.main(_main_argv(tmp_path)) == 1
     assert "locked" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "key, rel",
+    [
+        ("output_dir", "../out"),
+        ("output_dir", "../../elsewhere"),
+        ("train_file", "../t.jsonl"),
+        ("prereg", "../prereg.json"),
+    ],
+)
+def test_trainer_main_refuses_a_path_outside_the_run_directory(tmp_path, capsys, key, rel):
+    outside = tmp_path / "run" / rel
+    if key == "prereg":
+        (tmp_path / "prereg.json").write_text(json.dumps(prereg_doc()), encoding="utf-8")
+    assert td.main(_main_argv(tmp_path, **{key: outside})) == 1
+    assert "escapes" in capsys.readouterr().err
+
+
+def test_trainer_main_refuses_a_symlinked_prereg(tmp_path, capsys):
+    real = tmp_path / "run" / "distill" / "real.json"
+    argv = _main_argv(tmp_path)
+    real.write_text(json.dumps(prereg_doc()), encoding="utf-8")
+    link = tmp_path / "run" / "distill" / "link.json"
+    link.symlink_to(real)
+    argv[argv.index("--prereg") + 1] = str(link)
+    assert td.main(argv) == 1
+    assert "symlink" in capsys.readouterr().err
 
 
 # --------------------------------------------------------------------- training rows

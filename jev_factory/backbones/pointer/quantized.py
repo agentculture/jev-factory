@@ -59,7 +59,7 @@ from typing import Any, Callable, Mapping, Sequence
 from jev_factory.backbones.pointer import layout as player
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from jev_factory.distill.envs import EnvSpec
-from jev_factory.factory import gpu
+from jev_factory.factory import gpu, safepath
 from jev_factory.factory.detach import start_detached
 
 MODULE = "jev_factory.backbones.pointer.quantized"
@@ -170,7 +170,11 @@ def source_record(checkpoint: Path | str) -> dict[str, Any]:
     root = Path(checkpoint)
     return {
         "checkpoint": str(root),
-        "sha256": {n: player.sha256_file(root / n) for n in SOURCE_FILES if (root / n).is_file()},
+        "sha256": {
+            n: player.sha256_file(player.member(root, n))
+            for n in SOURCE_FILES
+            if (root / n).is_file()
+        },
     }
 
 
@@ -202,10 +206,11 @@ def write_manifest(
         "source": dict(source),
         "base_model": base_model,
         "base_model_revision": base_model_revision,
-        "files": {name: player.sha256_file(root / name) for name in HASHED_FILES},
+        "files": {name: player.sha256_file(player.member(root, name)) for name in HASHED_FILES},
         "upstream": {k: UPSTREAM_PROVENANCE[k] for k in ("repo", "commit", "licence")},
     }
-    (root / MANIFEST_FILE).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    target = safepath.contained(root / MANIFEST_FILE, root)
+    target.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest
 
 
@@ -257,18 +262,19 @@ def read_artifact(path: Path | str) -> dict[str, Any]:
             f"{root}: the quantized artifact is missing {', '.join(missing)}",
             f"an artifact needs every one of: {', '.join(REQUIRED_FILES)}",
         )
-    manifest = _json_object(root / MANIFEST_FILE)
+    paths = {name: player.member(root, name) for name in REQUIRED_FILES}
+    manifest = _json_object(paths[MANIFEST_FILE])
     _check_manifest(manifest)
     files = manifest.get("files") if isinstance(manifest.get("files"), dict) else {}
     for name in HASHED_FILES:
-        actual = player.sha256_file(root / name)
+        actual = player.sha256_file(paths[name])
         if str(files.get(name, "")).lower() != actual:
             raise _refuse(
                 f"{MANIFEST_FILE}: the sha256 recorded for {name} does not match the file "
                 f"(sha256 {actual})",
                 "rebuild the artifact; never edit a built artifact by hand",
             )
-    config = _json_object(root / player.CONFIG)
+    config = _json_object(paths[player.CONFIG])
     if config.get("head_type") != "pointer":
         raise _refuse(
             f"{player.CONFIG} has head_type {config.get('head_type')!r}; this serves pointer "
@@ -493,6 +499,7 @@ def launch(
     )
     manifest = read_artifact(artifact)["manifest"]
     jobdir = Path(jobdir)
+    record_path = safepath.contained(jobdir / f"{name}.serve.json", jobdir)
     jobdir.mkdir(parents=True, exist_ok=True)
     record = {
         "argv": argv,
@@ -500,12 +507,12 @@ def launch(
         "artifact": {
             "format": manifest["format"],
             "files": manifest["files"],
-            "manifest_sha256": player.sha256_file(Path(artifact) / MANIFEST_FILE),
+            "manifest_sha256": player.sha256_file(player.member(Path(artifact), MANIFEST_FILE)),
         },
         "capped": False,
         "capped_note": UNCAPPED_NOTE,
     }
-    (jobdir / f"{name}.serve.json").write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
     return start_detached(jobdir, name, argv)
 
 
@@ -618,7 +625,7 @@ def load_quantized_state(module: Any, path: Path | str, *, device: str) -> None:
 
 def _load_pinned(modeling: Any, checkpoint: Path, revision: str) -> Any:
     """``StrandsDeciderModel.load`` with the base at *revision*, never the default branch."""
-    pinned = _json_object(checkpoint / player.CONFIG).get("base_revision")
+    pinned = _json_object(player.member(checkpoint, player.CONFIG)).get("base_revision")
     if pinned and pinned != revision:
         raise _refuse(f"{player.CONFIG} pins base_revision {pinned}, not {revision}")
     original = modeling.base_revision
@@ -633,10 +640,12 @@ def _load_pinned(modeling: Any, checkpoint: Path, revision: str) -> Any:
 
 
 def _build_in_env(checkpoint: Path, out: Path, bits: int, revision: str, device: str) -> int:
+    # Validate (every checkpoint file a regular file inside the checkpoint, a fresh output
+    # directory) before anything heavy is imported.
+    plan_weight_only(checkpoint, out, bits, python=sys.executable, base_revision=revision)
     torch = _load("torch")
     modeling = _load("strands_decider.modeling")
     safetensors = _load("safetensors.torch")
-    plan_weight_only(checkpoint, out, bits, python=sys.executable, base_revision=revision)
     model = _load_pinned(modeling, checkpoint, revision)
     torso = model.torso
     if hasattr(torso, "merge_and_unload"):
@@ -646,18 +655,18 @@ def _build_in_env(checkpoint: Path, out: Path, bits: int, revision: str, device:
         api, config = _quant_config(bits)
         _load("torchao.quantization").quantize_(torso, config)
     out.mkdir(parents=True, exist_ok=True)
-    torch.save(torso.state_dict(), str(out / TORSO_FILE))
+    torch.save(torso.state_dict(), str(safepath.contained(out / TORSO_FILE, out)))
     head = {
         k: v.detach().to(torch.float32).cpu().contiguous()
         for k, v in model.head.state_dict().items()
     }
-    safetensors.save_file(head, str(out / player.HEAD))
-    config_doc = _json_object(checkpoint / player.CONFIG)
+    safetensors.save_file(head, str(safepath.contained(out / player.HEAD, out)))
+    config_doc = _json_object(player.member(checkpoint, player.CONFIG))
     config_doc.update({"base_revision": revision, "use_lora": False})
-    (out / player.CONFIG).write_text(json.dumps(config_doc, indent=2) + "\n")
+    safepath.contained(out / player.CONFIG, out).write_text(json.dumps(config_doc, indent=2) + "\n")
     for name in (*player.TOKENIZER_FILES, *TOKENIZER_EXTRA):
         if (checkpoint / name).is_file():
-            shutil.copyfile(checkpoint / name, out / name)
+            shutil.copyfile(player.member(checkpoint, name), safepath.contained(out / name, out))
     manifest = write_manifest(
         out,
         bits=bits,
@@ -692,7 +701,7 @@ def _load_engine(artifact: Path, device: str, model_name: str) -> tuple[Any, dic
     transformers = _load("transformers")
     safetensors = _load("safetensors.torch")
     revision = info["manifest"]["base_model_revision"]
-    config = modeling.StrandsDeciderConfig.from_json(str(artifact / player.CONFIG))
+    config = modeling.StrandsDeciderConfig.from_json(str(player.member(artifact, player.CONFIG)))
     if config.base_revision != revision or config.use_lora:
         raise _refuse(f"{player.CONFIG} must pin {revision} with use_lora false")
     tok = transformers.AutoTokenizer.from_pretrained(str(artifact))
@@ -705,14 +714,14 @@ def _load_engine(artifact: Path, device: str, model_name: str) -> tuple[Any, dic
     attn = modeling.serving_attn_implementation(torso.config)
     if attn:
         torso.set_attn_implementation(attn)
-    load_quantized_state(torso, artifact / TORSO_FILE, device=device)
+    load_quantized_state(torso, player.member(artifact, TORSO_FILE), device=device)
     model = modeling.StrandsDeciderModel.__new__(modeling.StrandsDeciderModel)
     torch.nn.Module.__init__(model)
     model.config = config
     model.torso = torso
     model.tokenizer = tok
     model.head = modeling.build_head(config, modeling.StrandsDeciderModel.hidden_size(torso))
-    model.head.load_state_dict(safetensors.load_file(str(artifact / player.HEAD)))
+    model.head.load_state_dict(safetensors.load_file(str(player.member(artifact, player.HEAD))))
     model.head.to(torch.float32)
     with torch.inference_mode():
         engine = infer.SystemOneEngine(
