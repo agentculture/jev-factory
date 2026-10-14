@@ -38,7 +38,8 @@ def cache(tmp_path: Path) -> Path:
     dec = tmp_path / pins.cache_dirname(pins.DECIDER_REPO)
     dec.mkdir()
     (dec / pins.REVISION_FILE).write_text(DECIDER_REV + "\n")
-    (dec / "adapter_model.safetensors").write_bytes(ADAPTER)
+    (dec / "lora").mkdir()
+    (dec / "lora" / "adapter_model.safetensors").write_bytes(ADAPTER)
     (dec / "head.safetensors").write_bytes(HEAD)
     (dec / "provenance.json").write_text(
         json.dumps(
@@ -70,7 +71,7 @@ def test_flipped_head_byte_fails_closed_naming_file(cache: Path) -> None:
 
 
 def test_flipped_adapter_byte_fails(cache: Path) -> None:
-    p = cache / pins.cache_dirname(pins.DECIDER_REPO) / "adapter_model.safetensors"
+    p = cache / pins.cache_dirname(pins.DECIDER_REPO) / "lora" / "adapter_model.safetensors"
     p.write_bytes(ADAPTER + b"x")
     with pytest.raises(CliError, match="adapter_model.safetensors"):
         pins.verify_pins(cache, _run_pins())
@@ -135,3 +136,13 @@ def test_prefix_only_adapter_or_head_pin_is_rejected() -> None:
         }
         with pytest.raises(CliError, match="64-hex"):
             pins.StudentPins(**args)
+
+
+def test_adapter_lives_under_lora_not_at_the_repo_root(cache: Path) -> None:
+    assert pins.ADAPTER_FILE == "lora/adapter_model.safetensors"
+    dec = cache / pins.cache_dirname(pins.DECIDER_REPO)
+    (dec / "adapter_model.safetensors").write_bytes(b"decoy")  # a root file is never read
+    assert pins.verify_pins(cache, _run_pins())["status"] == "ok"
+    (dec / "lora" / "adapter_model.safetensors").unlink()
+    with pytest.raises(CliError, match="lora/adapter_model.safetensors"):
+        pins.verify_pins(cache, _run_pins())

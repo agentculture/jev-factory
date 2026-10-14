@@ -154,8 +154,14 @@ def build_argv(spec: ServerSpec) -> list[str]:
             spec.hf_revision,
         ]
     python = str(spec.env.python)
+    if spec.kind == "strands-decider":
+        # Imported here: pointer.serve imports this module for EnvSpec. ``model`` must be a
+        # verified local bundle directory (a Hub id would be fetched unpinned); the revision
+        # pin above refers to the bundle's source commit and is not a CLI flag.
+        from jev_factory.backbones.pointer.serve import serve_argv
+
+        return serve_argv(python, spec.model, port=spec.port, host=spec.host)
     module = {
-        "strands-decider": ["-m", "strands_decider", "serve"],
         "clef-transformers": ["-m", "transformers_sidecar", "load_release_model"],
         "sglang-dev-clef": ["-m", "sglang.launch_server"],
     }[spec.kind]

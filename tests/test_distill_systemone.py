@@ -19,7 +19,7 @@ RECORD = {
             "instructions": "pick one",
             "criteria": {"fix": "fix it", "wait": "wait", "page": "page oncall"},
         },
-        "q_noul": {"type": "noul", "criteria": "is it urgent?"},
+        "q_noul": {"type": "noul", "instructions": "is it urgent?", "criteria": None},
         "q_score": {"type": "score", "criteria": ["low", "mid", "high"]},
     },
 }
@@ -35,8 +35,8 @@ def _answers(**over):
         "q_noul": {"noul": 0.25, "confidence": 0.01},
         "q_score": {
             "score": 1.1,
-            "legend": ["low", "mid", "high"],
-            "probabilities": {"low": 0.2, "mid": 0.5, "high": 0.3},
+            "legend": {"0": "low", "1": "mid", "2": "high"},
+            "probabilities": {"0": 0.2, "1": 0.5, "2": 0.3},
             "confidence": 0.01,
         },
     }
@@ -99,7 +99,11 @@ def test_build_body_is_systemone_shape():
         "instructions": "pick one",
         "criteria": {"fix": "fix it", "wait": "wait", "page": "page oncall"},
     }
-    assert "instructions" not in body["questions"]["q_noul"]
+    assert body["questions"]["q_noul"] == {
+        "type": "noul",
+        "instructions": "is it urgent?",
+        "criteria": None,
+    }
     assert "gold" not in json.dumps(body)
 
 
@@ -116,6 +120,37 @@ def test_score_probabilities_as_list_align_to_levels():
     ans = _answers(q_score={"score": 1, "probabilities": [0.2, 0.5, 0.3]})
     parsed = {q.qid: q for q in s1.parse_response(RECORD, ans)}
     assert parsed["q_score"].distribution == {"low": 0.2, "mid": 0.5, "high": 0.3}
+
+
+def test_score_probabilities_keyed_by_level_index_map_to_levels():
+    parsed = {q.qid: q for q in s1.parse_response(RECORD, _answers())}
+    assert parsed["q_score"].distribution == {"low": 0.2, "mid": 0.5, "high": 0.3}
+
+
+def test_score_criteria_keyed_probabilities_are_still_accepted():
+    ans = _answers(q_score={"probabilities": {"low": 0.2, "mid": 0.5, "high": 0.3}})
+    parsed = {q.qid: q for q in s1.parse_response(RECORD, ans)}
+    assert parsed["q_score"].distribution == {"low": 0.2, "mid": 0.5, "high": 0.3}
+
+
+@pytest.mark.parametrize(
+    "probs",
+    [
+        {"0": 0.5, "1": 0.5},  # missing index
+        {"0": 0.4, "1": 0.3, "2": 0.2, "3": 0.1},  # extra index
+        {"0": 0.4, "1": 0.3, "3": 0.3},  # out-of-range index
+        {"0": 0.5, "1": 0.5, "2": 0.5},  # sum 1.5
+    ],
+)
+def test_bad_index_keyed_score_probabilities_are_errors(probs):
+    ans = _answers(q_score={"probabilities": probs})
+    bad = {q.qid: q for q in s1.parse_response(RECORD, ans)}["q_score"]
+    assert not bad.ok and bad.distribution is None and bad.error
+
+
+def test_build_body_tolerates_a_noul_spec_without_criteria():
+    rec = {"id": "r", "state": "s", "questions": {"n": {"type": "noul", "instructions": "ok?"}}}
+    assert s1.build_body(rec, model="m")["questions"]["n"]["criteria"] is None
 
 
 def test_wrong_confidence_gives_byte_identical_parse(server):

@@ -25,7 +25,6 @@ from jev_factory.backbones.pointer.layout import (
 from jev_factory.backbones.pointer.serve import (
     PointerClient,
     launch,
-    rekey_scores,
     serve_argv,
     wait_ready,
 )
@@ -42,7 +41,6 @@ __all__ = [
     "launch",
     "plan_export",
     "read_layout",
-    "rekey_scores",
     "serve_argv",
     "wait_ready",
     "write_layout",

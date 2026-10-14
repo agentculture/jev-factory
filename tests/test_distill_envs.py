@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import subprocess
 import sys
 import tomllib
@@ -93,6 +95,48 @@ def test_trainer_is_not_a_server():
         _server(role="trainer")
 
 
+def _bundle(root: Path) -> Path:
+    """A minimal verified hobson-hf-export/1 bundle directory."""
+
+    def put(name: str, data: bytes) -> str:
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return hashlib.sha256(data).hexdigest()
+
+    adapter = put("lora/adapter_model.safetensors", b"adapter")
+    put("lora/adapter_config.json", b"{}")
+    head = put("head.safetensors", b"head")
+    cfg = {"base_model": "Qwen/Qwen3.5-2B-Base", "head_type": "pointer", "max_length": 4096}
+    put("strands_decider_config.json", json.dumps(cfg).encode())
+    put("tokenizer.json", b"{}")
+    put("tokenizer_config.json", b"{}")
+    prov = {
+        "format": "hobson-hf-export/1",
+        "base_model": "Qwen/Qwen3.5-2B-Base",
+        "base_model_revision": SHA,
+        "adapter_sha256": adapter,
+        "head_sha256": head,
+    }
+    put("provenance.json", json.dumps(prov).encode())
+    return root
+
+
+def test_strands_decider_argv_is_the_real_serve_cli_on_a_local_bundle(tmp_path):
+    bundle = _bundle(tmp_path / "bundle")
+    argv = envs.build_argv(_server(model=str(bundle)))
+    assert argv[:5] == ["/opt/venv/bin/python", "-m", "strands_decider.cli", "serve", str(bundle)]
+    assert argv[argv.index("--host") + 1] == "127.0.0.1"
+    assert argv[argv.index("--port") + 1] == "8123"
+    assert "--model" not in argv and "--revision" not in argv and "strands_decider" not in argv[2:3]
+    assert argv == envs.build_argv(_server(model=str(bundle)))
+
+
+def test_strands_decider_refuses_a_hub_id_instead_of_a_local_bundle(tmp_path):
+    with pytest.raises(CliError):
+        envs.build_argv(_server(model="StrandsAgents/strands-decider-2B-hobson-v21"))
+
+
 def test_valid_launch_uses_detach_with_loopback_argv(tmp_path, monkeypatch):
     seen = {}
 
@@ -101,10 +145,11 @@ def test_valid_launch_uses_detach_with_loopback_argv(tmp_path, monkeypatch):
         return 4242
 
     monkeypatch.setattr(envs, "start_detached", fake)
-    assert envs.launch_server(tmp_path, "student", _server()) == 4242
+    bundle = _bundle(tmp_path / "bundle")
+    assert envs.launch_server(tmp_path, "student", _server(model=str(bundle))) == 4242
     argv = seen["argv"]
     assert argv[0] == "/opt/venv/bin/python"
-    assert "127.0.0.1" in argv and SHA in argv and "0.0.0.0" not in argv
+    assert "127.0.0.1" in argv and "0.0.0.0" not in argv
 
 
 def test_image_launch_binds_loopback_and_pins_digest(tmp_path, monkeypatch):
