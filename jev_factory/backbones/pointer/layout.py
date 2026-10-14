@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
+from jev_factory.factory import safepath
 
 FORMAT = "hobson-hf-export/1"
 ADAPTER = "lora/adapter_model.safetensors"
@@ -61,12 +62,17 @@ def _json_object(path: Path) -> dict[str, Any]:
     return data
 
 
+def member(root: Path, name: str) -> Path:
+    """*root*/*name* as a regular file inside *root*: no symlink, no escape (fail closed)."""
+    return safepath.regular_file(root / name, root)
+
+
 def _missing(root: Path, names) -> list[str]:
     return [name for name in names if not (root / name).is_file()]
 
 
 def _check_config(root: Path) -> dict[str, Any]:
-    config = _json_object(root / CONFIG)
+    config = _json_object(member(root, CONFIG))
     if config.get("head_type") != "pointer":
         raise _refuse(
             f"{CONFIG} has head_type {config.get('head_type')!r}; the pointer backbone "
@@ -86,11 +92,12 @@ def read_layout(path: str | Path) -> dict[str, Any]:
             f"{root}: hobson-hf-export/1 layout is missing {', '.join(missing)}",
             f"a bundle needs every one of: {', '.join(REQUIRED_FILES)}",
         )
-    provenance = _json_object(root / PROVENANCE)
+    paths = {name: member(root, name) for name in REQUIRED_FILES}
+    provenance = _json_object(paths[PROVENANCE])
     if provenance.get("format") != FORMAT:
         raise _refuse(f"{PROVENANCE} format is {provenance.get('format')!r}, not {FORMAT!r}")
     config = _check_config(root)
-    files = {name: sha256_file(root / name) for name in (ADAPTER_CONFIG, ADAPTER, HEAD, CONFIG)}
+    files = {name: sha256_file(paths[name]) for name in (ADAPTER_CONFIG, ADAPTER, HEAD, CONFIG)}
     for key, name in (("adapter_sha256", ADAPTER), ("head_sha256", HEAD)):
         if str(provenance.get(key, "")).lower() != files[name]:
             raise _refuse(
@@ -109,7 +116,7 @@ def read_layout(path: str | Path) -> dict[str, Any]:
 def _base_revision(src: Path, override: str | None) -> str:
     revision = override
     if revision is None and (src / PROVENANCE).is_file():
-        revision = _json_object(src / PROVENANCE).get("base_model_revision")
+        revision = _json_object(member(src, PROVENANCE)).get("base_model_revision")
     if not isinstance(revision, str) or not _REVISION.match(revision):
         raise _refuse(
             f"no pinned base_model_revision for {src} (got {revision!r})",
@@ -134,6 +141,8 @@ def plan_export(src: str | Path, out: str | Path) -> dict[str, Any]:
         )
     _check_config(src)
     copies = needed + [name for name in OPTIONAL_FILES if (src / name).is_file()]
+    for name in copies:
+        member(src, name)  # every copied file is a regular file inside the checkpoint
     return {"src": str(src), "out": str(out), "copy": copies, "write": [PROVENANCE, MANIFEST]}
 
 
@@ -150,10 +159,11 @@ def write_layout(
     revision = _base_revision(src, base_revision)
     if out.exists() and any(out.iterdir()):
         raise _refuse(f"{out} exists and is not empty", "export into a fresh directory")
-    config = _json_object(src / CONFIG)
+    config = _json_object(member(src, CONFIG))
     for name in plan["copy"]:
-        (out / name).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src / name, out / name)
+        dest = safepath.contained(out / name, out)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(member(src, name), dest)
     provenance = {
         **dict(extra or {}),
         "format": FORMAT,

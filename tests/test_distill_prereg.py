@@ -282,3 +282,26 @@ def test_a_prereg_without_a_gate_block_still_validates():
     doc = good_doc()
     del doc["gate"]
     assert dp.validate(doc).gate is None
+
+
+def test_require_locked_refuses_a_lock_symlinked_from_another_run(tmp_path):
+    """A lock file borrowed from another run by symlink must not unlock this one."""
+    path = write(tmp_path, good_doc())
+    other = tmp_path / "other"
+    dp.lock(path, other)
+    run_dir = tmp_path / "run"
+    (run_dir / "distill").mkdir(parents=True)
+    (run_dir / "distill" / "prereg.lock.json").symlink_to(other / "distill" / "prereg.lock.json")
+    with pytest.raises(CliError, match="escapes"):
+        dp.require_locked(path, run_dir)
+
+
+def test_lock_refuses_a_lock_directory_symlinked_out_of_the_run(tmp_path):
+    path = write(tmp_path, good_doc())
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (tmp_path / "elsewhere").mkdir()
+    (run_dir / "distill").symlink_to(tmp_path / "elsewhere")
+    with pytest.raises(CliError, match="escapes"):
+        dp.lock(path, run_dir)
+    assert not (tmp_path / "elsewhere" / "prereg.lock.json").exists()

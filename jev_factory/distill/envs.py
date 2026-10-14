@@ -26,7 +26,12 @@ LOOPBACK = "127.0.0.1"
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _LOCK = re.compile(r"^[0-9a-f]{64}$")
-_EXACT = re.compile(r"^[0-9]+(\.[0-9]+)*([.+-]?[A-Za-z0-9]+)*$")
+#: An exact version pin: a digit first, then alphanumeric runs joined by single ``.``, ``+``
+#: or ``-`` separators, ending alphanumeric (``1.2.3``, ``2.12.1+cu130``, ``1.0rc1``). The same
+#: language as the earlier ``^[0-9]+(\.[0-9]+)*([.+-]?[A-Za-z0-9]+)*$``, but every separator in
+#: the repeated group is mandatory, so each character has one parse and matching is linear
+#: (that pattern backtracked exponentially on inputs like ``1aaaa...!``, Sonar S5852).
+_EXACT = re.compile(r"^[0-9][A-Za-z0-9]*(?:[.+-][A-Za-z0-9]+)*$")
 
 
 def _refuse(message: str, remediation: str = "") -> CliError:

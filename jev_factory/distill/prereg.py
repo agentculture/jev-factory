@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
+from jev_factory.factory import safepath
 
 SCHEMA_VERSION = 1
 PREREG_REL = "distill/prereg.json"
@@ -429,7 +430,7 @@ def load(path: Path) -> DistillPrereg:
 def lock(prereg_path: Path, run_dir: Path) -> dict[str, Any]:
     """Validate the file and hash it into ``<run_dir>/distill/prereg.lock.json``."""
     prereg_path, run_dir = Path(prereg_path), Path(run_dir)
-    lock_path = run_dir / LOCK_REL
+    lock_path = safepath.contained(run_dir / LOCK_REL, run_dir)  # no symlink out of the run
     if lock_path.exists():
         raise _err(
             f"run already has a distill pre-registration lock at {lock_path}",
@@ -460,6 +461,8 @@ def require_locked(
             "no distill pre-registration is locked for this run",
             "lock the distill pre-registration before any training command",
         )
+    # The lock must be this run's own file: a symlink (e.g. to another run's lock) is refused.
+    lock_path = safepath.regular_file(lock_path, Path(run_dir))
     recorded = json.loads(lock_path.read_text(encoding="utf-8"))
     reg = load(prereg_path)
     if sha256_file(prereg_path) != recorded.get("sha256") and not (deviation_id or "").strip():

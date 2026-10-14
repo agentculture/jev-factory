@@ -139,12 +139,24 @@ class PointerBackbone:
 
     def merge_verify(self, adapter_dir: str, base: str) -> Mapping[str, Any]:
         """Nothing is merged: the server loads the LoRA unmerged. Verify the bundle and base."""
-        info = read_layout(adapter_dir)
-        found = {info["config"].get("base_model"), info["provenance"].get("base_model")}
-        if found != {base}:
+        if not (isinstance(base, str) and base.strip()):
             raise CliError(
                 EXIT_USER_ERROR,
-                f"bundle base {sorted(map(str, found))} does not match the expected base {base!r}",
+                f"merge_verify needs the expected base model id, got {base!r}",
+                "pass the base model the bundle must have been trained on",
+            )
+        info = read_layout(adapter_dir)
+        # Each file is checked on its own: a set comparison let a bundle that records no
+        # base at all (both None) "match" an expected base of None.
+        recorded = {
+            "strands_decider_config.json": info["config"].get("base_model"),
+            "provenance.json": info["provenance"].get("base_model"),
+        }
+        if wrong := {name: value for name, value in recorded.items() if value != base}:
+            raise CliError(
+                EXIT_USER_ERROR,
+                f"bundle base {wrong} does not match the expected base {base!r}",
+                "verify against the base the adapter was trained on, or re-export the bundle",
             )
         return {
             "merged": False,

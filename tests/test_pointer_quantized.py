@@ -596,3 +596,41 @@ def test_live_int8_build_serves_and_answers_choice_noul_and_score(tmp_path):
             os.killpg(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
+
+
+# --------------------------------------------------------------------- path containment
+
+
+def test_read_artifact_refuses_a_weight_file_symlinked_out_of_the_artifact(tmp_path):
+    root = _artifact(tmp_path / "a")
+    outside = tmp_path / "elsewhere.pt"
+    outside.write_bytes(b"quantized-torso")
+    (root / qz.TORSO_FILE).unlink()
+    (root / qz.TORSO_FILE).symlink_to(outside)
+    with pytest.raises(CliError, match="escapes"):
+        qz.read_artifact(root)
+
+
+def test_launch_refuses_a_server_name_that_escapes_the_job_directory(tmp_path, monkeypatch):
+    root = _artifact(tmp_path / "a")
+    monkeypatch.setattr(qz, "start_detached", lambda j, n, argv: 1)
+    env = EnvSpec(role="student", python="/envs/student/bin/python", lockfile_hash="c" * 64)
+    with pytest.raises(CliError, match="escapes"):
+        qz.launch(tmp_path / "jobs", "../../evil", env, root, port=8000)
+    assert not (tmp_path / "evil.serve.json").exists()
+
+
+def test_the_build_entry_refuses_a_checkpoint_member_symlink_before_loading_torch(
+    tmp_path, capsys, monkeypatch
+):
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    (ckpt / "provenance.json").write_text(json.dumps({"base_model_revision": REV}))
+    outside = tmp_path / "elsewhere.json"
+    outside.write_text(json.dumps(CONFIG))
+    (ckpt / player.CONFIG).unlink()
+    (ckpt / player.CONFIG).symlink_to(outside)
+    monkeypatch.setattr(qz, "_load", lambda name: pytest.fail(f"loaded {name}"))
+    argv = ["build", str(ckpt), str(tmp_path / "out"), "--bits", "8", "--base-revision", REV]
+    assert qz.main(argv) == EXIT_USER_ERROR
+    assert "escapes" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()

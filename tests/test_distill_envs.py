@@ -178,3 +178,46 @@ def test_import_with_heavy_modules_blocked_and_no_dependencies():
     root = Path(__file__).resolve().parent.parent
     meta = tomllib.loads((root / "pyproject.toml").read_text())
     assert meta["project"]["dependencies"] == []
+
+
+# --------------------------------------------------------------------- exact-pin regex (S5852)
+
+#: The pre-fix pattern, kept here only as the reference language for the equivalence check.
+_OLD_EXACT = r"^[0-9]+(\.[0-9]+)*([.+-]?[A-Za-z0-9]+)*$"
+
+
+@pytest.mark.parametrize(
+    "ver", ["1", "1.2.3", "4.50.0", "2.12.1+cu130", "1.0rc1", "0.10.0.dev3", "1.2-post1", "1a"]
+)
+def test_exact_pin_accepts_exact_versions(ver, tmp_path):
+    assert envs._EXACT.match(ver)
+    envs.validate_launch(_server(packages={"transformers": ver}))
+
+
+@pytest.mark.parametrize(
+    "ver", ["", "latest", ">=1.0", "~=1.0", "1.*", "*", "1.", "1..2", "1.2+", ".1", "1 .2", "1+-a"]
+)
+def test_exact_pin_refuses_ranges_and_malformed_versions(ver):
+    assert not envs._EXACT.match(ver)
+
+
+def test_exact_pin_accepts_the_same_language_as_the_old_pattern():
+    import itertools
+    import re
+
+    old = re.compile(_OLD_EXACT)
+    alphabet = "0a.+-*"
+    for n in range(0, 7):
+        for chars in itertools.product(alphabet, repeat=n):
+            text = "".join(chars)
+            assert bool(envs._EXACT.match(text)) == bool(old.match(text)), text
+
+
+def test_exact_pin_is_linear_on_an_adversarial_input():
+    import time
+
+    evil = "1" + "a" * 50_000 + "!"
+    started = time.perf_counter()
+    assert not envs._EXACT.match(evil)
+    assert not envs._EXACT.match("1" + ".a" * 25_000 + "..")
+    assert time.perf_counter() - started < 0.5

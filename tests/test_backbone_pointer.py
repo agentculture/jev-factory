@@ -377,3 +377,50 @@ def test_launch_needs_the_pinned_student_env_and_records_provenance(tmp_path, mo
     assert record["argv"] == started[0]
     assert record["environment"]["lockfile_hash"] == "a" * 64
     assert "head.safetensors" in record["bundle"]
+
+
+def test_merge_verify_refuses_a_bundle_that_records_no_base(tmp_path):
+    """Sonar S2583: the set comparison let a bundle with no base_model "verify" against None."""
+    src = _source(tmp_path)
+    config = json.loads((src / "strands_decider_config.json").read_text())
+    del config["base_model"]
+    (src / "strands_decider_config.json").write_text(json.dumps(config))
+    prov = json.loads((src / "provenance.json").read_text())
+    del prov["base_model"]
+    (src / "provenance.json").write_text(json.dumps(prov))
+    pb = registry.get("pointer")
+    with pytest.raises(CliError, match="base"):
+        pb.merge_verify(str(src), None)
+    with pytest.raises(CliError, match="base"):
+        pb.merge_verify(str(src), "")
+    with pytest.raises(CliError, match="base"):
+        pb.merge_verify(str(src), "Qwen/Qwen3.5-2B-Base")
+
+
+def test_merge_verify_names_the_file_whose_base_disagrees(tmp_path):
+    src = _source(tmp_path)
+    prov = json.loads((src / "provenance.json").read_text())
+    (src / "provenance.json").write_text(json.dumps({**prov, "base_model": "Qwen/Other"}))
+    with pytest.raises(CliError, match="provenance"):
+        registry.get("pointer").merge_verify(str(src), "Qwen/Qwen3.5-2B-Base")
+
+
+def test_read_layout_refuses_a_member_symlinked_out_of_the_bundle(tmp_path):
+    src = _source(tmp_path)
+    outside = tmp_path / "elsewhere.bin"
+    outside.write_bytes(b"head-bytes")
+    (src / "head.safetensors").unlink()
+    (src / "head.safetensors").symlink_to(outside)
+    with pytest.raises(CliError, match="escapes"):
+        _pointer().read_layout(src)
+
+
+def test_read_layout_and_export_refuse_a_member_that_is_a_symlink(tmp_path):
+    src = _source(tmp_path)
+    (src / "lora" / "real.json").write_bytes(b'{"r": 16}')
+    (src / "lora" / "adapter_config.json").unlink()
+    (src / "lora" / "adapter_config.json").symlink_to(src / "lora" / "real.json")
+    with pytest.raises(CliError, match="symlink"):
+        _pointer().read_layout(src)
+    with pytest.raises(CliError, match="symlink"):
+        registry.get("pointer").export(str(src), str(tmp_path / "out"))

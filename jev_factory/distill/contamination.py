@@ -36,6 +36,7 @@ from typing import Any
 
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill.records import Record
+from jev_factory.factory import safepath
 
 STAGE = "distill-contamination"
 MANIFEST_PATH = Path(__file__).parent / "data" / "upstream_sources.json"
@@ -145,6 +146,6 @@ def write_report(report: dict[str, Any], run_dir: Path | str) -> Path:
     """Write the report into the run directory for the final report."""
     out = Path(run_dir)
     out.mkdir(parents=True, exist_ok=True)
-    path = out / "contamination.json"
+    path = safepath.contained(out / "contamination.json", out)  # no symlink out of the run
     path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
