@@ -22,11 +22,19 @@ interpretation below is recorded on every row (``precedence_rule``) and in the m
    its argmax disagrees with gold's (``gold_only:filtered``). A teacher error or a missing
    label nulls it too (``gold_only:teacher_error`` / ``gold_only:no_teacher_label``).
 
-Refusals (fail closed, nothing written): no audit; an unregistered ``teacher_filter``; a
-record whose split is not ``train``; a teacher row or trainable correction for a record off
-the train side; more than one teacher build id among the teacher slots actually used
-without a deviation id; any exact or near-duplicate (:func:`jev_factory.core.leakage.match`)
-of a fit, selection, held-out or test state (reported by ids only); re-freezing a
+Audit and teacher build: the audit table names the build it audited (one table per teacher
+build: Clef's, and an alternative teacher's in its own ``role="alt"`` table). Labels of a
+role that fill any row must come from exactly that audited build (never waived by a
+deviation id), and an alternative teacher's labels need the alternative table. Teacher-weak
+flags are the audit tables' of the teachers whose labels were supplied (their union when both
+were).
+
+Refusals (fail closed, nothing written): no audit (or one naming no build);
+an unregistered ``teacher_filter``; a record whose split is not ``train``; a teacher row
+or trainable correction for a record off the train side; more than one teacher build id
+among the teacher slots actually used without a deviation id; any exact or near-duplicate
+(:func:`jev_factory.core.leakage.match`) of a fit, selection, held-out or test state
+(reported by ids only); re-freezing a
 different set over a frozen one without a deviation id.
 
 Output (the trainer's input, :func:`jev_factory.backbones.pointer.train_distill.load_items`):
@@ -420,6 +428,19 @@ def _file_ref(path: Path | None) -> dict[str, Any] | None:
     return {"path": str(path), "sha256": _sha256(Path(path).read_bytes())}
 
 
+def _check_audited_builds(rows: Sequence[Mapping[str, Any]], audits: Mapping[str, Any]) -> None:
+    """Every teacher slot filled by a role must use that role's audited build."""
+    for role, prefix in (("clef", "clef+gold"), ("alt", "alt_teacher+gold")):
+        used = sorted({r["teacher_build_id"] for r in rows if r["target_source"] == prefix})
+        audited = audits[role]["teacher_build_id"] if role in audits else None
+        if used and used != [audited]:
+            raise _fail(
+                f"{role} teacher labels use build {used} but the audit covers {audited!r};"
+                " only an audited build may be trained on",
+                "re-run the teacher audit on these labels, or label with the audited build",
+            )
+
+
 def assemble(
     run_dir: Path | str,
     dataset_dir: Path | str,
@@ -434,7 +455,13 @@ def assemble(
     """Assemble, leakage-check and freeze the training set; return the manifest."""
     run_dir, dataset_dir = Path(run_dir), Path(dataset_dir)
     deviation = (deviation_id or "").strip() or None
-    audit = require_audit(run_dir)
+    audits = {}
+    if clef_labels is not None:
+        audits["clef"] = require_audit(run_dir, "clef")
+    if alt_labels is not None:
+        audits["alt"] = require_audit(run_dir, "alt")
+    if not audits:
+        raise _fail("no teacher labels given", "pass Clef's and/or an alternative teacher's")
     require_knobs(prereg, {"teacher_filter": teacher_filter})
     allowed = train_ids(dataset_dir)
     records = read_records(dataset_dir / "train.jsonl")
@@ -446,8 +473,6 @@ def assemble(
         )
     clef_path = None if clef_labels is None else Path(clef_labels)
     alt_path = None if alt_labels is None else Path(alt_labels)
-    if clef_path is None and alt_path is None:
-        raise _fail("no teacher labels given", "pass Clef's and/or an alternative teacher's")
     clef = _load_labels(clef_path, "clef")
     alt = _load_labels(alt_path, "alternative")
     corr_path = None if corrections_path is None else Path(corrections_path)
@@ -456,7 +481,9 @@ def assemble(
     _refuse_off_train(alt, allowed, "alternative teacher rows")
     _refuse_off_train(corrections, allowed, "trainable corrections")
 
-    weak = frozenset(s["source"] for s in audit["sources"] if s.get("teacher_weak"))
+    weak = frozenset(
+        s["source"] for a in audits.values() for s in a["sources"] if s.get("teacher_weak")
+    )
     rows = build_rows(
         records,
         weak_sources=weak,
@@ -471,6 +498,7 @@ def assemble(
             f"the training set mixes teacher build ids {builds}",
             "use one teacher build, or record a deviation and pass its id",
         )
+    _check_audited_builds(rows, audits)
     leak = _check_leakage(records, dataset_dir)
 
     data = "".join(json.dumps(r, sort_keys=True, ensure_ascii=False) + "\n" for r in rows)
@@ -490,6 +518,7 @@ def assemble(
         "precedence": PRECEDENCE,
         "knobs": {"teacher_filter": teacher_filter},
         "teacher_build_ids": builds,
+        "audited_builds": {role: a["teacher_build_id"] for role, a in audits.items()},
         "deviation_id": deviation,
         "teacher_weak_sources": sorted(weak),
         "inputs": {
@@ -502,7 +531,7 @@ def assemble(
                 if corr_path and review.review_path(corr_path).is_file()
                 else None
             ),
-            "audit_floor": audit.get("floor"),
+            "audit_floor": {role: a.get("floor") for role, a in audits.items()},
         },
         "counts": {
             "records": len(records),

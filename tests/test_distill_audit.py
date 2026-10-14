@@ -21,8 +21,8 @@ def _record(rid, source, prov="human", gold="fix"):
     return Record(rid, "s", qs, g, "train", source, "MIT", prov)
 
 
-def _rows(rid, fix_p, p_true=0.9):
-    base = {"record_id": rid, "teacher_error": None}
+def _rows(rid, fix_p, p_true=0.9, build="clef-b1"):
+    base = {"record_id": rid, "teacher_error": None, "teacher_build_id": build}
     return [
         {
             **base,
@@ -148,4 +148,52 @@ def test_require_audit_refuses_a_corrupt_table(tmp_path):
         audit.require_audit(tmp_path)
     p.write_text(json.dumps({"stage": "other"}), encoding="utf-8")
     with pytest.raises(CliError):
+        audit.require_audit(tmp_path)
+
+
+# ----------------------------------------------------------------- fx4: the audited build
+
+
+def test_audit_records_the_teacher_build_id(tmp_path):
+    recs, labels = _fixture(tmp_path)
+    table = audit.run_audit(recs, labels, tmp_path, _prereg(), floor=0.6)
+    assert table["teacher_build_id"] == "clef-b1"
+    assert json.loads((tmp_path / audit.AUDIT_REL).read_text())["teacher_build_id"] == "clef-b1"
+    assert audit.require_audit(tmp_path)["teacher_build_id"] == "clef-b1"
+
+
+def test_audit_refuses_labels_with_more_than_one_build(tmp_path):
+    recs = [_record("a1", "s"), _record("a2", "s")]
+    labels = tmp_path / "l.jsonl"
+    _write(labels, _rows("a1", 0.9) + _rows("a2", 0.9, build="clef-b2"))
+    with pytest.raises(CliError, match="build"):
+        audit.run_audit(recs, labels, tmp_path, _prereg(), floor=0.6)
+    assert not (tmp_path / audit.AUDIT_REL).exists()
+
+
+def test_audit_refuses_labels_without_a_build_id(tmp_path):
+    recs = [_record("a1", "s")]
+    rows = _rows("a1", 0.9)
+    del rows[0]["teacher_build_id"]
+    labels = tmp_path / "l.jsonl"
+    _write(labels, rows)
+    with pytest.raises(CliError, match="build"):
+        audit.run_audit(recs, labels, tmp_path, _prereg(), floor=0.6)
+
+
+def test_alternative_teacher_has_its_own_audit_table(tmp_path):
+    recs, labels = _fixture(tmp_path)
+    alt = tmp_path / "alt.jsonl"
+    _write(alt, [{**r, "teacher_build_id": "alt-b7"} for r in audit.load_labels(labels)])
+    audit.run_audit(recs, labels, tmp_path, _prereg(), floor=0.6)
+    audit.run_audit(recs, alt, tmp_path, _prereg(), floor=0.6, role="alt")
+    assert audit.require_audit(tmp_path)["teacher_build_id"] == "clef-b1"
+    assert audit.require_audit(tmp_path, role="alt")["teacher_build_id"] == "alt-b7"
+
+
+def test_require_audit_refuses_a_table_without_a_build(tmp_path):
+    p = tmp_path / audit.AUDIT_REL
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps({"stage": "teacher-audit", "sources": []}), encoding="utf-8")
+    with pytest.raises(CliError, match="build"):
         audit.require_audit(tmp_path)
