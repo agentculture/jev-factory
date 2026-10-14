@@ -66,6 +66,22 @@
       "dataset-bundle",
       "upload",
       "release-gate"
+    ],
+    "distill_stages": [
+      "preregister",
+      "dataset",
+      "contamination",
+      "teacher-label",
+      "audit",
+      "corrections-draft",
+      "assemble",
+      "benchmark",
+      "train",
+      "quantize",
+      "gate",
+      "final",
+      "bundle",
+      "upload"
     ]
   },
   "entries": [
@@ -3408,6 +3424,58 @@
         }
       },
       "class": "jargon",
+      "source": "agent-draft-2026-10-14"
+    },
+    {
+      "id": "jcs-op-195",
+      "kind": "explicit",
+      "text": "Run the distill contamination check, but only as a dry run.",
+      "expect": {
+        "operation": "jev.distill",
+        "args": {
+          "stage": "contamination"
+        }
+      },
+      "class": "imperative",
+      "source": "agent-draft-2026-10-14"
+    },
+    {
+      "id": "jcs-op-196",
+      "kind": "explicit",
+      "text": "Is it safe to apply the distill gate stage now, or should I look at the plan first?",
+      "expect": {
+        "operation": "jev.distill",
+        "args": {
+          "stage": "gate"
+        }
+      },
+      "class": "question",
+      "source": "agent-draft-2026-10-14"
+    },
+    {
+      "id": "jcs-op-197",
+      "kind": "explicit",
+      "text": "distill upload --apply",
+      "expect": {
+        "operation": "jev.distill",
+        "args": {
+          "stage": "upload"
+        }
+      },
+      "class": "terse",
+      "source": "agent-draft-2026-10-14"
+    },
+    {
+      "id": "jcs-op-198",
+      "kind": "explicit",
+      "text": "the distill dataset stage dry-ran clean, so go ahead and --apply it",
+      "expect": {
+        "operation": "jev.distill",
+        "args": {
+          "stage": "dataset"
+        }
+      },
+      "class": "symptom",
       "source": "agent-draft-2026-10-14"
     }
   ]
