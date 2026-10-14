@@ -15,11 +15,17 @@ pre-registration (:func:`jev_factory.distill.prereg.require_locked`).
    ``selection_metrics``), so its calibrated selection ECE is its **own** calibration. A
    format with no builder, or whose builder raises :class:`FormatUnavailable`, is recorded
    as unavailable with the reason; it is never silently dropped. The default builders
-   (:func:`default_builders`) register bf16 only: strands-decider serve @ 8b6faa5
-   (``StrandsDeciderModel.load``) loads the torso from the config's base id at the
-   checkpoint dtype, wraps it in ``PeftModel`` unmerged and runs a torch or MLX engine, so
-   none of the quantized formats has a serve path on this stack until a builder for it is
-   supplied (:data:`UNSUPPORTED`).
+   (:func:`default_builders`) register bf16 and, given the student env's python and the
+   strands-decider checkout, the two torchao weight-only formats (deviation d3):
+   ``torch_int8_wo`` and ``torch_int4_wo`` merge the LoRA, quantize the torso's Linear
+   weights with torchao and keep the pointer head fp32
+   (:mod:`jev_factory.backbones.pointer.quantized`); a build that fails on the box is
+   recorded unavailable with its error. Their artifacts are served by that module's wrapper
+   with the same /v1/systemone shapes, through the same benchmark path. strands-decider serve
+   @ 8b6faa5 (``StrandsDeciderModel.load``) loads the torso from the config's base id at the
+   checkpoint dtype, wraps it in ``PeftModel`` unmerged and runs a torch or MLX engine, so the
+   other four formats have no serve path on this stack until a builder for one is supplied
+   (:data:`UNSUPPORTED`).
 2. **Choose.** :data:`FORMAT_RULE`, in order: built and served; answered every fit and
    selection question; calibrated selection ECE <= ``bars.quant.ece_max``; selection
    accuracy within :data:`HEAL_MARGIN_POINTS` of the bf16 winner (if none is, the closest
@@ -52,11 +58,13 @@ from __future__ import annotations
 import json
 import math
 import os
+import subprocess  # nosec B404 - only its exception types are used here
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from jev_factory.backbones.pointer import layout as player
+from jev_factory.backbones.pointer import quantized as qz
 from jev_factory.backbones.pointer import serve as pserve
 from jev_factory.backbones.pointer import train_distill as td
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
@@ -88,7 +96,11 @@ FORMATS: dict[str, str] = {
     "onnx_int8": "ONNX int8",
     "onnx_int4": "ONNX int4",
     "gguf_side_head": "GGUF torso + side-loaded pointer head",
+    "torch_int8_wo": "torchao int8 weight-only torso (LoRA merged) + fp32 pointer head",
+    "torch_int4_wo": "torchao int4 weight-only torso (LoRA merged) + fp32 pointer head",
 }
+#: The torchao weight-only formats (deviation d3) -> their weight bits.
+TORCH_FORMATS: dict[str, int] = {fmt: bits for bits, fmt in qz.FORMAT_OF_BITS.items()}
 
 _SERVE_PATH = (
     "strands-decider serve @ 8b6faa5 (StrandsDeciderModel.load) loads the torso from the "
@@ -105,6 +117,12 @@ UNSUPPORTED: dict[str, str] = {
     "export or ONNX runtime path",
     "gguf_side_head": f"no GGUF builder registered: {_SERVE_PATH}; it has no GGUF torso "
     "path to side-load the pointer head onto",
+    **{
+        fmt: f"no torchao builder registered: default_builders(revision, python=..., "
+        f"decider_repo=...) needs the student env python and the strands-decider checkout "
+        f"(decider_repo) to build {fmt}"
+        for fmt in TORCH_FORMATS
+    },
 }
 
 FORMAT_RULE = {
@@ -251,9 +269,97 @@ def bf16_builder(base_revision: str) -> Builder:
     return build
 
 
-def default_builders(base_revision: str) -> dict[str, Builder]:
-    """bf16 only; every quantized format is recorded unavailable (:data:`UNSUPPORTED`)."""
-    return {BF16: bf16_builder(base_revision)}
+def _gpu_guard(stage: str) -> Any:
+    return gpu.assert_gpu_free(stage)
+
+
+def _reusable(out_dir: Path, checkpoint: Path, fmt: str) -> bool:
+    """An artifact already built in *out_dir* for this exact checkpoint and format."""
+    if not (out_dir / qz.MANIFEST_FILE).is_file():
+        return False
+    try:
+        manifest = qz.read_artifact(out_dir)["manifest"]
+    except CliError:
+        return False
+    return manifest["format"] == fmt and manifest["source"] == qz.source_record(checkpoint)
+
+
+def torch_wo_builder(
+    base_revision: str,
+    *,
+    python: str,
+    decider_repo: Path | str,
+    device: str = "cuda",
+    runner: qz.Runner | None = None,
+    guard: Callable[[str], Any] | None = None,
+    timeout: float | None = None,
+) -> Builder:
+    """Build a torchao weight-only artifact in the student env; a failure is unavailable.
+
+    The GPU residency guard runs before each build (one GPU job at a time). A build that
+    exits non-zero, cannot start, or leaves no verified artifact raises
+    :class:`FormatUnavailable` carrying the error, so the spike records it, never drops it.
+    """
+
+    def build(fmt: str, checkpoint: Path, out_dir: Path) -> Path:
+        if fmt not in TORCH_FORMATS:
+            raise FormatUnavailable(f"the torchao builder builds {list(TORCH_FORMATS)}, not {fmt}")
+        out_dir = Path(out_dir)
+        if _reusable(out_dir, Path(checkpoint), fmt):
+            return out_dir
+        (guard or _gpu_guard)("quantize")
+        try:
+            qz.build_weight_only(
+                checkpoint,
+                out_dir,
+                TORCH_FORMATS[fmt],
+                apply=True,
+                python=python,
+                decider_repo=decider_repo,
+                base_revision=base_revision,
+                device=device,
+                runner=runner,
+                timeout=timeout,
+            )
+        except CliError as exc:
+            raise FormatUnavailable(f"torchao build failed for {fmt}: {exc.message}") from exc
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise FormatUnavailable(
+                f"torchao build failed for {fmt}: {type(exc).__name__}: {exc}"
+            ) from exc
+        return out_dir
+
+    return build
+
+
+def default_builders(
+    base_revision: str,
+    *,
+    python: str | None = None,
+    decider_repo: Path | str | None = None,
+    device: str = "cuda",
+    runner: qz.Runner | None = None,
+    guard: Callable[[str], Any] | None = None,
+    timeout: float | None = None,
+) -> dict[str, Builder]:
+    """bf16, plus the torchao weight-only formats when the student env is given.
+
+    Without *python* and *decider_repo* the torchao formats are not registered and are
+    recorded unavailable with :data:`UNSUPPORTED`'s reason; the other four formats always are.
+    """
+    builders: dict[str, Builder] = {BF16: bf16_builder(base_revision)}
+    if python and decider_repo:
+        torch_build = torch_wo_builder(
+            base_revision,
+            python=python,
+            decider_repo=decider_repo,
+            device=device,
+            runner=runner,
+            guard=guard,
+            timeout=timeout,
+        )
+        builders.update(dict.fromkeys(TORCH_FORMATS, torch_build))
+    return builders
 
 
 # --------------------------------------------------------------------- measuring
@@ -755,13 +861,18 @@ def served_measurer(
     device: str | None = None,
     ready_timeout: float = 600.0,
     memory_probe: bench.MemoryProbe | None = bench.nvidia_smi_used_mib,
+    decider_repo: Path | str | None = None,
 ) -> Measurer:
-    """Serve a ``hobson-hf-export/1`` artifact with ``strands-decider serve`` and measure it.
+    """Serve an artifact and measure it over /v1/systemone.
 
-    The GPU residency guard runs first; latency and peak memory come from
+    A ``hobson-hf-export/1`` bundle is served by ``strands-decider serve``; a torchao
+    weight-only artifact (:mod:`jev_factory.backbones.pointer.quantized`, recognised by its
+    ``jev_quant.json``) by that module's wrapper, with *decider_repo* on its path. The GPU
+    residency guard runs first; latency and peak memory come from
     :func:`jev_factory.distill.benchmark.benchmark_model` (``nvidia-smi``, else the served
     process tree's ``/proc`` RSS, read from the job's pid file). The server is always
-    stopped. An artifact the server cannot load is :class:`FormatUnavailable`.
+    stopped. An artifact the server cannot load is :class:`FormatUnavailable`; so is a
+    torchao artifact that fails its hash check or whose server dies or never gets ready.
     """
     jobdir = Path(jobdir)
     base_url = f"http://{pserve.LOOPBACK}:{int(port)}"
@@ -778,20 +889,45 @@ def served_measurer(
     def measure(
         fmt: str, artifact: Path, fold_records: Mapping[str, Sequence[Record]]
     ) -> dict[str, Any]:
-        try:
-            player.read_layout(artifact)
-        except CliError as exc:
-            raise FormatUnavailable(
-                f"{artifact} is not a hobson-hf-export/1 bundle strands-decider serve "
-                f"can load: {exc.message}"
-            ) from exc
         name = f"distill-quant-{fmt}"
+        quantized = (Path(artifact) / qz.MANIFEST_FILE).is_file()
+        if quantized:
+            try:
+                qz.read_artifact(artifact)
+            except CliError as exc:
+                raise FormatUnavailable(
+                    f"{artifact} is not a verified torchao artifact: {exc.message}"
+                ) from exc
+
+            def start() -> Any:
+                return qz.launch(
+                    jobdir,
+                    name,
+                    env,
+                    artifact,
+                    port=port,
+                    decider_repo=decider_repo,
+                    device=device,
+                )
+
+        else:
+            try:
+                player.read_layout(artifact)
+            except CliError as exc:
+                raise FormatUnavailable(
+                    f"{artifact} is not a hobson-hf-export/1 bundle strands-decider serve "
+                    f"can load: {exc.message}"
+                ) from exc
+
+            def start() -> Any:
+                return pserve.launch(jobdir, name, env, artifact, port=port, device=device)
+
         gpu.assert_gpu_free("measure")
         target = bench.Target(
             name=name,
             base_url=base_url,
             model=name,
-            start=lambda: pserve.launch(jobdir, name, env, artifact, port=port, device=device),
+            start=start,
             ready=lambda: pserve.wait_ready(
                 base_url, timeout=ready_timeout, jobdir=jobdir, name=name
             ),
@@ -799,12 +935,19 @@ def served_measurer(
             pid=pid_of(name),
         )
         started = time.monotonic()
-        out = bench.benchmark_model(
-            target,
-            fold_records,
-            memory_probe=memory_probe,
-            client=pserve.PointerClient(base_url, model=name),
-        )
+        try:
+            out = bench.benchmark_model(
+                target,
+                fold_records,
+                memory_probe=memory_probe,
+                client=pserve.PointerClient(base_url, model=name),
+            )
+        except CliError as exc:
+            if not quantized:
+                raise
+            raise FormatUnavailable(
+                f"the torchao {fmt} artifact could not be served: {exc.message}"
+            ) from exc
         return {
             "predictions": {
                 f: [p for p in out["predictions"] if p["fold"] == f] for f in fold_records
