@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-14T04:03:15Z",
-  "updated": "2026-10-14T05:36:11Z",
+  "updated": "2026-10-14T05:50:00Z",
   "claims": [
     {
       "id": "c1",
@@ -280,7 +280,15 @@
           "instruction": ""
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q11",
+          "text": "lobes passes /v1/systemone through unchanged and strands-decider's server applies only temperature / temperature_by_kind from strands_decider_config.json (modeling.py: 'Populated after training.evaluate calibrate runs'), so jev-factory's calibration.json and gate.json never reach lobes' callers. Where does the deployed calibration live: (a) jev-factory writes its fitted per-kind temperatures into the bundle's strands_decider_config.json (no per-label vector), (b) lobes applies calibration.json/gate.json on its decider lane, or (c) both?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "operator: both \u2014 fitted per-kind temperatures are written into the bundle's strands_decider_config.json, and calibration.json + gate.json ship for lobes to apply; a per-label vector is kept only if lobes applies it"
+        }
+      ],
       "links": [],
       "instruction": "",
       "revisions": []
@@ -577,7 +585,7 @@
     {
       "id": "c32",
       "kind": "requirement",
-      "text": "Teacher trust is measured per domain/source before distilling: a teacher-audit pass scores Clef against gold on the train side (accuracy, log-loss, ECE per source); where it falls below a pre-registered floor, that domain is flagged 'teacher-weak' and its rows take corrected or gold-only targets instead of Clef's soft labels.",
+      "text": "Teacher trust is measured per domain/source before distilling: a teacher-audit pass scores Clef against human-labelled gold on the train side (accuracy, log-loss, ECE per source); where it falls below a pre-registered floor, that domain is flagged 'teacher-weak' and its rows take corrected or gold-only targets instead of Clef's soft labels. Sources whose gold is itself model-generated are not used to flag Clef.",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -591,7 +599,13 @@
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "Teacher trust is measured per domain/source before distilling: a teacher-audit pass scores Clef against gold on the train side (accuracy, log-loss, ECE per source); where it falls below a pre-registered floor, that domain is flagged 'teacher-weak' and its rows take corrected or gold-only targets instead of Clef's soft labels.",
+          "kind": "requirement",
+          "reason": "challenge q10 / operator decision c52"
+        }
+      ]
     },
     {
       "id": "c33",
@@ -753,7 +767,7 @@
     {
       "id": "c42",
       "kind": "success_signal",
-      "text": "On the final test side, measured once: the distilled student's accuracy beats stock v21 with the paired-bootstrap 95% CI of the difference above 0 and closes >= 50% of the v21-to-Clef accuracy gap; its calibrated ECE is <= 0.10 and no worse than v21's; its confident-wrong rate is no worse than v21's; and its median decision latency is <= 1/5 of Clef's on the same box. The thresholds are pre-registered before the first distill training command.",
+      "text": "On the final test side, measured once, against human-labelled gold from clean (non-overlapping) sources: the distilled student's accuracy beats stock v21 with the paired-bootstrap 95% CI of the difference above 0 and closes >= 50% of the v21-to-Clef accuracy gap; its calibrated ECE is <= 0.10 and no worse than v21's; its confident-wrong rate is no worse than v21's; and its median decision latency is <= 1/5 of Clef's on the same box. typed-decisions agreement is reported, not gated. The thresholds are pre-registered before the first distill training command.",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -764,10 +778,24 @@
           "instruction": ""
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q10",
+          "text": "typed-decisions gold is the mean of 3 samples from a ~4B-class teacher (teacher self-agreement 0.735), so accuracy on it measures agreement with that teacher, not correctness, and Clef can score lower where that teacher is wrong. What is the success signal's reference: accuracy vs dataset gold (as-is), vs human gold only (jev-bench human vote-share configs, JevBench), vs Clef, or a pre-registered mix \u2014 and does the teacher audit (c32) flag Clef as weak only against human gold?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "operator: human gold headline \u2014 headline accuracy and the teacher audit use human-labelled clean sources (jev-bench's source labels, JevBench public); typed-decisions is a secondary result (agreement with its teacher, KL from gold)"
+        }
+      ],
       "links": [],
       "instruction": "Read the final report: paired CI on (student - v21) accuracy, gap-closure ratio, ECE, confident-wrong, latency rows; check prereg.lock.json predates train.",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "On the final test side, measured once: the distilled student's accuracy beats stock v21 with the paired-bootstrap 95% CI of the difference above 0 and closes >= 50% of the v21-to-Clef accuracy gap; its calibrated ECE is <= 0.10 and no worse than v21's; its confident-wrong rate is no worse than v21's; and its median decision latency is <= 1/5 of Clef's on the same box. The thresholds are pre-registered before the first distill training command.",
+          "kind": "success_signal",
+          "reason": "challenge q10: typed-decisions gold is a 4B teacher; operator chose human-gold headline (c52)"
+        }
+      ]
     },
     {
       "id": "c43",
@@ -786,6 +814,182 @@
       "hard_questions": [],
       "links": [],
       "instruction": "Read the quantize/heal manifests: heal ran 0 or 1 times; quant-vs-bf16 delta and post-recalibration ECE in the select/measure records.",
+      "revisions": []
+    },
+    {
+      "id": "c44",
+      "kind": "requirement",
+      "text": "The distilled student's bundle is loadable unmodified by 'strands-decider serve' (the hobson-hf-export/1 layout: LoRA adapter, head.safetensors, strands_decider_config.json, provenance.json), because lobes serves the 2B through that package and passes /v1/systemone through unchanged.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "A test loads the produced bundle with the pinned strands-decider package in its own venv and answers a choice, a noul and a score question over /v1/systemone on 127.0.0.1.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c45",
+      "kind": "requirement",
+      "text": "A contamination check runs before the benchmark: every evaluation source (jev-bench config, typed-decisions workflow, JevBench) is compared with the public datasets listed in v21's training data and with Clef's published eval suites; overlapping sources are flagged and reported separately, never pooled silently into the headline v21 or Clef comparison.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "The final report has a per-source table marking each source clean/overlapping with v21 training data, and headline numbers are computed on clean sources only unless the prereg says otherwise.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c46",
+      "kind": "requirement",
+      "text": "Teacher, student runtime and distill trainer each run in their own pinned environment, reached over HTTP or as a subprocess: Clef's card needs transformers 5.10.2 and torch 2.11, strands-decider 0.1.0 needs transformers>=5.15,<6, and jev-factory's train extra pins transformers 5.5.0, so none can share one venv.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "Each environment's lockfile or image digest is recorded in the run's provenance, and a test asserts the base 'jev_factory' import pulls in none of them.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c47",
+      "kind": "boundary",
+      "text": "Remote model code is pinned and contained: Clef's joint_schema_model.py and the strands-decider package run only at a pinned HF commit sha / package version with hash, inside their own environment, serving on 127.0.0.1 only (strands-decider serve has no auth); the pins are recorded in provenance.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h32",
+          "text": "Starting a teacher or student server with an unpinned revision or a non-localhost bind is refused (reusing measure/preflight.require_localhost).",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c48",
+      "kind": "requirement",
+      "text": "Before training, the distillery pins and verifies the student's inputs: Qwen/Qwen3.5-2B-Base at an explicit revision, the v21 repo at a commit sha, and v21's adapter_sha256/head_sha256 from its provenance.json; a mismatch fails closed.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h33",
+          "text": "Tampering with one byte of a cached head.safetensors makes the distill train stage refuse with a hash-mismatch error.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c49",
+      "kind": "requirement",
+      "text": "Records whose rendered state + questions exceed the student's 4096-token window are filtered before training and evaluation with a per-source count, or recorded as student-ineligible, never silently truncated; the pointer head itself has no option-count cap.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h34",
+          "text": "The assemble/benchmark manifests report, per source, how many records were dropped for length, and no record is truncated mid-state.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c50",
+      "kind": "boundary",
+      "text": "One distill run uses one teacher build: soft labels from a different Clef build (e.g. NVFP4 after 4-bit) are a new labelling run or a recorded deviation, never mixed into the same training set.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h35",
+          "text": "Assemble refuses a training set whose soft-label rows carry more than one teacher build id unless a deviation id is supplied.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c51",
+      "kind": "requirement",
+      "text": "Every 'jev distill' stage writes the same per-stage manifest and detached-job log that 'jev status' / '--watch' read, and teacher labelling resumes from its response cache after an interruption without re-asking answered items.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h36",
+          "text": "Killing a detached teacher-label run halfway and re-running it re-sends only unanswered items (cache hits counted in the manifest), and `jev status <work>` shows its progress.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c52",
+      "kind": "decision",
+      "text": "Headline accuracy and the teacher audit are measured against human-labelled gold from clean sources (jev-bench's source-dataset labels, the official JevBench public set); typed-decisions, whose gold is a ~4B teacher's 3-sample mean, is reported as a secondary result (agreement with its teacher, KL from gold).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c53",
+      "kind": "decision",
+      "text": "Deployed calibration lives in both places: jev-factory writes its fitted per-kind temperatures into the bundle's strands_decider_config.json so 'strands-decider serve' emits calibrated probabilities, and ships calibration.json + gate.json for lobes to apply; a per-label vector is kept only if lobes applies it.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
       "revisions": []
     }
   ],
@@ -849,6 +1053,42 @@
       "text": "How to detect 'outdated' teacher knowledge when gold is itself old: the audit measures disagreement with gold, not staleness; time-sensitive domains may need dated sources.",
       "kind": "unknown_nonblocking",
       "claim_id": "c31",
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v8",
+      "text": "GPU concurrency: a teacher or student server holding GPU memory counts as a foreign process to assert_gpu_free (GPU_STAGES train/heal/quantize/measure), so the zero-shot benchmark and distill training must sequence server start/stop; how the launcher owns those processes is a plan-side risk.",
+      "kind": "unknown_nonblocking",
+      "claim_id": "c4",
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v9",
+      "text": "Ordering with the jev-tool build: adding 'jev distill' changes the jev-CLI domain's surface sha and seed set (c21); if it lands after t34 freezes the seed, the jev-tool model trains on a stale candidate set \u2014 sequence it before t34 or record a deviation there.",
+      "kind": "follow_up",
+      "claim_id": "c21",
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v10",
+      "text": "Statistical power: typed-decisions test is 400 cases / 2,000 decisions and the held-out set is carved from train; whether paired-bootstrap CIs are tight enough to resolve the success signal's gap-closure threshold is unmeasured.",
+      "kind": "unknown_nonblocking",
+      "claim_id": "c42",
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v11",
+      "text": "Production rollback from a distilled student to stock v21 on a lobes decider lane is lobes' concern; jev-factory only keeps v21 as the named reference row in every report.",
+      "kind": "out_of_scope",
+      "claim_id": "c38",
       "resolved": false,
       "resolution": "",
       "resolution_claim_id": null
@@ -1190,8 +1430,365 @@
         "c37",
         "c35"
       ]
+    },
+    {
+      "id": "s42",
+      "surface": "challenge pass / counter-evidence lens: HF LocalLLaMA/typed-decisions README",
+      "finding": "README:188-190: 'Gold is the mean of three samples from a teacher of roughly 4B-class capability, so a score measures agreement with that teacher, not correctness. A better model can score lower wherever the teacher is wrong'; :197 teacher self-agreement 0.735; :103-104 scores well above 0.735 after training on train mean 'learning the teacher's quirks'; :133 'Do not train on test rows, test labels, or anything derived from predictions on them'. The confirmed success signal c42 and teacher audit c32 lean on this gold.",
+      "seeds": [
+        "q10"
+      ]
+    },
+    {
+      "id": "s43",
+      "surface": "challenge pass / adjacent-systems lens: ../lobes-cli-orin-deciders c5, c19 + HF v21 provenance.json",
+      "finding": "lobes c5: the 2B is 'served by the strands-decider package (strands-decider serve, POST /v1/systemone)'; c19 passes the wire through unreshaped; v21's provenance.json declares format 'hobson-hf-export/1' with adapter_sha256 and head_sha256. Nothing in the confirmed frame said the bundle must keep that layout.",
+      "seeds": [
+        "c44"
+      ]
+    },
+    {
+      "id": "s44",
+      "surface": "challenge pass / adjacent-systems lens: strands-labs/strands-decider src/strands_decider/modeling.py",
+      "finding": "The config's temperature and temperature_by_kind are 'Populated after python -m training.evaluate calibrate runs; 1.0 is a no-op ... temperature_by_kind overrides it per primitive' \u2014 the server applies these; there is no slot for a per-label vector or a gate. c13 keeps jev-factory calibration authoritative but did not say how it reaches a strands-decider-served model.",
+      "seeds": [
+        "q11"
+      ]
+    },
+    {
+      "id": "s45",
+      "surface": "challenge pass / hidden-dependency lens: HF jev-bench README configs + Strands v21 card training data",
+      "finding": "jev-bench configs include banking77, clinc150, massive, ledgar, go_emotions; the Strands v21 card lists ~30 public Hub training datasets incl. banking77 and clinc_oos; Clef's Decision Index suites include BANKING77 and CLINC150. A baseline already trained on a source's train split is advantaged on its test split, biasing the student-vs-v21 and student-vs-Clef comparisons.",
+      "seeds": [
+        "c45"
+      ]
+    },
+    {
+      "id": "s46",
+      "surface": "challenge pass / dependency lens: PyPI strands-decider 0.1.0 + HF Cloudflare/clef card + pyproject.toml",
+      "finding": "PyPI requires_dist for strands-decider 0.1.0: torch>=2.7, transformers<6,>=5.15, peft>=0.21, fastapi, uvicorn; the Clef card's Python example needs torch 2.11 and transformers 5.10.2; jev-factory's train extra pins transformers 5.5.0, peft 0.21.0, trl 0.24.0 and already conflicts with the evals group.",
+      "seeds": [
+        "c46"
+      ]
+    },
+    {
+      "id": "s47",
+      "surface": "challenge pass / security lens: HF Cloudflare/clef files + strands-decider README",
+      "finding": "Clef ships custom code (joint_schema_model.py: encode_record, load_release_model) that must be executed to run the joint head; strands-decider serve binds 127.0.0.1 with no authentication; measure/preflight.py:47 already has require_localhost.",
+      "seeds": [
+        "c47"
+      ]
+    },
+    {
+      "id": "s48",
+      "surface": "challenge pass / provenance lens: HF strands-decider-2B-hobson-v21 provenance.json",
+      "finding": "provenance.json: base_model_revision b1485b2f... with note 'inferred: Hub main at training time; hosts did not pin it', code_commit 'unknown', adapter_sha256 59be987f..., head_sha256 0fc78684.... Upstream did not pin its own base, so jev-factory must.",
+      "seeds": [
+        "c48"
+      ]
+    },
+    {
+      "id": "s49",
+      "surface": "challenge pass / failure-mode lens: strands-decider modeling.py, collate.py:175, infer.py:363",
+      "finding": "A pointer head 'scores each option from its own hidden state, so there is no slot count to exceed' (infer.py:363); collate.py:175 caps options only for the slot head; modeling.py PointerHead: 'The option count is unbounded rather than capped at num_slots'. num_slots 24 in c5 is therefore not a limit; max_length 4096 is (config + README:339).",
+      "seeds": [
+        "c49",
+        "c5"
+      ]
+    },
+    {
+      "id": "s50",
+      "surface": "challenge pass / lifecycle lens: operator decision c26 (4-bit now, NVFP4 later)",
+      "finding": "c26 allows the teacher build to change later; nothing confirmed stops two builds' soft labels being mixed in one set, which would make the teacher audit and JSD-to-teacher meaningless.",
+      "seeds": [
+        "c50"
+      ]
+    },
+    {
+      "id": "s51",
+      "surface": "challenge pass / observability lens: factory/stages.py + memory progress-updates-every-30-min",
+      "finding": "jev status reads `<work>/manifests/<stage>.json` and `jobs/<stage>.log` (stages.py:120, detach.py); the operator requires 30-minute progress updates from 'jev status --watch' for long runs; a top-level 'jev distill' outside the run registry would not inherit that unless it writes the same manifests.",
+      "seeds": [
+        "c51"
+      ]
+    },
+    {
+      "id": "s52",
+      "surface": "challenge pass / licence lens: typed-decisions (Apache-2.0) + jev-bench manifest + Clef/Strands Apache-2.0",
+      "finding": "Examined: typed-decisions is Apache-2.0; jev-bench licences are per source (license: other, see manifest / docs/DATASETS.md), already restricted to Apache/MIT by c36; Clef and Strands are Apache-2.0 and the cards state no output-use restriction (LICENSE files themselves unread, c19 assumption). Clean pass for the first run; residual: the unnamed ~4B teacher behind typed-decisions gold is not identified on the card.",
+      "seeds": []
+    },
+    {
+      "id": "s53",
+      "surface": "challenge pass / concurrency lens: factory/lock.py RunLock + gpu.py",
+      "finding": "Examined: RunLock is per work dir and the GPU guard refuses foreign GPU processes, so a distill run and the jev-tool build cannot both hold the GPU; residual risk recorded as a park (server process ownership).",
+      "seeds": []
+    },
+    {
+      "id": "s54",
+      "surface": "challenge pass / not examined",
+      "finding": "Not examined this pass: the Strands training code beyond collate/infer/modeling (training/train.py loss details, kl_frozen semantics), Clef's joint_schema_model.py source, llama.cpp PR 29831 status, the official JevBench raw format, and Orin/edge runtime support for whichever deployed format v1 picks.",
+      "seeds": []
     }
   ],
-  "lapses": [],
-  "obligations": []
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "grader-unverified",
+      "what": "During /think I proposed success signal c42 (beat v21, close >=50% of the v21-to-Clef accuracy gap) and teacher-audit c32 against dataset gold without reading the typed-decisions card, which says its gold is a ~4B teacher's 3-sample mean, so accuracy measures agreement with that teacher, not correctness, and a better model can score lower.",
+      "skipped_check": "read the chosen dataset's card for how gold was produced before proposing gold-based success signals",
+      "refs": [
+        "c42",
+        "c32",
+        "HF LocalLLaMA/typed-decisions README:188-190"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c41",
+      "seam": "jev CLI: distill --help, explain distill, status",
+      "behavior": "'jev distill --help' lists every distill stage; each side-effecting stage prints its plan and writes nothing without --apply; 'jev status <work>' reads every distill stage's manifest",
+      "source_text": "'jev distill' takes a public /v1/systemone-format dataset through teacher audit, teacher labelling, operator-reviewed corrections, a zero-shot benchmark, distill training, selection, quantize/heal-once, recalibration and one final measurement, and produces a private bundle of a distilled Strands Decider 2B with calibration, its gate, the data it trained on (with every target's source), and a report comparing it with Clef and with stock v21.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c21",
+      "seam": "jev-CLI domain generator vs _build_parser()",
+      "behavior": "The distill verb (and each distill stage) has an annotation with read_only=False where --apply exists, >= 2 paraphrases and >= 4 seed entries marked pending operator review; the generated operation list still matches argparse exactly",
+      "source_text": "The distillery is a top-level 'jev distill' verb, a noun group of distill stages (dry-run by default, --apply to commit). Because jev's own verbs are the jev-tool model's candidates, it joins the jev-CLI domain with an annotation, paraphrases and seed entries for operator review.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c3",
+      "seam": "teacher-label stage against a fake /v1/systemone server",
+      "behavior": "For every (record id, question id) on the train side it stores a probability vector over exactly the offered options summing to 1 within 0.01, with teacher repo id, revision, build/quant, engine, request config and response sha256; an incomplete or malformed answer is recorded as a teacher error, never as a label",
+      "source_text": "A teacher-label stage asks Clef over the SystemOne API (POST /v1/systemone) for every train-split item and stores the full per-option probability vector (soft label), not just the argmax, with provenance: teacher HF repo id, revision, quantization, serving engine, request config and a sha256 of each response.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c28",
+      "seam": "SystemOne scorer / predictions emitter",
+      "behavior": "Predictions are built from 'probabilities' (or noul P(true)) only: a fake server returning a deliberately wrong 'confidence' produces a byte-identical predictions record",
+      "source_text": "The vendor 'confidence' field is never used as a probability or a gate input: it is defined differently per model (CLM: top minus mean of rest; Jev choice: (pmax-1/K)/(1-1/K)). Only per-option probabilities are read, then calibrated.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c5",
+      "seam": "distribution-only stages (calibrate, gate sweep, metrics, select, decide)",
+      "behavior": "They run on a synthetic typed-question predictions record with no model present and import neither backbones.causal_lm nor the pointer backbone",
+      "source_text": "A pointer-scorer student backbone adapter for Strands Decider 2B (Qwen3.5-2B-Base + LoRA r16/alpha32 + a separate pointer head in head.safetensors, pointer_dim 256, num_slots 24): prompt rendering, readout, trainer, merge+verify, predictions emitter, serve and quantize, behind a real backbone seam.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c6",
+      "seam": "distill loss function",
+      "behavior": "alpha = 0 reproduces gold cross-entropy within 1e-6 on fixture rows; a row with no teacher target contributes zero KL; KL is >= 0 and equals 0 when student and teacher distributions match",
+      "source_text": "Distill trainer: loss = alpha * KL(teacher soft labels || student) + (1 - alpha) * CE(gold) where gold exists, with per-question-kind distillation temperature, LoRA first; runs in the train venv as a subprocess under the GPU guard (run_gpu_stage).",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c7",
+      "seam": "assessment metrics",
+      "behavior": "macro-F1, JSD to gold, JSD to teacher, confident-wrong rate, log-loss and peak memory each match a hand-computed fixture and report a seeded bootstrap CI that is identical across reruns",
+      "source_text": "Assessment adds macro-F1, JSD to gold, JSD to teacher, confident-wrong rate, log-loss and peak memory, each with bootstrap CIs, next to the existing ECE/reliability, Brier and latency metrics.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c8",
+      "seam": "paired release gate",
+      "behavior": "Student, teacher and v21 are resampled with the same item indices per bootstrap draw; a student with higher accuracy but higher ECE than v21 is reported as a regression",
+      "source_text": "A paired release gate compares the distilled student against the teacher and against the un-distilled student with bootstrap CIs on paired per-item differences, and an accuracy gain with worse calibration counts as a regression.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c42",
+      "seam": "final distill report vs hashed distill pre-registration",
+      "behavior": "Each success-signal bar (accuracy vs v21 with paired CI, >= 50% gap closure to Clef, ECE <= 0.10 and <= v21, confident-wrong <= v21, latency <= 1/5 Clef) is computed from the single final measurement on human-gold clean sources, cited with n and CI against the prereg; a miss is recorded as a miss",
+      "source_text": "On the final test side, measured once, against human-labelled gold from clean (non-overlapping) sources: the distilled student's accuracy beats stock v21 with the paired-bootstrap 95% CI of the difference above 0 and closes >= 50% of the v21-to-Clef accuracy gap; its calibrated ECE is <= 0.10 and no worse than v21's; its confident-wrong rate is no worse than v21's; and its median decision latency is <= 1/5 of Clef's on the same box. typed-decisions agreement is reported, not gated. The thresholds are pre-registered before the first distill training command.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c10",
+      "seam": "distill pre-registration and train stage",
+      "behavior": "Distill train refuses without a schema-valid, hashed distill prereg (bars, rule, knob grid incl. alpha, temperature, teacher filter, teacher-weak floor); a changed prereg is refused without a deviation id",
+      "source_text": "Distillation has its own pre-registration (bars, selection rule, the teacher and un-distilled student as reference rows, and the knob grid: alpha, temperature, student size, data mix) locked before the first distill training command; any later change is a recorded deviation.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c11",
+      "seam": "teacher-label stage and assemble leakage check",
+      "behavior": "A non-train record sent to teacher labelling is refused; teacher-labelled and corrected rows are leakage-checked (exact, near-duplicate) against fit/selection, test and held-out before assemble, failing closed and printing ids only",
+      "source_text": "The teacher labels the train split only. Its soft labels never reach the fit/selection folds' training targets, and nothing from the sealed held-out or test side is ever sent to the teacher or used to build soft labels; teacher-labelled train rows pass the existing exact + near-duplicate leakage check, which fails closed.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c12",
+      "seam": "once ledger for distill final measurement",
+      "behavior": "A second final measurement of test or held-out, for any of teacher, v21 or student, exits non-zero without a deviation id",
+      "source_text": "Test and sealed held-out are measured once: the teacher, the un-distilled student and the distilled student are scored in one final invocation (or the teacher's predictions are saved once and replayed), never as separate measurements.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c32",
+      "seam": "teacher audit stage",
+      "behavior": "It runs on train-side items only, uses only sources with human-labelled gold, and writes a per-source table (n, accuracy, log-loss, ECE, teacher-weak flag vs the prereg floor) before any soft label reaches assemble",
+      "source_text": "Teacher trust is measured per domain/source before distilling: a teacher-audit pass scores Clef against human-labelled gold on the train side (accuracy, log-loss, ECE per source); where it falls below a pre-registered floor, that domain is flagged 'teacher-weak' and its rows take corrected or gold-only targets instead of Clef's soft labels. Sources whose gold is itself model-generated are not used to flag Clef.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c33",
+      "seam": "assembled distill training set",
+      "behavior": "Every row names exactly one target source (operator correction, human gold, alternative teacher, Clef), the precedence rule applied, the correction id or teacher build id, and whether the agree-with-gold filter kept its teacher target",
+      "source_text": "Correction records have one precedence order, recorded per (record id, question id): human/operator correction > public human gold (e.g. jev-bench soft_label vote shares, typed-decisions gold) > an alternative teacher's soft labels > Clef's soft labels. Each training target says which source won and why.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c35",
+      "seam": "jev review flow for corrections",
+      "behavior": "Agent/model-drafted corrections stay proposed until the operator approves or edits them via --serve/--apply; an unreviewed correction never reaches assemble, and the review file records each decision",
+      "source_text": "Agent- or teacher-drafted corrections enter as proposed and need operator review before they can train, through the existing 'jev review' seed-review flow (dry-run, --serve, --apply), and the review file is the record.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c34",
+      "seam": "correction intake",
+      "behavior": "A correction lacking author/source, date or reason (weak|outdated), or matching a protected-side item exactly or near-duplicate, is refused",
+      "source_text": "Corrections are train-side only, carry provenance (author or source, date, reason: weak or outdated), pass the same exact + near-duplicate leakage check against the fit/selection, test and sealed held-out sides, and are never derived from protected-side items.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c50",
+      "seam": "assemble with soft labels",
+      "behavior": "A training set whose soft-label rows carry more than one teacher build id is refused unless a deviation id is supplied",
+      "source_text": "One distill run uses one teacher build: soft labels from a different Clef build (e.g. NVFP4 after 4-bit) are a new labelling run or a recorded deviation, never mixed into the same training set.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c49",
+      "seam": "length filter before train and benchmark",
+      "behavior": "Records over the student's 4096-token window are dropped with a per-source count in the manifest; no record is truncated",
+      "source_text": "Records whose rendered state + questions exceed the student's 4096-token window are filtered before training and evaluation with a per-source count, or recorded as student-ineligible, never silently truncated; the pointer head itself has no option-count cap.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o19",
+      "claim_id": "c45",
+      "seam": "final report contamination table",
+      "behavior": "Each evaluation source is marked clean or overlapping with v21's training data and Clef's eval suites; headline numbers use clean sources only unless the prereg says otherwise",
+      "source_text": "A contamination check runs before the benchmark: every evaluation source (jev-bench config, typed-decisions workflow, JevBench) is compared with the public datasets listed in v21's training data and with Clef's published eval suites; overlapping sources are flagged and reported separately, never pooled silently into the headline v21 or Clef comparison.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o20",
+      "claim_id": "c9",
+      "seam": "quantize, heal and recalibrate stages for the student",
+      "behavior": "The deployed format is a recorded decision citing spike measurements of each candidate; heal runs at most once and a second trigger exits with stop/escalate; recalibration fits on the deployed quant's own fit-fold predictions",
+      "source_text": "Quantize the distilled student to its deployed format, re-measure it, heal at most once if the quant loses more than 3.0 points against its own bf16 (same trigger as the jev-tool path), re-quantize, and recalibrate on the deployed quant's own fit-fold predictions.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o21",
+      "claim_id": "c53",
+      "seam": "distill bundle",
+      "behavior": "strands_decider_config.json carries jev-factory's fitted temperature_by_kind (never the upstream values), and calibration.json, gate.json, the training set with per-row target sources and the comparison report are present; no symlinks",
+      "source_text": "Deployed calibration lives in both places: jev-factory writes its fitted per-kind temperatures into the bundle's strands_decider_config.json so 'strands-decider serve' emits calibrated probabilities, and ships calibration.json + gate.json for lobes to apply; a per-label vector is kept only if lobes applies it.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o22",
+      "claim_id": "c44",
+      "seam": "bundle vs pinned strands-decider serve",
+      "behavior": "The bundle loads unmodified in the pinned strands-decider environment and answers a choice, a noul and a score question over /v1/systemone on 127.0.0.1",
+      "source_text": "The distilled student's bundle is loadable unmodified by 'strands-decider serve' (the hobson-hf-export/1 layout: LoRA adapter, head.safetensors, strands_decider_config.json, provenance.json), because lobes serves the 2B through that package and passes /v1/systemone through unchanged.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o23",
+      "claim_id": "c48",
+      "seam": "student input verification",
+      "behavior": "A Qwen3.5-2B-Base revision, v21 commit, adapter_sha256 or head_sha256 that differs from the pinned values makes distill train refuse with a hash-mismatch error",
+      "source_text": "Before training, the distillery pins and verifies the student's inputs: Qwen/Qwen3.5-2B-Base at an explicit revision, the v21 repo at a commit sha, and v21's adapter_sha256/head_sha256 from its provenance.json; a mismatch fails closed.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o24",
+      "claim_id": "c46",
+      "seam": "run provenance for teacher, student runtime and trainer environments",
+      "behavior": "Each environment's lockfile hash or image digest is recorded in the run; importing jev_factory with torch, transformers, peft and strands_decider blocked succeeds and pyproject dependencies == []",
+      "source_text": "Teacher, student runtime and distill trainer each run in their own pinned environment, reached over HTTP or as a subprocess: Clef's card needs transformers 5.10.2 and torch 2.11, strands-decider 0.1.0 needs transformers>=5.15,<6, and jev-factory's train extra pins transformers 5.5.0, so none can share one venv.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o25",
+      "claim_id": "c47",
+      "seam": "teacher/student server launcher",
+      "behavior": "Launching with an unpinned model revision or package version, or binding anything but 127.0.0.1, is refused",
+      "source_text": "Remote model code is pinned and contained: Clef's joint_schema_model.py and the strands-decider package run only at a pinned HF commit sha / package version with hash, inside their own environment, serving on 127.0.0.1 only (strands-decider serve has no auth); the pins are recorded in provenance.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o26",
+      "claim_id": "c51",
+      "seam": "detached teacher-label run",
+      "behavior": "Killed halfway and re-run, it re-sends only unanswered items (cache hits counted in the manifest) and its progress shows in 'jev status <work>'",
+      "source_text": "Every 'jev distill' stage writes the same per-stage manifest and detached-job log that 'jev status' / '--watch' read, and teacher labelling resumes from its response cache after an interruption without re-asking answered items.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o27",
+      "claim_id": "c14",
+      "seam": "upload of model and dataset bundles with a fake hub client",
+      "behavior": "Without --apply nothing is sent; with --apply repos are created private, fetched back and every sha256 compared; no visibility-to-public call is ever made",
+      "source_text": "Every distill write step (teacher labelling, train, quantize, heal, upload) is dry-run by default with --apply to commit, uploads are private-first with fetch-back hash verification, and the base install keeps dependencies = [] (heavy deps behind the train extra, imported lazily).",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
 }
