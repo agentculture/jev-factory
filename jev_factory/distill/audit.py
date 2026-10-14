@@ -9,8 +9,12 @@ Sources whose gold is model-generated (typed-decisions) are **reported but never
 a model's gold cannot indict the teacher, so ``teacher_weak`` is ``None`` and ``flaggable``
 is false for them. A source that mixes provenances is split into one row per provenance.
 
-The table is written to ``<run_dir>/distill/teacher_audit.json``. :func:`require_audit` is the
-guard the assemble stage calls first: it refuses until a valid table exists. Stdlib only.
+The table also records the audited teacher's build id (``teacher_build_id``), read from the
+label rows; label rows that carry no build id or more than one are refused. Clef's table is
+``<run_dir>/distill/teacher_audit.json``; an alternative teacher is audited into its own table
+(``role="alt"``, ``teacher_audit.alt.json``), so there is one table per teacher build.
+:func:`require_audit` is the guard the assemble stage calls first: it refuses until a valid
+table, with a build id, exists. Stdlib only.
 """
 
 from __future__ import annotations
@@ -29,6 +33,8 @@ from jev_factory.distill.records import Question, Record
 
 STAGE = "teacher-audit"
 AUDIT_REL = "distill/teacher_audit.json"
+AUDIT_ALT_REL = "distill/teacher_audit.alt.json"
+ROLES = {"clef": AUDIT_REL, "alt": AUDIT_ALT_REL}
 HUMAN = "human"
 
 
@@ -40,6 +46,26 @@ def load_labels(path: Path) -> list[dict[str, Any]]:
     """Read ``teacher_labels.jsonl`` rows."""
     text = Path(path).read_text(encoding="utf-8")
     return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def audited_build_id(label_rows: Sequence[Mapping[str, Any]]) -> str:
+    """The single teacher build id of *label_rows*; refuse none, a blank one, or several."""
+    builds = {str(r.get("teacher_build_id") or "").strip() for r in label_rows}
+    if "" in builds:
+        raise _fail(
+            "teacher label rows without a teacher_build_id cannot be audited",
+            "re-label with the teacher stage, which stamps every row",
+        )
+    if len(builds) != 1:
+        raise _fail(
+            (
+                f"the label rows carry {len(builds)} teacher build ids {sorted(builds)}"
+                if builds
+                else "no teacher label rows to audit"
+            ),
+            "audit one teacher build at a time",
+        )
+    return next(iter(builds))
 
 
 def _teacher_probs(question: Question, row: Mapping[str, Any]) -> tuple[float, ...] | None:
@@ -115,6 +141,7 @@ def build_table(
     return {
         "stage": STAGE,
         "floor": floor,
+        "teacher_build_id": audited_build_id(label_rows) if label_rows else None,
         "sources": sources,
         "teacher_weak_sources": sorted({s["source"] for s in sources if s["teacher_weak"]}),
     }
@@ -127,11 +154,16 @@ def run_audit(
     prereg: DistillPrereg,
     *,
     floor: float,
+    role: str = "clef",
 ) -> dict[str, Any]:
     """Audit the teacher and write the table; *floor* must be a pre-registered grid value."""
+    if role not in ROLES:
+        raise _fail(f"unknown audit role {role!r}", f"use one of {sorted(ROLES)}")
     require_knobs(prereg, {"teacher_weak_floor": floor})
-    table = build_table(records, load_labels(labels_path), floor=floor)
-    path = Path(run_dir) / AUDIT_REL
+    rows = load_labels(labels_path)
+    audited_build_id(rows)  # refuses empty / blank / mixed builds before anything is scored
+    table = build_table(records, rows, floor=floor)
+    path = Path(run_dir) / ROLES[role]
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".part")
     tmp.write_text(json.dumps(table, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -139,9 +171,11 @@ def run_audit(
     return table
 
 
-def require_audit(run_dir: Path) -> dict[str, Any]:
-    """Guard for assemble: return the audit table, or refuse if it is missing or invalid."""
-    path = Path(run_dir) / AUDIT_REL
+def require_audit(run_dir: Path, role: str = "clef") -> dict[str, Any]:
+    """Guard for assemble: the audit table (with its build id), or refuse if missing/invalid."""
+    if role not in ROLES:
+        raise _fail(f"unknown audit role {role!r}", f"use one of {sorted(ROLES)}")
+    path = Path(run_dir) / ROLES[role]
     remedy = "run the teacher audit (distill audit) before assemble"
     if not path.is_file():
         raise _fail("no teacher audit table for this run; assemble refuses", remedy)
@@ -155,4 +189,6 @@ def require_audit(run_dir: Path) -> dict[str, Any]:
         or not isinstance(table.get("sources"), list)
     ):
         raise _fail("teacher audit table is malformed; assemble refuses", remedy)
+    if not str(table.get("teacher_build_id") or "").strip():
+        raise _fail("teacher audit table names no teacher build id; assemble refuses", remedy)
     return table

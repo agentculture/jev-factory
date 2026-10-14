@@ -13,7 +13,7 @@ from jev_factory.backbones.pointer.train_distill import load_items
 from jev_factory.cli._errors import CliError
 from jev_factory.core import leakage
 from jev_factory.distill import assemble, prereg
-from jev_factory.distill.audit import AUDIT_REL
+from jev_factory.distill.audit import AUDIT_ALT_REL, AUDIT_REL
 from jev_factory.distill.corrections import Correction, read_corrections, write_corrections
 from jev_factory.distill.dataset import Dataset, SealedSide, write_dataset
 from jev_factory.distill.records import Gold, Question, Record
@@ -107,7 +107,7 @@ def _write_jsonl(path, rows):
     return path
 
 
-def _audit(run_dir, weak=()):
+def _audit(run_dir, weak=(), build="clef-b1", rel=AUDIT_REL):
     sources = [
         {"source": s, "gold_provenance": "human", "teacher_weak": s in weak, "flaggable": True}
         for s in ("good", "weak")
@@ -115,10 +115,11 @@ def _audit(run_dir, weak=()):
     table = {
         "stage": "teacher-audit",
         "floor": 0.6,
+        "teacher_build_id": build,
         "sources": sources,
         "teacher_weak_sources": sorted(weak),
     }
-    path = run_dir / AUDIT_REL
+    path = run_dir / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(table), encoding="utf-8")
 
@@ -165,8 +166,10 @@ class _Env:
     def clef_rows(self, rows):
         _write_jsonl(self.clef, rows)
 
-    def alt_rows(self, rows):
+    def alt_rows(self, rows, audited="alt-b7", weak=()):
         self.alt = _write_jsonl(self.tmp / "alt" / "teacher_labels.jsonl", rows)
+        if audited is not None:
+            _audit(self.run, weak, build=audited, rel=AUDIT_ALT_REL)
 
     def go(self, teacher_filter="all", reg=None, deviation_id=None):
         return assemble.assemble(
@@ -346,9 +349,9 @@ def test_mixed_teacher_build_ids_refused_without_deviation(tmp_path):
     with pytest.raises(CliError, match="teacher build"):
         env.go()
     assert not (env.run / assemble.OUT_REL).exists()
-    m = env.go(deviation_id="d9")
-    assert m["teacher_build_ids"] == ["clef-b1", "clef-b2"]
-    assert m["deviation_id"] == "d9"
+    # a deviation allows a mixed set, but never an unaudited build (see fx4 tests)
+    with pytest.raises(CliError, match="audit"):
+        env.go(deviation_id="d9")
 
 
 def test_alt_falling_back_to_clef_is_a_mixed_build(tmp_path):
@@ -493,3 +496,57 @@ def test_refreezing_a_different_set_needs_a_deviation(tmp_path):
     with pytest.raises(CliError, match="frozen"):
         env.go(teacher_filter="agrees_with_gold")
     assert env.go(teacher_filter="agrees_with_gold", deviation_id="d10")["deviation_id"] == "d10"
+
+
+# ----------------------------------------------------------------- fx4: audit names the build
+
+
+def test_clef_labels_from_an_unaudited_build_are_refused(tmp_path):
+    env = _Env(tmp_path, [_rec("r1", 1)])
+    env.clef_rows(_labels("r1", build="clef-b2"))  # audit names clef-b1
+    with pytest.raises(CliError, match="audited") as exc:
+        env.go()
+    assert "clef-b2" in exc.value.message and "clef-b1" in exc.value.message
+    assert not (env.run / assemble.OUT_REL).exists()
+    with pytest.raises(CliError, match="audited"):
+        env.go(deviation_id="d9")
+
+
+def test_alternative_teacher_needs_its_own_audit(tmp_path):
+    env = _Env(tmp_path, [_rec("r1", 1)])
+    env.clef_rows(_labels("r1"))
+    env.alt_rows(_labels("r1", build="alt-b7"), audited=None)
+    with pytest.raises(CliError, match="audit"):
+        env.go()
+
+
+def test_alternative_teacher_build_must_match_its_audit(tmp_path):
+    env = _Env(tmp_path, [_rec("r1", 1)])
+    env.clef_rows(_labels("r1"))
+    env.alt_rows(_labels("r1", build="alt-b8"), audited="alt-b7")
+    with pytest.raises(CliError, match="audited"):
+        env.go()
+
+
+def test_audited_alternative_build_is_accepted_and_recorded(tmp_path):
+    env = _Env(tmp_path, [_rec("r1", 1)])
+    env.clef_rows(_labels("r1"))
+    env.alt_rows(_labels("r1", build="alt-b7"))
+    m = env.go()
+    assert m["teacher_build_ids"] == ["alt-b7"]
+    assert m["audited_builds"] == {"clef": "clef-b1", "alt": "alt-b7"}
+
+
+def test_weak_flags_come_from_the_audit_of_the_teacher_used(tmp_path):
+    env = _Env(tmp_path, [_rec("w1", 1, source="weak")], weak=())  # clef audit: not weak
+    env.clef_rows(_labels("w1"))
+    env.alt_rows(_labels("w1", build="alt-b7"), weak=("weak",))  # alt audit: weak
+    m = env.go()
+    assert m["teacher_weak_sources"] == ["weak"]
+    assert _rows(m)[("w1", "a")]["target_source"] == "human_gold"
+    # clef only: its own (clean) audit governs
+    env2 = _Env(tmp_path / "x", [_rec("w1", 1, source="weak")], weak=())
+    env2.clef_rows(_labels("w1"))
+    m2 = env2.go()
+    assert m2["teacher_weak_sources"] == []
+    assert _rows(m2)[("w1", "a")]["target_source"] == "clef+gold"
