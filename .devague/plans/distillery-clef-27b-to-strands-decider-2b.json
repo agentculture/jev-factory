@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-14T05:54:33Z",
-  "updated": "2026-10-14T06:25:25Z",
+  "updated": "2026-10-14T07:03:10Z",
   "targets": [
     {
       "id": "c1",
@@ -1140,6 +1140,14 @@
     {
       "id": "r13",
       "text": "Clean human-gold headline may be thin: v21's raw training list (HF cardData, 29 datasets; strands-decider data/sources.md) includes banking77, clinc_oos, amazon_massive_intent, civil_comments, measuring-hate-speech, emotion, glue, boolq and more, which overlap most jev-bench configs; after excluding overlaps the clean human-gold test set (c42/c52) may be too small for the paired CI, so the operator may need to add clean human-labelled sources before t26 or accept reporting overlap-included numbers as secondary.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t26",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r14",
+      "text": "Selection runtime: the example distill grid is 96 candidates (alpha x per-kind temperature x epochs x lr x init_mode) and t18 has no per-candidate resume, so a full apply run is many GPU-days on one GB10 and any interruption retrains everything; the operator must shrink the grid before the lock and/or a per-candidate resume must be added before t26.",
       "kind": "unknown_nonblocking",
       "task_id": "t26",
       "resolved": false,
