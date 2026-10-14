@@ -228,3 +228,16 @@ def test_per_kind_temperature_is_checked():
 def test_upstream_knob_names_are_registered_run_knobs():
     reg = dp.validate(good_doc())
     dp.require_knobs(reg, {"head_lr": 1e-3, "kl_frozen_weight": 0.3})
+
+
+def test_example_doc_registers_one_heal_round_with_cited_knobs_in_the_grid():
+    from jev_factory.distill import quant
+
+    doc = dp.example_doc()
+    reg = dp.validate(doc)
+    knobs = quant.heal_knobs(reg)
+    assert knobs == {"epochs": 1, "lr": 5e-5, "init_mode": "continue"}
+    assert "d18" in doc["heal"]["source"] and "5e-5" in doc["heal"]["source"]
+    for name in ("epochs", "lr", "init_mode"):
+        assert knobs[name] in doc["knob_grid"][name]
+    assert doc["bars"]["quant"]["heal_rounds_max"] == 1
