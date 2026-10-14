@@ -568,7 +568,12 @@ class Runner:
 def test_the_torchao_builder_builds_a_verified_artifact_in_the_student_env(tmp_path):
     runner, guarded = Runner(), []
     builders = Q.default_builders(
-        "a" * 40, python="py", decider_repo=tmp_path / "sd", runner=runner, guard=guarded.append
+        "a" * 40,
+        python="py",
+        decider_repo=tmp_path / "sd",
+        runner=runner,
+        guard=guarded.append,
+        memory_max="100G",
     )
     ckpt = _ckpt(tmp_path / "ckpt")
     art = builders["torch_int4_wo"]("torch_int4_wo", ckpt, tmp_path / "builds" / "q4")
@@ -583,7 +588,12 @@ def test_the_torchao_builder_builds_a_verified_artifact_in_the_student_env(tmp_p
 def test_a_torchao_build_failure_is_recorded_unavailable_with_the_error(tmp_path):
     runner = Runner(rc=1, stderr="NotImplementedError: Int4Tensor needs fbgemm-gpu-genai")
     builders = Q.default_builders(
-        "a" * 40, python="py", decider_repo="/sd", runner=runner, guard=lambda stage: None
+        "a" * 40,
+        python="py",
+        decider_repo="/sd",
+        runner=runner,
+        guard=lambda stage: None,
+        memory_max="100G",
     )
     torch_build = builders["torch_int8_wo"]
     builders["bf16"] = FakeBuilders(formats=("bf16",))["bf16"]
@@ -601,6 +611,79 @@ def test_a_torchao_build_failure_is_recorded_unavailable_with_the_error(tmp_path
         assert "torchao build failed" in meas[fmt]["reason"]
         assert "fbgemm-gpu-genai" in meas[fmt]["reason"]
     assert out["chosen_format"] == "bf16"
+
+
+def test_a_torchao_build_without_a_memory_cap_is_refused_not_recorded_unavailable(tmp_path):
+    runner = Runner()
+    builders = Q.default_builders(
+        "a" * 40, python="py", decider_repo="/sd", runner=runner, guard=lambda stage: None
+    )
+    with pytest.raises(CliError, match="memory cap"):
+        builders["torch_int8_wo"]("torch_int8_wo", _ckpt(tmp_path / "ckpt"), tmp_path / "q8")
+    assert runner.calls == []
+
+
+def test_the_torchao_builder_builds_through_run_gpu_stage(tmp_path, monkeypatch):
+    import subprocess  # nosec B404 - a completed-process value only
+
+    from jev_factory.backbones.pointer import quantized as qz
+
+    seen = []
+
+    def stage(name, run_dir, cmd, **kw):
+        seen.append((name, kw))
+        _write_artifact(Path(cmd[5]), int(cmd[7]), qz.source_record(Path(cmd[4])))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(qz.gpu, "run_gpu_stage", stage)
+    builders = Q.default_builders(
+        "a" * 40,
+        python="py",
+        decider_repo="/sd",
+        memory_max="90G",
+        memory_floor="10G",
+        guard=lambda s: None,
+    )
+    builders["torch_int8_wo"]("torch_int8_wo", _ckpt(tmp_path / "ckpt"), tmp_path / "q8")
+    assert seen[0][0] == "quantize"
+    assert seen[0][1]["memory_max"] == "90G" and seen[0][1]["memory_floor"] == "10G"
+
+
+def test_a_watchdog_stop_is_recorded_unavailable_with_the_reason(tmp_path, monkeypatch):
+    import subprocess  # nosec B404 - a completed-process value only
+
+    from jev_factory.backbones.pointer import quantized as qz
+
+    monkeypatch.setattr(
+        qz.gpu,
+        "run_gpu_stage",
+        lambda name, run_dir, cmd, **kw: subprocess.CompletedProcess(
+            cmd, 3, "", "MemAvailable low"
+        ),
+    )
+    builders = Q.default_builders(
+        "a" * 40, python="py", decider_repo="/sd", guard=lambda s: None, memory_max="90G"
+    )
+    with pytest.raises(Q.FormatUnavailable, match="memory-floor watchdog"):
+        builders["torch_int4_wo"]("torch_int4_wo", _ckpt(tmp_path / "ckpt"), tmp_path / "q4")
+
+
+def test_the_bf16_server_launch_records_that_it_is_not_capped(tmp_path, monkeypatch):
+    def fake_launch(jobdir, name, env, artifact, *, port, device=None):
+        (Path(jobdir) / f"{name}.serve.json").write_text(json.dumps({"argv": ["x"]}))
+        return 1
+
+    monkeypatch.setattr(Q.pserve, "launch", fake_launch)
+    monkeypatch.setattr(Q.pserve, "wait_ready", lambda *a, **k: {"status": "ok"})
+    monkeypatch.setattr(Q.bench, "benchmark_model", FakeBench())
+    monkeypatch.setattr(Q.gpu, "assert_gpu_free", lambda stage: [])
+    monkeypatch.setattr(Q.player, "read_layout", lambda p: {})
+    (tmp_path / "jobs").mkdir()
+    measure = Q.served_measurer(env="e", jobdir=tmp_path / "jobs", port=8125)
+    measure("bf16", tmp_path / "bundle", folds())
+    record = json.loads((tmp_path / "jobs" / "distill-quant-bf16.serve.json").read_text())
+    assert record["argv"] == ["x"] and record["capped"] is False
+    assert "long-lived" in record["capped_note"]
 
 
 class FakeBench:

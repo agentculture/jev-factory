@@ -169,7 +169,7 @@ class FakeRunner:
 
 def test_apply_runs_the_planned_command_in_the_student_env_and_verifies(tmp_path):
     runner = FakeRunner()
-    _ckpt, out = _plan(tmp_path, apply=True, runner=runner)
+    _ckpt, out = _plan(tmp_path, apply=True, runner=runner, memory_max="100G")
     assert out["dry_run"] is False
     argv, env = runner.calls[0]
     assert argv == out["argv"] and env["PYTHONPATH"] == out["env"]["PYTHONPATH"]
@@ -179,13 +179,81 @@ def test_apply_runs_the_planned_command_in_the_student_env_and_verifies(tmp_path
 def test_apply_reports_a_failed_build_with_its_error(tmp_path):
     runner = FakeRunner(rc=1, write=False, stderr="RuntimeError: no int4 kernel for sm_121")
     with pytest.raises(CliError, match="no int4 kernel") as err:
-        _plan(tmp_path, bits=4, apply=True, runner=runner)
+        _plan(tmp_path, bits=4, apply=True, runner=runner, memory_max="100G")
     assert err.value.code == EXIT_ENV_ERROR
 
 
 def test_apply_refuses_a_build_that_left_no_valid_artifact(tmp_path):
     with pytest.raises(CliError, match="jev_quant.json"):
-        _plan(tmp_path, apply=True, runner=FakeRunner(write=False))
+        _plan(tmp_path, apply=True, runner=FakeRunner(write=False), memory_max="100G")
+
+
+class GpuStage:
+    """Stands in for factory.gpu.run_gpu_stage: records the call, writes the artifact."""
+
+    def __init__(self, rc=0, stderr=""):
+        self.rc, self.stderr, self.calls = rc, stderr, []
+
+    def __call__(self, stage, run_dir, cmd, **kw):
+        self.calls.append((stage, Path(run_dir), list(cmd), kw))
+        if self.rc == 0:
+            _artifact(Path(cmd[5]), bits=int(cmd[7]))
+        return subprocess.CompletedProcess(cmd, self.rc, stdout="", stderr=self.stderr)
+
+
+def _no_bare_subprocess(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("a bare subprocess ran the quantize build")
+
+    monkeypatch.setattr(qz.subprocess, "run", boom)
+
+
+def test_apply_without_a_memory_cap_is_refused_and_runs_nothing(tmp_path, monkeypatch):
+    stage = GpuStage()
+    monkeypatch.setattr(qz.gpu, "run_gpu_stage", stage)
+    _no_bare_subprocess(monkeypatch)
+    runner = FakeRunner()
+    for kw in ({}, {"runner": runner}):
+        with pytest.raises(CliError, match="memory cap") as err:
+            _plan(tmp_path, apply=True, **kw)
+        assert err.value.code == EXIT_USER_ERROR
+    assert stage.calls == [] and runner.calls == []
+
+
+def test_dry_run_needs_no_memory_cap(tmp_path):
+    assert _plan(tmp_path)[1]["dry_run"] is True
+
+
+def test_apply_goes_through_run_gpu_stage_never_a_bare_subprocess(tmp_path, monkeypatch):
+    stage = GpuStage()
+    monkeypatch.setattr(qz.gpu, "run_gpu_stage", stage)
+    _no_bare_subprocess(monkeypatch)
+    _ckpt, out = _plan(
+        tmp_path, apply=True, memory_max="100G", memory_floor="12G", allow_foreign=True
+    )
+    name, run_dir, cmd, kw = stage.calls[0]
+    assert name == "quantize" and cmd == out["argv"]
+    assert kw["memory_max"] == "100G" and kw["memory_floor"] == "12G"
+    assert kw["allow_foreign"] is True and kw["env"]["PYTHONPATH"] == out["env"]["PYTHONPATH"]
+    assert run_dir.is_dir() and run_dir != tmp_path / "out"
+    assert out["artifact"]["manifest"]["format"] == "torch_int8_wo"
+    assert out["capped"] == {"memory_max": "100G", "memory_floor": "12G"}
+
+
+def test_a_watchdog_stop_is_reported_as_the_memory_floor(tmp_path, monkeypatch):
+    monkeypatch.setattr(qz.gpu, "run_gpu_stage", GpuStage(rc=3, stderr="MemAvailable low"))
+    with pytest.raises(CliError, match="memory-floor watchdog") as err:
+        _plan(tmp_path, apply=True, memory_max="100G")
+    assert err.value.code == EXIT_ENV_ERROR
+
+
+def test_launch_records_that_the_server_is_not_capped(tmp_path, monkeypatch):
+    root = _artifact(tmp_path / "a")
+    monkeypatch.setattr(qz, "start_detached", lambda j, n, argv: 1)
+    env = EnvSpec(role="student", python="/envs/student/bin/python", lockfile_hash="c" * 64)
+    qz.launch(tmp_path / "jobs", "q", env, root, port=8000)
+    record = json.loads((tmp_path / "jobs" / "q.serve.json").read_text())
+    assert record["capped"] is False and "long-lived" in record["capped_note"]
 
 
 # --------------------------------------------------------------------- the artifact
