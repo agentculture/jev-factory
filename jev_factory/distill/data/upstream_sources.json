@@ -1,0 +1,401 @@
+{
+  "note": "Name-level manifest of upstream sources. Cards fetched 2026-10-14. v21 card displays only 3 of its 29 metadata datasets; the other 26 are unidentified here (see data/sources.md in https://github.com/strands-labs/strands-decider, not checked).",
+  "sources": [
+    {
+      "name": "glue",
+      "aliases": [
+        "nyu-mll/glue"
+      ],
+      "role": "v21-training",
+      "url": "https://huggingface.co/datasets/nyu-mll/glue",
+      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21"
+    },
+    {
+      "name": "paws",
+      "aliases": [
+        "google-research-datasets/paws"
+      ],
+      "role": "v21-training",
+      "url": "https://huggingface.co/datasets/google-research-datasets/paws",
+      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21"
+    },
+    {
+      "name": "ag_news",
+      "aliases": [
+        "fancyzhx/ag_news",
+        "agnews"
+      ],
+      "role": "v21-training",
+      "url": "https://huggingface.co/datasets/fancyzhx/ag_news",
+      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21"
+    },
+    {
+      "name": "contractnli",
+      "aliases": [],
+      "role": "v21-training",
+      "url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
+      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21"
+    },
+    {
+      "name": "musique",
+      "aliases": [],
+      "role": "v21-training",
+      "url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
+      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21"
+    },
+    {
+      "name": "hotpotqa",
+      "aliases": [
+        "hotpotqa/hotpot_qa",
+        "hotpot_qa"
+      ],
+      "role": "v21-eval",
+      "url": "https://huggingface.co/datasets/hotpotqa/hotpot_qa",
+      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21"
+    },
+    {
+      "name": "jevbench",
+      "aliases": [
+        "jev-bench",
+        "praveenrajus/jev-bench"
+      ],
+      "role": "v21-eval",
+      "url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
+      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21"
+    },
+    {
+      "name": "boardgameqa",
+      "aliases": [
+        "boardgame"
+      ],
+      "role": "v21-eval",
+      "url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
+      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21"
+    },
+    {
+      "name": "helpsteer2",
+      "aliases": [
+        "adequacy_hs2"
+      ],
+      "role": "v21-eval",
+      "url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
+      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21"
+    },
+    {
+      "name": "naturalbench",
+      "aliases": [],
+      "role": "v21-eval",
+      "url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
+      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21"
+    },
+    {
+      "name": "pope",
+      "aliases": [
+        "pope-adversarial"
+      ],
+      "role": "v21-eval",
+      "url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
+      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21"
+    },
+    {
+      "name": "BFCL",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "ToolRet",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "API-Bank",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "BANKING77",
+      "aliases": [
+        "banking77",
+        "PolyAI/banking77"
+      ],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "CLINC150+OOS",
+      "aliases": [
+        "clinc150",
+        "clinc_oos",
+        "clinc-oos"
+      ],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "RouterBench",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "Home appliance simulator",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "SGD/SGD-X",
+      "aliases": [
+        "sgd",
+        "sgd-x",
+        "sgdx"
+      ],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "ContractNLI",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "ANLI",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "BPoMP",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "Humicroedit",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "POP909-CL",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "cfcolor",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "MMLU",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "GPQA Diamond",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "ARC-Easy",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "ARC-Challenge",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "WinoGrande",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "HellaSwag",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "GSM8K",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "ChessBench",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "MuSR",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "SATA-Bench",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "BRIGHT",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "Amazon ESCI",
+      "aliases": [
+        "esci"
+      ],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "ACOS",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "FinEntity",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "VAST",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "NLI4CT",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "CRUXEval",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "CLadder",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "ForecastBench",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "Habermas Machine",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "PhishNChips",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "MMLU-Pro",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "BBH",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "RAGTruth",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "HoVer",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "When2Call MCQ",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    },
+    {
+      "name": "New Yorker",
+      "aliases": [],
+      "role": "clef-decision-index-eval",
+      "url": "https://clef-evals.workers-ai-mle.workers.dev",
+      "card": "https://huggingface.co/Cloudflare/clef"
+    }
+  ]
+}
