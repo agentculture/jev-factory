@@ -101,7 +101,7 @@ def test_annotated_argument_must_exist_and_required_positional_must_be_annotated
 def test_verbs_are_read_only_except_the_write_verbs_and_all_have_descriptions() -> None:
     domain = generate_domain()
     stages = [n for n in domain.names() if n.startswith("jev.run.")]
-    writes = {"jev.init", "jev.decide", "jev.review", *stages}
+    writes = {"jev.init", "jev.decide", "jev.review", "jev.distill", *stages}
     assert stages
     assert all(domain.is_mutating(n) for n in writes)
     assert all(domain.read_only(n) for n in domain.names() if n not in writes)

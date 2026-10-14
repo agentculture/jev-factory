@@ -273,3 +273,55 @@ def test_final_reads_the_sealed_sides_only_by_their_sealed_sha(env, monkeypatch)
     with pytest.raises(CliError):
         _run(env, _models([]))
     assert Path(env["run_dir"] / F.FINAL_REL / F.REPORT_FILE).exists() is False
+
+
+# --------------------------------------------------------------------- the decision gate (t22)
+
+GATE_THRESHOLDS = {
+    "choice": {"floor": 0.95, "margin": None, "max_entropy": None},
+    "noul": {"floor": None, "margin": None, "max_entropy": None},
+    "score": {"floor": None, "margin": None, "max_entropy": None},
+}
+
+
+def _write_gate(env, calibration_sha256=None, fitted=True):
+    path = env["run_dir"] / "distill" / "gate" / "gate.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sha = calibration_sha256 or dp.sha256_file(env["qdir"] / "calibration.json")
+    doc = {"fitted": fitted, "thresholds_by_kind": GATE_THRESHOLDS, "calibration_sha256": sha}
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return path
+
+
+def test_the_fitted_gate_is_passed_to_the_report(env):
+    path = _write_gate(env)
+    plan = _run(env, _models([]), apply=False)
+    assert plan["gate"]["sha256"] == dp.sha256_file(path)
+    out = _run(env, _models([]))
+    dg = out["report"]["decision_gate"]
+    assert dg["fitted"] is True  # reported only: "gated" stays False (never a bar)
+    assert dg["thresholds_by_kind"] == GATE_THRESHOLDS
+    assert set(dg["sides"]) == {"test", "held_out"}
+    assert out["final"]["gate"]["sha256"] == dp.sha256_file(path)
+
+
+def test_without_a_gate_the_report_says_none_was_fitted(env):
+    out = _run(env, _models([]))
+    assert out["report"]["decision_gate"]["fitted"] is False
+    assert out["final"]["gate"] is None
+
+
+@pytest.mark.parametrize("apply", [True, False])
+def test_a_gate_fitted_on_another_calibration_is_refused(env, apply):
+    _write_gate(env, calibration_sha256="d" * 64)
+    with pytest.raises(CliError) as exc:
+        _run(env, _models([]), apply=apply)
+    assert "calibration" in exc.value.message
+    assert _ledger(env) == []
+
+
+def test_an_unfitted_gate_file_is_refused(env):
+    _write_gate(env, fitted=False)
+    with pytest.raises(CliError):
+        _run(env, _models([]))
+    assert _ledger(env) == []

@@ -40,6 +40,7 @@ checks prevent, and the test behind each, are in `docs/lessons-encoded.md`.
 - `jev-factory status <run>` — stage manifests, staleness, job progress; `--watch` every 30m.
 - `jev-factory decide <run>` — apply the pre-registered rule; append a record.
 - `jev-factory ask <request>` — propose one jev verb from a bundle; executes nothing.
+- `jev-factory distill <stage>` — one stage of a teacher -> student distill run.
 - `jev-factory whoami` — identity probe from `culture.yaml`.
 - `jev-factory learn` — structured self-teaching prompt.
 - `jev-factory explain <path>` — markdown docs for any noun/verb.
@@ -63,6 +64,7 @@ before training, and publishing is private-first.
 ## See also
 
 - `jev-factory explain run`
+- `jev-factory explain distill`
 - `jev-factory explain status`
 - `jev-factory explain decide`
 - `jev-factory explain domain`
@@ -357,6 +359,48 @@ argparse tree.
 `init` accepts a dotted module exposing `DOMAIN` or a domain JSON file.
 """
 
+_DISTILL = """\
+# jev-factory distill <stage>
+
+The distillery: turns a large teacher (Clef 27B, served on 127.0.0.1 over /v1/systemone) into
+a small calibrated student (Strands Decider 2B, fine-tuned from hobson-v21) on public
+typed-decision data. Each stage is registered in the distillery's own stage registry,
+separate from `jev run`'s, and writes a manifest under `<work>/distill/manifests/`; its
+outputs live under `<work>/distill/`. A fresh stage is a no-op and a stale one says why.
+`jev-factory distill` alone lists the stages in order.
+
+Dry-run by default: without `--apply` a stage prints what it would read and write, whether it
+is stale, the run-config keys it needs that are unset and, for train, quantize, gate, final
+and upload, the owning module's own dry-run plan; it changes no file. `--apply` runs it under
+the run lock (shared with `jev run`). `--apply --detach` starts it in its own session (pid
+file, done marker, log under `<work>/jobs/distill/`) so a long stage survives the shell;
+follow it with `jev-factory status <work>`. `--force` re-runs a fresh stage.
+
+Run context: `--work` and `--config` (default `<work>/run.toml`; the `distill_*` keys name
+the records file, the pinned environments, the pin cache and the localhost endpoints);
+`--knob KEY=VALUE` sets a stage knob (unknown knobs are refused); `--deviation-id` names a
+recorded deviation where a module allows one.
+
+Invariants the stages keep: the distill pre-registration is locked before any training
+command; only the train side is ever labelled or trained on; corrections are drafted
+`proposed` and only operator-approved ones train (`jev-factory review --corrections`); the
+gate is fitted on the fit fold only; test and held-out are measured once, for all three
+models together; bundles are uploaded private-first and fetched back to verify.
+
+## Stages
+
+STAGES
+
+## Usage
+
+    jev-factory distill
+    jev-factory distill dataset --work <dir>
+    jev-factory distill dataset --work <dir> --apply
+    jev-factory distill teacher-label --work <dir> --apply --detach
+    jev-factory distill audit --work <dir> --knob floor=0.6 --apply
+    jev-factory status <dir>
+"""
+
 _CLI = """\
 # jev-factory cli
 
@@ -385,6 +429,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("decide",): _DECIDE,
     ("ask",): _ASK,
     ("review",): _REVIEW,
+    ("distill",): _DISTILL,
     ("review", "corrections"): _REVIEW_CORRECTIONS,
     ("domain",): _DOMAIN,
     ("cli",): _CLI,
@@ -415,3 +460,35 @@ def _stage_entries() -> dict[tuple[str, ...], str]:
 
 
 ENTRIES.update(_stage_entries())
+
+
+def _distill_entries() -> dict[tuple[str, ...], str]:
+    from jev_factory.distill.pipeline import (
+        DEFAULT_KNOBS,
+        STAGE_CONFIG_KEYS,
+        get_stage,
+        stage_names,
+    )
+
+    out: dict[tuple[str, ...], str] = {}
+    lines = []
+    for name in stage_names():
+        st = get_stage(name)
+        lines.append(f"- `{name}` — {st.summary}")
+        knobs = ", ".join(f"`{k}`" for k in DEFAULT_KNOBS[name]) or "none"
+        keys = ", ".join(f"`{k}`" for k in STAGE_CONFIG_KEYS.get(name, ())) or "none"
+        out[("distill", name)] = (
+            f"# jev-factory distill {name}\n\n{st.summary}\n\n"
+            f"Upstream stages: {', '.join(st.deps) or 'none'}.\n"
+            f"Reads (under <work>/distill): {', '.join(st.inputs) or 'nothing declared'}.\n"
+            f"Writes (under <work>/distill): {', '.join(st.outputs) or 'nothing'}.\n"
+            f"Knobs: {knobs}.\nRun-config keys: {keys}.\n\n"
+            "Dry-run by default; `--apply` runs it, `--apply --detach` runs it detached.\n\n"
+            f"## Usage\n\n    jev-factory distill {name} --work <dir>\n"
+            f"    jev-factory distill {name} --work <dir> --apply\n"
+        )
+    out[("distill",)] = _DISTILL.replace("STAGES", "\n".join(lines))
+    return out
+
+
+ENTRIES.update(_distill_entries())

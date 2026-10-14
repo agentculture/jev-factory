@@ -55,6 +55,27 @@ teacher_timeout = 300.0
 # teacher_reasoning_effort = "low"
 # teacher_cache = "<dir for the teacher response cache; default under work>"
 
+# --- the distillery (jev distill); endpoints are localhost /v1/systemone servers ---
+# distill_records = "/path/to/records.jsonl"
+# distill_pin_cache = "/path/to/student-pin-cache"
+# distill_base_revision = "<base commit; default: the v21 base pin>"
+# distill_decider_revision = "<strands-decider-2B-hobson-v21 commit>"
+# distill_decider_repo = "/path/to/strands-decider"
+# distill_trainer_python = "/path/to/trainer-env/bin/python"
+# distill_student_python = "/path/to/student-env/bin/python"
+# distill_student_lockfile = "<sha256 of the student env lockfile>"
+distill_student_port = 18070
+# distill_teacher_url = "<localhost systemone url of the teacher>"
+# distill_teacher_model = "<served teacher model name>"
+# distill_teacher_repo = "<org/teacher-repo>"
+# distill_teacher_revision = "<teacher commit>"
+# distill_teacher_build_id = "<teacher build id>"
+# distill_teacher_engine = "sglang"
+# distill_alt_teacher_url = "<localhost systemone url of the correction drafter>"
+# distill_alt_teacher_model = "<served drafter model name>"
+# distill_v21_url = "<localhost systemone url of stock v21>"
+# distill_v21_model = "<served v21 model name>"
+
 # --- secrets, by the NAME of the environment variable ---
 # aug_key_env = "TEACHER_GATEWAY_KEY"
 hf_token_env = "HF_TOKEN"
