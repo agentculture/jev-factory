@@ -81,6 +81,8 @@ PROFILE = {
     "onnx_int8": (0.85, 2500.0, 0.03),
     "onnx_int4": (0.9, 1500.0, 0.03),
     "gguf_side_head": (0.6, 1000.0, 0.02),
+    "torch_int8_wo": (0.9, 3000.0, 0.04),
+    "torch_int4_wo": (0.9, 2200.0, 0.05),
 }
 
 
@@ -261,9 +263,18 @@ def test_dry_run_plans_every_format_and_the_heal_and_writes_nothing(tmp_path):
     out, run_dir, trainer = run(tmp_path, apply=False, builders={})
     assert out["dry_run"] is True
     assert [f["format"] for f in out["formats"]] == list(Q.FORMATS)
-    assert set(Q.FORMATS) == {"w4a16_fp32_head", "onnx_int8", "onnx_int4", "gguf_side_head"}
+    assert set(Q.FORMATS) == {
+        "w4a16_fp32_head",
+        "onnx_int8",
+        "onnx_int4",
+        "gguf_side_head",
+        "torch_int8_wo",
+        "torch_int4_wo",
+    }
     for f in out["formats"]:
-        assert f["builder"] is False and "8b6faa5" in f["unavailable_reason"]
+        assert f["builder"] is False and f["unavailable_reason"] == Q.UNSUPPORTED[f["format"]]
+    for fmt in ("w4a16_fp32_head", "onnx_int8", "onnx_int4", "gguf_side_head"):
+        assert "8b6faa5" in Q.UNSUPPORTED[fmt]
     hp = out["heal_plan"]["hyperparameters"]
     assert (hp["epochs"], hp["lr"], hp["init_mode"]) == (1, 5e-5, "continue")
     assert hp["alpha"] == 0.9  # the winner's other knobs are kept
@@ -327,10 +338,11 @@ def test_an_unbuildable_format_is_recorded_unavailable_never_dropped(tmp_path):
         "available": False,
         "reason": "onnxruntime has no Qwen3.5 linear-attention op",
     }
-    for fmt in ("onnx_int4", "gguf_side_head"):  # no builder registered at all
+    no_builder = ("onnx_int4", "gguf_side_head", "torch_int8_wo", "torch_int4_wo")
+    for fmt in no_builder:  # no builder registered at all
         assert meas[fmt]["available"] is False and Q.UNSUPPORTED[fmt] == meas[fmt]["reason"]
     unavailable = _read(run_dir, Q.DECISION_FILE)["unavailable"]
-    assert set(unavailable) == {"onnx_int8", "onnx_int4", "gguf_side_head"}
+    assert set(unavailable) == {"onnx_int8", *no_builder}
     assert out["chosen_format"] == "w4a16_fp32_head"
 
 
@@ -489,6 +501,183 @@ def test_served_measurer_records_a_non_bundle_artifact_as_unavailable(tmp_path):
         measure("onnx_int8", tmp_path / "model.onnx", folds())
 
 
-def test_default_builders_register_bf16_only():
-    assert set(Q.default_builders("a" * 40)) == {"bf16"}
+def test_default_builders_register_bf16_and_the_torchao_formats():
+    assert set(Q.default_builders("a" * 40)) == {"bf16"}  # no student env: not buildable
+    builders = Q.default_builders("a" * 40, python="py", decider_repo="/sd")
+    assert set(builders) == {"bf16", "torch_int8_wo", "torch_int4_wo"}
     assert set(Q.UNSUPPORTED) == set(Q.FORMATS)
+    for fmt in ("torch_int8_wo", "torch_int4_wo"):
+        assert "fp32 pointer head" in Q.FORMATS[fmt]
+        assert "python" in Q.UNSUPPORTED[fmt] and "decider_repo" in Q.UNSUPPORTED[fmt]
+
+
+# --------------------------------------------------------------------- torchao builders (d3)
+
+
+def _ckpt(root: Path) -> Path:
+    from jev_factory.backbones.pointer import layout as player
+
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "lora").mkdir(exist_ok=True)
+    (root / player.ADAPTER_CONFIG).write_text("{}")
+    (root / player.ADAPTER).write_bytes(b"a")
+    (root / player.HEAD).write_bytes(b"h")
+    (root / player.CONFIG).write_text(json.dumps(NEUTRAL))
+    for name in player.TOKENIZER_FILES:
+        (root / name).write_text("{}")
+    return root
+
+
+def _write_artifact(out: Path, bits: int, source=None) -> None:
+    from jev_factory.backbones.pointer import layout as player
+    from jev_factory.backbones.pointer import quantized as qz
+
+    out.mkdir(parents=True, exist_ok=True)
+    (out / qz.TORSO_FILE).write_bytes(b"t")
+    (out / player.HEAD).write_bytes(b"h")
+    (out / player.CONFIG).write_text(json.dumps(NEUTRAL))
+    for name in player.TOKENIZER_FILES:
+        (out / name).write_text("{}")
+    qz.write_manifest(
+        out,
+        bits=bits,
+        torchao_api=qz.TORCHAO_APIS[bits][0],
+        torchao_version="0.18.0",
+        torch_version="2.12.1",
+        source=source or {"checkpoint": "c", "sha256": {"head.safetensors": "0" * 64}},
+        base_model="Qwen/x",
+        base_model_revision="a" * 40,
+    )
+
+
+class Runner:
+    def __init__(self, rc=0, stderr=""):
+        self.rc, self.stderr, self.calls = rc, stderr, []
+
+    def __call__(self, argv, env):
+        import subprocess  # nosec B404 - a completed-process value only
+
+        self.calls.append(list(argv))
+        if self.rc == 0:
+            from jev_factory.backbones.pointer import quantized as qz
+
+            _write_artifact(Path(argv[5]), int(argv[7]), qz.source_record(Path(argv[4])))
+        return subprocess.CompletedProcess(argv, self.rc, stdout="", stderr=self.stderr)
+
+
+def test_the_torchao_builder_builds_a_verified_artifact_in_the_student_env(tmp_path):
+    runner, guarded = Runner(), []
+    builders = Q.default_builders(
+        "a" * 40, python="py", decider_repo=tmp_path / "sd", runner=runner, guard=guarded.append
+    )
+    ckpt = _ckpt(tmp_path / "ckpt")
+    art = builders["torch_int4_wo"]("torch_int4_wo", ckpt, tmp_path / "builds" / "q4")
+    assert art == tmp_path / "builds" / "q4"
+    assert runner.calls[0][:4] == ["py", "-m", "jev_factory.backbones.pointer.quantized", "build"]
+    assert runner.calls[0][7] == "4" and guarded == ["quantize"]
+    # a second call on a built artifact for the same checkpoint reuses it
+    builders["torch_int4_wo"]("torch_int4_wo", ckpt, tmp_path / "builds" / "q4")
+    assert len(runner.calls) == 1
+
+
+def test_a_torchao_build_failure_is_recorded_unavailable_with_the_error(tmp_path):
+    runner = Runner(rc=1, stderr="NotImplementedError: Int4Tensor needs fbgemm-gpu-genai")
+    builders = Q.default_builders(
+        "a" * 40, python="py", decider_repo="/sd", runner=runner, guard=lambda stage: None
+    )
+    torch_build = builders["torch_int8_wo"]
+    builders["bf16"] = FakeBuilders(formats=("bf16",))["bf16"]
+    for fmt in Q.TORCH_FORMATS:  # the winner's checkpoint gets real-looking files first
+        builders[fmt] = lambda f, ck, out: torch_build(f, _ckpt(Path(ck)), out)
+    ckpt = _ckpt(tmp_path / "ckpt")
+    with pytest.raises(Q.FormatUnavailable, match="fbgemm-gpu-genai"):
+        builders["torch_int4_wo"]("torch_int4_wo", ckpt, tmp_path / "q4")
+    out, run_dir, _ = run(
+        tmp_path / "r", builders=builders, formats=("torch_int8_wo", "torch_int4_wo")
+    )
+    meas = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]
+    for fmt in ("torch_int8_wo", "torch_int4_wo"):
+        assert meas[fmt]["available"] is False
+        assert "torchao build failed" in meas[fmt]["reason"]
+        assert "fbgemm-gpu-genai" in meas[fmt]["reason"]
+    assert out["chosen_format"] == "bf16"
+
+
+class FakeBench:
+    """Stands in for distill.benchmark.benchmark_model: starts the target, answers nothing."""
+
+    def __init__(self, fail_start=None):
+        self.fail_start, self.targets = fail_start, []
+
+    def __call__(self, target, fold_records, memory_probe=None, client=None):
+        self.targets.append(target)
+        target.start()
+        target.ready()
+        return {
+            "predictions": [],
+            "latency": {"median_s": 0.01},
+            "memory": {"probe": "proc-rss", "peak_mib": 900.0, "measured": True},
+        }
+
+
+def _measurer(tmp_path, monkeypatch, *, launch=None, ready=None):
+    from jev_factory.backbones.pointer import quantized as qz
+
+    calls = {"launch": [], "ready": []}
+
+    def fake_launch(jobdir, name, env, artifact, *, port, decider_repo=None, device=None):
+        calls["launch"].append((name, Path(artifact), port, decider_repo))
+        if launch:
+            launch()
+        return 1
+
+    def fake_ready(base_url, **kw):
+        calls["ready"].append(base_url)
+        if ready:
+            ready()
+        return {"status": "ok"}
+
+    bench = FakeBench()
+    monkeypatch.setattr(qz, "launch", fake_launch)
+    monkeypatch.setattr(Q.pserve, "wait_ready", fake_ready)
+    monkeypatch.setattr(Q.bench, "benchmark_model", bench)
+    monkeypatch.setattr(Q.gpu, "assert_gpu_free", lambda stage: [])
+    measure = Q.served_measurer(
+        env="student-env", jobdir=tmp_path / "jobs", port=8124, decider_repo=tmp_path / "sd"
+    )
+    return measure, calls, bench
+
+
+def test_the_served_measurer_serves_a_torchao_artifact_through_the_wrapper(tmp_path, monkeypatch):
+    measure, calls, bench = _measurer(tmp_path, monkeypatch)
+    art = tmp_path / "q8"
+    _write_artifact(art, 8)
+    out = measure("torch_int8_wo", art, folds())
+    assert calls["launch"] == [("distill-quant-torch_int8_wo", art, 8124, tmp_path / "sd")]
+    assert calls["ready"] == ["http://127.0.0.1:8124"]
+    assert out["memory"]["probe"] == "proc-rss" and out["memory"]["peak_mib"] == 900.0
+    assert set(out["predictions"]) == {"fit", "selection"}
+    assert callable(bench.targets[0].pid)
+
+
+def test_a_torchao_artifact_that_cannot_be_served_is_unavailable(tmp_path, monkeypatch):
+    def die():
+        raise CliError(2, "strands-decider server 'q' exited before it was ready")
+
+    measure, _calls, _ = _measurer(tmp_path, monkeypatch, ready=die)
+    art = tmp_path / "q4"
+    _write_artifact(art, 4)
+    with pytest.raises(Q.FormatUnavailable, match="exited before it was ready"):
+        measure("torch_int4_wo", art, folds())
+
+
+def test_a_tampered_torchao_artifact_is_unavailable_not_served(tmp_path, monkeypatch):
+    from jev_factory.backbones.pointer import quantized as qz
+
+    measure, calls, _ = _measurer(tmp_path, monkeypatch)
+    art = tmp_path / "q8"
+    _write_artifact(art, 8)
+    (art / qz.TORSO_FILE).write_bytes(b"tampered")
+    with pytest.raises(Q.FormatUnavailable, match="sha256"):
+        measure("torch_int8_wo", art, folds())
+    assert calls["launch"] == []
