@@ -233,6 +233,7 @@ def test_negative_control_closure_flags_leaking_modules(tmp_path, monkeypatch):
     (pkg / "direct.py").write_text("import jev_factory.backbones.causal_lm\n")
     (pkg / "direct_from.py").write_text("from jev_factory.backbones.causal_lm import scorer\n")
     (pkg / "mid.py").write_text("from . import direct\n")
+    # _closure walks every file of a followed package (conservative), hence a separate package.
     clean_pkg = tmp_path / "jev_factory_fake_clean"  # a package walk covers every file in it
     clean_pkg.mkdir()
     (clean_pkg / "__init__.py").write_text("")

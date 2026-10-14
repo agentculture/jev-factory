@@ -15,7 +15,7 @@ class BackboneUnavailable(LookupError):
 
 #: name -> (module, attribute). The attribute is the adapter object or class.
 _LOADERS: dict[str, tuple[str, str]] = {
-    "causal_lm": ("jev_factory.backbones.causal_lm.backbone", "BACKBONE"),
+    "causal_lm": ("jev_factory.backbones.causal_lm_adapter", "BACKBONE"),
     "pointer": ("jev_factory.backbones.pointer", "BACKBONE"),
 }
 
