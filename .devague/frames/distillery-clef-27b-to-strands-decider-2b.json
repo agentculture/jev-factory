@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-14T04:03:15Z",
-  "updated": "2026-10-14T06:22:38Z",
+  "updated": "2026-10-14T06:35:30Z",
   "claims": [
     {
       "id": "c1",
@@ -1640,6 +1640,17 @@
         "t6",
         "t7",
         "t12"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l10",
+      "code": "assumption-for-measurement",
+      "what": "t13's trainer-env paths (_train, prepare_init, _save_stacked against real v21 + peft + upstream checkout) are untested; PEFT key naming across merge_and_unload and forward() widths are assumptions",
+      "skipped_check": "a trainer-env smoke run on a real v21 checkpoint (needed before t26)",
+      "refs": [
+        "t13"
       ],
       "origin": "llm",
       "status": "proposed"
