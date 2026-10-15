@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
+from jev_factory.cli._errors import CliError
 from jev_factory.distill import systemone as s1
 
 RECORD = {
@@ -48,11 +49,13 @@ class _Server:
     def __init__(self, payload):
         outer = self
         self.requests = []
+        self.headers = []
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):  # noqa: N802
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 outer.requests.append((self.path, json.loads(body)))
+                outer.headers.append(dict(self.headers.items()))
                 raw = json.dumps(outer.payload).encode()
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(raw)))
@@ -252,3 +255,61 @@ def test_stdlib_only():
     # the field is never read: it appears nowhere as a key lookup
     assert '["confidence"]' not in src
     assert '"confidence"' not in src
+
+
+KEY_VALUE = "sk-test-SECRET-VALUE-123"
+
+
+def test_headers_carry_bearer_and_model_header(server, monkeypatch):
+    """AC1: Authorization: Bearer <env value> and X-Lobes-Model <model_header> are sent."""
+    monkeypatch.setenv("TEACHER_KEY", KEY_VALUE)
+    srv = server(_answers())
+    client = s1.SystemOneClient(
+        srv.url, model="m", auth_env="TEACHER_KEY", model_header="clef-27b-w4a16"
+    )
+    result = client.ask(RECORD)
+    sent = srv.headers[0]
+    assert sent["Authorization"] == f"Bearer {KEY_VALUE}"
+    assert sent["X-Lobes-Model"] == "clef-27b-w4a16"
+    assert result.request_config["auth_env"] == "TEACHER_KEY"
+    assert result.request_config["model_header"] == "clef-27b-w4a16"
+    assert KEY_VALUE not in json.dumps(result.request_config)
+
+
+def test_no_auth_headers_by_default(server):
+    """Back-compat: without the settings no Authorization or X-Lobes-Model is sent."""
+    srv = server(_answers())
+    s1.SystemOneClient(srv.url, model="m").ask(RECORD)
+    lowered = {k.lower() for k in srv.headers[0]}
+    assert "authorization" not in lowered
+    assert "x-lobes-model" not in lowered
+
+
+def test_missing_env_var_exit_2_names_variable_not_value(monkeypatch):
+    """AC1: a missing env var fails with exit 2 naming the variable."""
+    monkeypatch.delenv("TEACHER_KEY_MISSING", raising=False)
+    with pytest.raises(CliError) as info:
+        s1.SystemOneClient("http://127.0.0.1:1", model="m", auth_env="TEACHER_KEY_MISSING")
+    assert info.value.code == 2
+    assert "TEACHER_KEY_MISSING" in info.value.message
+
+
+def test_non_localhost_still_refused_with_auth(monkeypatch):
+    """AC2: auth settings do not relax the localhost-only rule (key is never sent off-box)."""
+    monkeypatch.setenv("TEACHER_KEY", KEY_VALUE)
+    with pytest.raises(ValueError):
+        s1.SystemOneClient(
+            "http://example.com:8000", model="m", auth_env="TEACHER_KEY", model_header="h"
+        )
+
+
+def test_key_value_not_in_transport_error_text(monkeypatch):
+    """AC2: a failed request's error text never contains the key value."""
+    monkeypatch.setenv("TEACHER_KEY", KEY_VALUE)
+    client = s1.SystemOneClient(
+        "http://127.0.0.1:9", model="m", timeout=1.0, auth_env="TEACHER_KEY"
+    )
+    result = client.ask(RECORD)
+    assert result.error
+    assert KEY_VALUE not in json.dumps([q.to_dict() for q in result.questions])
+    assert KEY_VALUE not in result.error

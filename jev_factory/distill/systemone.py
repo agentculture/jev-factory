@@ -24,16 +24,19 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+from jev_factory.cli._errors import EXIT_ENV_ERROR, CliError
 from jev_factory.measure.preflight import _NoRedirect, require_localhost
 
 SYSTEMONE_PATH = "/v1/systemone"
 SUM_TOLERANCE = 0.01
 DEFAULT_TIMEOUT = 120.0
+MODEL_HEADER = "X-Lobes-Model"
 
 
 @dataclass(frozen=True)
@@ -186,11 +189,45 @@ def parse_response(record: Mapping[str, Any], response: Any) -> list[QuestionRes
 class SystemOneClient:
     """Stdlib ``urllib`` client for one localhost /v1/systemone endpoint."""
 
-    def __init__(self, base_url: str, *, model: str, timeout: float = DEFAULT_TIMEOUT):
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        model: str,
+        timeout: float = DEFAULT_TIMEOUT,
+        auth_env: str | None = None,
+        model_header: str | None = None,
+    ):
+        """*auth_env* is the NAME of an env var holding a bearer key; it is read here and
+        only the name is ever recorded. *model_header* is sent as ``X-Lobes-Model``."""
         require_localhost(base_url)
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        self.auth_env = auth_env or None
+        self.model_header = model_header or None
+        self._key = self._read_key(self.auth_env)
+
+    @staticmethod
+    def _read_key(auth_env: str | None) -> str | None:
+        if auth_env is None:
+            return None
+        key = os.environ.get(auth_env)
+        if not key:
+            raise CliError(
+                code=EXIT_ENV_ERROR,
+                message=f"environment variable {auth_env} is not set (teacher bearer key)",
+                remediation=f"export {auth_env} before running; only its name is recorded",
+            )
+        return key
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self._key is not None:
+            headers["Authorization"] = f"Bearer {self._key}"
+        if self.model_header is not None:
+            headers[MODEL_HEADER] = self.model_header
+        return headers
 
     def ask(self, record: Mapping[str, Any]) -> CallResult:
         """POST *record*; transport and parse problems become error results, not raises."""
@@ -201,9 +238,13 @@ class SystemOneClient:
             "timeout": self.timeout,
             "body_sha256": hashlib.sha256(data).hexdigest(),
         }
+        if self.auth_env is not None:
+            config["auth_env"] = self.auth_env  # the variable's NAME, never its value
+        if self.model_header is not None:
+            config["model_header"] = self.model_header
         failed = f"{self.base_url}{SYSTEMONE_PATH}"
         request = urllib.request.Request(
-            config["url"], data=data, method="POST", headers={"Content-Type": "application/json"}
+            config["url"], data=data, method="POST", headers=self._headers()
         )
         opener = urllib.request.build_opener(_NoRedirect)  # a redirect could leave localhost
         try:
