@@ -92,6 +92,25 @@ def _words(i: int) -> str:
     return " ".join(f"{rng.choice(_WORDS)}{rng.randrange(10**6)}" for _ in range(10))
 
 
+def _fit_slots(row: dict, slots: int = 24) -> dict:
+    """Trim a real row's question to the student's 24 slots (the real go_emotions has 28)."""
+    q = row["question"]
+    q = json.loads(q) if isinstance(q, str) else dict(q)
+    crit = q["criteria"]
+    if isinstance(crit, dict):
+        names = list(crit)[:slots]
+        q["criteria"] = {k: crit[k] for k in names}
+    else:
+        names = crit[:slots]
+        q["criteria"] = names
+    row["question"] = json.dumps(q)
+    soft = row.get("soft_label")
+    if soft:
+        soft = json.loads(soft) if isinstance(soft, str) else dict(soft)
+        row["soft_label"] = json.dumps({k: v for k, v in soft.items() if k in names})
+    return row
+
+
 def _bench_row(template: dict, name: str, i: int, split: str) -> dict:
     row = copy.deepcopy(template)
     row.update(
@@ -99,7 +118,7 @@ def _bench_row(template: dict, name: str, i: int, split: str) -> dict:
         split=split,
         state=json.dumps(f"UID-{name}-{i:04d} {_words(i)}"),
     )
-    return row
+    return _fit_slots(row) if name == "go_emotions" else row
 
 
 def make_records() -> list[R.Record]:

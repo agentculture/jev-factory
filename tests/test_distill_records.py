@@ -191,3 +191,65 @@ def test_typed_decisions_row_carries_workflow_as_group():
     rec = R.from_typed_decisions_row(row)
     assert rec.group == row["workflow"] == "agent_trace_observability"
     assert rec.hf_id is None
+
+
+# --- t7: attribution, typed-kind and systemone-body refusals ----------------
+
+
+def test_cc_by_record_needs_attribution_and_roundtrips_it():
+    """AC3/c31: cc-by-4.0 without attribution is refused with its id; with one it round-trips."""
+    with pytest.raises(R.MissingAttribution) as ei:
+        _rec(id="ccby1", licence="CC-BY-4.0")
+    assert "ccby1" in str(ei.value)
+    rec = _rec(licence="cc-by-4.0", attribution="Jane Doe, CC BY 4.0")
+    assert R.Record.from_json(rec.to_json()) == rec
+    assert rec.to_json()["attribution"] == "Jane Doe, CC BY 4.0"
+
+
+def test_blank_attribution_is_refused_for_cc_by():
+    with pytest.raises(R.MissingAttribution):
+        _rec(licence="cc-by-4.0", attribution="   ")
+
+
+def test_records_without_attribution_still_load():
+    """Pre-existing serialised records (no attribution key) load unchanged."""
+    rec = _rec()
+    assert rec.attribution is None
+    assert "attribution" not in rec.to_json()
+
+
+def test_unknown_question_kind_refused_with_record_id():
+    """AC3: a question kind outside choice/noul/score names the record id."""
+    with pytest.raises(R.UnknownQuestionType) as ei:
+        _rec(id="bad-kind", questions={"q": {"type": "essay", "criteria": ["a", "b"]}})
+    assert "bad-kind" in str(ei.value)
+
+
+@pytest.mark.parametrize(
+    "questions",
+    [
+        {"": {"type": "choice", "criteria": [["a", ""], ["b", ""]]}},
+        {"q": {"type": "choice", "criteria": [["a", ""], [" ", ""]]}},
+        {"q": {"type": "choice", "criteria": [["a", ""], ["b", ""]], "instructions": 5}},
+    ],
+)
+def test_invalid_systemone_body_refused_with_record_id(questions):
+    """AC3: a record that cannot be a valid /v1/systemone body is refused with its id."""
+    with pytest.raises(R.InvalidSystemOneBody) as ei:
+        _rec(id="bad-body", questions=questions, gold={next(iter(questions)): {"label": "a"}})
+    assert "bad-body" in str(ei.value)
+
+
+@pytest.mark.parametrize(
+    "questions,err",
+    [
+        ({"q": {"type": "choice", "criteria": ["a"]}}, R.TooFewOptions),
+        ({"q": {"type": "score", "criteria": ["a"]}}, R.TooFewLevels),
+        ({"q": {"type": "choice", "criteria": ["a", "a"]}}, R.DuplicateCriterion),
+        ({"q": {"type": "noul", "criteria": ["a", "b"]}}, R.TooFewOptions),
+    ],
+)
+def test_question_shape_refusals_carry_record_id(questions, err):
+    with pytest.raises(err) as ei:
+        _rec(id="shape-id", questions=questions)
+    assert "shape-id" in str(ei.value)
