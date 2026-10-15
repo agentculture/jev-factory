@@ -1,9 +1,11 @@
-"""Distill final: score Clef, the stock model and the deployed student once, on test and held-out.
+"""Distill final: Clef, stock, the bf16 student and the shipped quant, once, on the sealed sides.
 
-The one place the sealed sides' text is read. One invocation scores **all three** models on
-``test.jsonl`` and ``held_out.jsonl`` (the dataset's sealed sides), one model served at a time
-(each :class:`~jev_factory.distill.benchmark.Target` is started, scored and stopped before the
-next starts; one GPU job), under :class:`jev_factory.measure.once.OnceLedger`:
+The one place the sealed sides' text is read. One invocation scores **all four** models
+(:data:`MODELS`: Clef W4A16, the stock model, the distilled bf16 student and the shipped quant)
+on ``test.jsonl`` and ``held_out.jsonl`` (the dataset's sealed sides), one model at a time (each
+:class:`~jev_factory.distill.benchmark.Target` is started, scored and stopped before the next
+starts; a target with no ``start`` is **pre-served**, e.g. the quant on the AGX Orin behind an
+SSH tunnel at ``http://127.0.0.1:<port>``), under :class:`jev_factory.measure.once.OnceLedger`:
 
 * the ledger is checked for both sides before anything starts, in a dry run too: a side
   already measured is refused without a deviation id, so a second final for **any** model
@@ -11,35 +13,54 @@ next starts; one GPU job), under :class:`jev_factory.measure.once.OnceLedger`:
 * the ledger lock is held for the whole run, and one record per side is appended once
   something was scored (``measured``, or ``failed-mid-run`` when a later model failed); a run
   in which nothing was scored writes no record (nvsh P71), so it never blocks the real run;
-* a partial invocation (not exactly Clef, the stock model and the student) is refused: the three
-  are measured together, never as separate measurements.
+* a partial invocation (not exactly the four models) is refused: they are measured together,
+  never as separate measurements.
+
+Refusals before any request (dry run and apply): the run's teacher-label lock exists
+(:func:`jev_factory.distill.edge.require_no_teacher_lock`; the box is busy labelling); a test
+record has no ``approve`` entry for its current sha256 in the gold ledger
+(:func:`jev_factory.review.gold.approved_ids`; the ids are printed, nothing else). Before any
+request (apply): the shipped student's ``GET /v1/bundle`` (localhost only) differs from the
+deployed artifact's attestation (:func:`jev_factory.backbones.pointer.quantized.bundle_attestation`:
+per-file sha256 and manifest sha256), or its ``GET /v1/stats`` reports no cgroup memory cap. The
+bundle is fetched again after the student is scored; a change fails the run. ``final.json``
+records ``deployed.bundle`` (``files``, ``manifest_sha256``, ``weight_bytes``: what the edge
+stage checks) and ``student_server`` (the attested bundle, the board, the memory cap that
+``/v1/stats`` reported).
 
 The sealed files are read as bytes and must hash to what :func:`dataset.load_sealed` reports.
+An optional Clef **probe set** (private) is scored by every model in the same run; its
+predictions are written with hashed record ids and it gates nothing.
 
 Calibration at final, each recorded beside the row it produced: Clef raw (as served), plus a
 ``clef_calibrated`` row when a Clef calibration file is given; the stock model as served (its
-upstream temperatures); the student with ``distill/quant/calibration.json``, whose sha256 must
-match the quant manifest. The deployed artifact is the one ``format_decision.json`` chose.
+upstream temperatures); the bf16 student raw unless a calibration file is given; the shipped
+student with ``distill/quant/calibration.json``, whose sha256 must match the quant manifest.
+The deployed artifact is the one ``format_decision.json`` chose.
 
 Outputs under ``<run>/distill/final/``: ``predictions/<model>.json`` (every raw answer with
-its latency), ``final.json`` (sides, calibrations, runtime per model, ledger records) and
-``report.json`` (:func:`jev_factory.distill.report.build_report`). Dry-run by default.
-Stdlib only; servers are localhost only.
+its latency), ``predictions/probe/<model>.json`` (probe ids hashed), ``final.json`` (sides,
+calibrations, bundle, server, runtime per model, ledger records) and ``report.json``
+(:func:`jev_factory.distill.report.build_report`). Dry-run by default. Stdlib only; servers
+are localhost only.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
 import json
 import platform
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from jev_factory.backbones.pointer import quantized as qz
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill import benchmark as bench
 from jev_factory.distill import dataset
+from jev_factory.distill import edge as dedge
 from jev_factory.distill import gate as dgate
 from jev_factory.distill import prereg as dp
 from jev_factory.distill import quant as dquant
@@ -47,6 +68,8 @@ from jev_factory.distill import report as dreport
 from jev_factory.distill.records import Record
 from jev_factory.distill.runspec import Bootstrap
 from jev_factory.measure import once
+from jev_factory.measure.preflight import require_localhost
+from jev_factory.review import gold
 
 STAGE = "distill-final"
 LABEL = "distill-final"
@@ -54,7 +77,11 @@ FINAL_REL = "distill/final"
 FINAL_FILE = "final.json"
 REPORT_FILE = "report.json"
 PREDICTIONS_DIR = "predictions"
+PROBE_DIR = "probe"
+PROBE_FOLD = "probe"
 MODELS = dreport.MODELS
+#: The model whose served bundle is attested: the shipped quant.
+ATTESTED = dreport.STUDENT
 #: dataset side file stem -> once-ledger side.
 SIDES = {"test": once.TEST, "held_out": once.HELD_OUT}
 STUDENT_CALIBRATION_REL = f"{dquant.QUANT_REL}/{dquant.CALIBRATION_FILE}"
@@ -64,11 +91,30 @@ CAL_SERVED = "served (upstream temperatures, as reported)"
 
 @dataclass(frozen=True)
 class FinalModel:
-    """One model of the final: how to serve it and the client that asks it."""
+    """One model of the final: how to serve it and the client that asks it.
+
+    A target without ``start``/``stop`` is pre-served (e.g. a tunnel to the AGX Orin).
+    """
 
     target: bench.Target
     #: Anything with ``ask(record_mapping) -> CallResult`` (SystemOneClient, PointerClient).
     client: Any = None
+    #: ``get(path) -> JSON object`` on the served model (``/v1/bundle``, ``/v1/stats``);
+    #: by default an HTTP GET on the target's localhost ``base_url``.
+    get: Callable[[str], Mapping[str, Any]] | None = None
+
+
+@dataclass(frozen=True)
+class FinalInputs:
+    """Optional inputs of the final beyond the sealed sides and the models."""
+
+    #: The human-gold approval ledger; default ``<dataset>/test.gold-ledger.jsonl``.
+    gold_ledger: Path | str | None = None
+    #: The (private) Clef probe set: scored by every model, reported, gates nothing.
+    probe: Path | str | None = None
+    #: A calibration for the bf16 student row; without one it is scored raw (as served).
+    bf16_calibration: Path | str | None = None
+    contamination_manifest: Mapping[str, Any] | None = None
 
 
 def _refuse(message: str, remediation: str = "") -> CliError:
@@ -154,6 +200,119 @@ def fitted_gate(run_dir: Path, calibration_sha256: str) -> dict[str, Any] | None
     }
 
 
+def deployed_bundle(run_dir: Path, artifact: Any) -> dict[str, Any]:
+    """The attestation of the deployed artifact on disk: what ``GET /v1/bundle`` must answer."""
+    path = Path(str(artifact or ""))
+    if not artifact:
+        raise _refuse("the quant manifest names no deployed_artifact; cannot attest the bundle")
+    if not path.is_absolute():
+        path = run_dir / path
+    try:
+        att = qz.bundle_attestation(path)
+    except OSError as exc:
+        raise _refuse(
+            f"{path}: cannot attest the deployed artifact ({type(exc).__name__})",
+            "the final measures the shipped quantized bundle; run the distill quant stage",
+        ) from None
+    return {
+        "files": dict(att["files"]),
+        "manifest_sha256": att["manifest_sha256"],
+        "weight_bytes": att.get("weight_bytes"),
+        "format": att.get("format"),
+    }
+
+
+def _ledger_file(dataset_dir: Path, inputs: FinalInputs) -> Path:
+    if inputs.gold_ledger is not None:
+        return Path(inputs.gold_ledger)
+    return gold.ledger_path(dataset_dir / f"{dataset.TEST_SPLIT}.jsonl")
+
+
+def approved_records(
+    ledger_file: Path, test: Sequence[Record], held_out: Sequence[Record]
+) -> dict[str, Any]:
+    """Refuse any test record without an approve entry; return the approved ids (all sides).
+
+    The refusal prints record ids only, never record text. A malformed ledger fails closed.
+    """
+    try:
+        entries = gold.read_ledger(ledger_file)
+        approved = gold.approved_ids(entries, [*test, *held_out])
+    except gold.GoldLedgerError as exc:
+        raise _refuse(
+            f"the gold ledger is not usable: {exc}",
+            "fix or restore the ledger written by `jev review --gold`; nothing is guessed",
+        ) from None
+    missing = [r.id for r in test if r.id not in approved]
+    if missing:
+        raise _refuse(
+            f"{len(missing)} test record(s) have no approve entry in the gold ledger "
+            f"{ledger_file.name}: {', '.join(missing)}",
+            "approve (or correct) each with `jev review --gold FILE --apply` before the final",
+        )
+    return {
+        "file": str(ledger_file),
+        "sha256": dp.sha256_file(ledger_file),
+        "approved": approved,
+        "approved_test": len(test),
+        "approved_held_out": sum(1 for r in held_out if r.id in approved),
+    }
+
+
+def load_probe(path: Path | str | None, sealed: Mapping[str, dataset.SealedSide]) -> list[Record]:
+    """The private probe set (ids must not touch the sealed sides); empty when not given."""
+    if path is None:
+        return []
+    records = dedge._load_probe(Path(path))  # noqa: SLF001 - one probe-set reader
+    blocked = set().union(*(side.ids for side in sealed.values()))
+    clash = sum(1 for r in records if r.id in blocked)
+    if clash:
+        raise _refuse(f"{clash} probe record(s) share an id with the sealed sides")
+    return records
+
+
+def _getter(model: FinalModel) -> Callable[[str], Mapping[str, Any]]:
+    if model.get is not None:
+        return model.get
+    base_url = model.target.base_url
+    return lambda path: dedge._get_json(base_url, path)  # noqa: SLF001 - localhost only
+
+
+def attest_student(model: FinalModel, expected: Mapping[str, Any]) -> dict[str, Any]:
+    """``GET /v1/bundle`` must equal the deployed bundle and ``/v1/stats`` must report a cap.
+
+    Called before any request is sent to any model; a mismatch or no cap is refused.
+    """
+    try:
+        require_localhost(model.target.base_url)
+    except ValueError as exc:
+        raise _refuse(
+            str(exc), "open an SSH tunnel to the board and pass its http://127.0.0.1:<port> URL"
+        ) from None
+    get = _getter(model)
+    served = get(dedge.BUNDLE_PATH)
+    dedge.check_bundle(served, expected)
+    stats = get(dedge.STATS_PATH)
+    cap = dedge.memory_cap(stats)
+    return {
+        "base_url": model.target.base_url,
+        "bundle": {
+            "files": dict(served.get("files") or {}),
+            "manifest_sha256": served.get("manifest_sha256"),
+            "weight_bytes": served.get("weight_bytes"),
+        },
+        "board": {
+            "device_model": stats.get("device_model"),
+            "nv_tegra_release": stats.get("nv_tegra_release"),
+        },
+        "memory_cap": cap,
+        "stats_at_attestation": {
+            "rss_bytes": stats.get("rss_bytes"),
+            "mem_available_bytes": stats.get("mem_available_bytes"),
+        },
+    }
+
+
 def _check_models(models: Mapping[str, FinalModel]) -> None:
     missing = [m for m in MODELS if m not in models]
     extra = sorted(set(models) - set(MODELS))
@@ -161,7 +320,7 @@ def _check_models(models: Mapping[str, FinalModel]) -> None:
         raise _refuse(
             f"the final scores exactly {list(MODELS)} in one invocation;"
             f" missing {missing}, unexpected {extra}",
-            "test and held-out are measured once: pass all three models together",
+            "test and held-out are measured once: pass every model together",
         )
 
 
@@ -199,6 +358,45 @@ class _Counted:
 # --------------------------------------------------------------------- the run
 
 
+def _calibrations(
+    student: Mapping[str, Any], clef_calibration: Path | str | None, inputs: FinalInputs
+) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {
+        dreport.CLEF: {"source": CAL_RAW, "sha256": None, "calibration": None},
+        dreport.STOCK: {"source": CAL_SERVED, "sha256": None, "calibration": None},
+        dreport.STUDENT_BF16: {"source": CAL_RAW, "sha256": None, "calibration": None},
+        dreport.STUDENT: {
+            "source": STUDENT_CALIBRATION_REL,
+            "sha256": student["calibration_sha256"],
+            "calibration": student["calibration"],
+        },
+    }
+    for name, path, what in (
+        (dreport.CLEF_CALIBRATED, clef_calibration, "Clef calibration"),
+        (dreport.STUDENT_BF16, inputs.bf16_calibration, "bf16 student calibration"),
+    ):
+        if path is not None:
+            cpath = Path(path)
+            out[name] = {
+                "source": str(cpath),
+                "sha256": dp.sha256_file(cpath) if cpath.is_file() else None,
+                "calibration": _read_json(cpath, what),
+            }
+    return out
+
+
+def _sealed_sides(dataset_dir: Path) -> dict[str, dataset.SealedSide]:
+    sealed = {}
+    for stem in SIDES:
+        path = dataset_dir / f"{stem}.jsonl"
+        if not path.is_file():
+            raise _refuse(
+                f"{path}: no sealed side", "point at a directory written by write_dataset"
+            )
+        sealed[stem] = dataset.load_sealed(path)
+    return sealed
+
+
 def run_final(
     *,
     prereg_path: Path | str,
@@ -212,64 +410,66 @@ def run_final(
     proc_root: Path | str = bench.PROC_ROOT,
     host: str | None = None,
     now: Callable[[], str] = _now,
-    contamination_manifest: Mapping[str, Any] | None = None,
+    inputs: FinalInputs = FinalInputs(),
     bootstrap: Bootstrap = Bootstrap(),
 ) -> dict[str, Any]:
     """Plan (dry-run) or run the single final measurement and write the report."""
-    seed, resamples = bootstrap.seed, bootstrap.resamples
     prereg_path, run_dir, dataset_dir = Path(prereg_path), Path(run_dir), Path(dataset_dir)
+    dedge.require_no_teacher_lock(run_dir)
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
     try:
         deviation = once.check_deviation_id(deviation_id)
     except ValueError as exc:
         raise _refuse(str(exc)) from None
     _check_models(models)
-    sealed = {}
-    for stem in SIDES:
-        path = dataset_dir / f"{stem}.jsonl"
-        if not path.is_file():
-            raise _refuse(
-                f"{path}: no sealed side", "point at a directory written by write_dataset"
-            )
-        sealed[stem] = dataset.load_sealed(path)
+    sealed = _sealed_sides(dataset_dir)
+    records = {stem: _read_side(side) for stem, side in sealed.items()}
+    approval = approved_records(
+        _ledger_file(dataset_dir, inputs), records["test"], records["held_out"]
+    )
+    probe = load_probe(inputs.probe, sealed)
     student = deployed_student(run_dir)
+    bundle = deployed_bundle(run_dir, student["artifact"])
     gate = fitted_gate(run_dir, student["calibration_sha256"])
-    calibrations: dict[str, dict[str, Any]] = {
-        dreport.CLEF: {"source": CAL_RAW, "sha256": None, "calibration": None},
-        dreport.STOCK: {"source": CAL_SERVED, "sha256": None, "calibration": None},
-        dreport.STUDENT: {
-            "source": STUDENT_CALIBRATION_REL,
-            "sha256": student["calibration_sha256"],
-            "calibration": student["calibration"],
-        },
-    }
-    if clef_calibration is not None:
-        cpath = Path(clef_calibration)
-        calibrations[dreport.CLEF_CALIBRATED] = {
-            "source": str(cpath),
-            "sha256": dp.sha256_file(cpath) if cpath.is_file() else None,
-            "calibration": _read_json(cpath, "Clef calibration"),
-        }
     ledger = once.OnceLedger(run_dir)
     earlier = _check_ledger(ledger, deviation)
+    prereg_sha256 = dp.sha256_file(prereg_path)
     base = {
         "stage": STAGE,
-        "prereg_sha256": dp.sha256_file(prereg_path),
+        "prereg_sha256": prereg_sha256,
         "deviation": deviation,
         "models": {
-            n: {"served_model": models[n].target.model, "base_url": models[n].target.base_url}
+            n: {
+                "served_model": models[n].target.model,
+                "base_url": models[n].target.base_url,
+                "pre_served": models[n].target.start is None,
+            }
             for n in MODELS
         },
         "sides": {s: {"count": v.count, "sha256": v.sha256} for s, v in sealed.items()},
+        "gold_ledger": {k: v for k, v in approval.items() if k != "approved"},
+        "probe": (
+            None
+            if inputs.probe is None
+            else {
+                "count": len(probe),
+                "sha256": dp.sha256_file(Path(inputs.probe)),
+            }
+        ),
         "earlier_measurements": earlier,
-        "deployed": {"format": student["format"], "artifact": student["artifact"]},
-        "calibrations": calibrations,
+        "deployed": {
+            "format": student["format"],
+            "artifact": student["artifact"],
+            "bundle": bundle,
+        },
+        "calibrations": _calibrations(student, clef_calibration, inputs),
         "gate": None if gate is None else {k: gate[k] for k in ("file", "sha256")},
     }
     if not apply:
         return {**base, "dry_run": True}
     with ledger:
         _check_ledger(ledger, deviation)  # again, under the lock
+        base["student_server"] = attest_student(models[ATTESTED], bundle)  # before any request
         return _measure(
             base=base,
             ledger=ledger,
@@ -281,26 +481,48 @@ def run_final(
             host=host or platform.node(),
             now=now,
             report_inputs=_ReportInputs(
-                prereg=reg,
-                quant_manifest=student["manifest"],
-                contamination_manifest=contamination_manifest,
-                seed=seed,
-                resamples=resamples,
-                gate=None if gate is None else gate["doc"],
+                records=records,
+                probe=probe,
+                context=dreport.ReportContext(
+                    prereg=reg,
+                    prereg_sha256=prereg_sha256,
+                    approved_ids=approval["approved"],
+                    quant_manifest=student["manifest"],
+                    bundle=bundle,
+                    contamination_manifest=inputs.contamination_manifest,
+                    gate=None if gate is None else gate["doc"],
+                    probe_records=probe,
+                    seed=bootstrap.seed,
+                    resamples=bootstrap.resamples,
+                ),
             ),
         )
 
 
 @dataclass(frozen=True)
 class _ReportInputs:
-    """What the final report needs beyond the measurement itself."""
+    """The records the final reads and what the report cites beyond the measurement."""
 
-    prereg: dp.DistillPrereg
-    quant_manifest: Mapping[str, Any]
-    contamination_manifest: Mapping[str, Any] | None
-    seed: int
-    resamples: int
-    gate: Mapping[str, Any] | None = None
+    records: Mapping[str, Sequence[Record]]
+    probe: Sequence[Record]
+    context: dreport.ReportContext
+
+
+def _hash_id(record_id: str) -> str:
+    return "sha256:" + hashlib.sha256(record_id.encode("utf-8")).hexdigest()
+
+
+def _write_predictions(out_dir: Path, results: Mapping[str, Mapping[str, Any]]) -> None:
+    """Sealed-side rows per model; probe rows apart, with their record ids hashed."""
+    for name, result in results.items():
+        rows = result["predictions"]
+        sealed = [r for r in rows if r["fold"] != PROBE_FOLD]
+        _write_json(out_dir / PREDICTIONS_DIR / f"{name}.json", sealed)
+        probe = [
+            {**r, "record_id": _hash_id(r["record_id"])} for r in rows if r["fold"] == PROBE_FOLD
+        ]
+        if probe:
+            _write_json(out_dir / PREDICTIONS_DIR / PROBE_DIR / f"{name}.json", probe)
 
 
 def _measure(
@@ -316,7 +538,10 @@ def _measure(
     now: Callable[[], str],
     report_inputs: _ReportInputs,
 ) -> dict[str, Any]:
-    records = {stem: _read_side(side) for stem, side in sealed.items()}
+    records = report_inputs.records
+    folds: dict[str, Sequence[Record]] = dict(records)
+    if report_inputs.probe:
+        folds[PROBE_FOLD] = report_inputs.probe
     started = now()
     counted: list[_Counted] = []
     results: dict[str, dict[str, Any]] = {}
@@ -346,19 +571,20 @@ def _measure(
             counted.append(client)
             results[name] = bench.benchmark_model(
                 model.target,
-                records,
+                folds,
                 memory_probe=memory_probe,
                 client=client,
                 proc_root=proc_root,
             )
+            if name == ATTESTED:  # the bundle that answered is still the one attested
+                dedge.check_bundle(_getter(model)(dedge.BUNDLE_PATH), base["deployed"]["bundle"])
     except BaseException:
         if any(c.asked for c in counted):
             record(once.FAILED_MID_RUN)
         raise
     ledger_records = record(once.MEASURED)
     out_dir = run_dir / FINAL_REL
-    for name, result in results.items():
-        _write_json(out_dir / PREDICTIONS_DIR / f"{name}.json", result["predictions"])
+    _write_predictions(out_dir, results)
     runtime = {
         name: {
             "host": host,
@@ -382,12 +608,7 @@ def _measure(
         calibrations={k: v["calibration"] for k, v in base["calibrations"].items()},
         calibration_sources={k: v["source"] for k, v in base["calibrations"].items()},
         runtime=runtime,
-        prereg=report_inputs.prereg,
-        quant_manifest=report_inputs.quant_manifest,
-        contamination_manifest=report_inputs.contamination_manifest,
-        seed=report_inputs.seed,
-        resamples=report_inputs.resamples,
-        gate=report_inputs.gate,
+        context=report_inputs.context,
     )
     _write_json(out_dir / FINAL_FILE, final)
     _write_json(out_dir / REPORT_FILE, report)

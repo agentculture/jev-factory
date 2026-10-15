@@ -41,6 +41,7 @@ from jev_factory.factory import gpu
 from jev_factory.factory.stages import read_manifest
 from jev_factory.measure import once
 from jev_factory.review import corrections as review
+from jev_factory.review import gold
 from tests.release_support import TOKEN, FakeHub
 
 FIX = Path(__file__).parent / "fixtures"
@@ -393,6 +394,7 @@ class Env:
         self.final_clients = {
             "clef": GoldClient("clef", self.records, 0.95),
             "stock": GoldClient("stock", self.records, 0.7),
+            "student_bf16": GoldClient("student_bf16", self.records, 0.85),
             "student": GoldClient("student", self.records, 0.85),
         }
         self.services = P.Services(
@@ -412,7 +414,9 @@ class Env:
             | {"torch_int8_wo": fake_int8_builder},
             measurer=self.measurer,
             final_models={
-                n: dfinal.FinalModel(target=self._target(n), client=c)
+                n: dfinal.FinalModel(
+                    target=self._target(n), client=c, get=self._board if n == "student" else None
+                )
                 for n, c in self.final_clients.items()
             },
             hub=self.hub,
@@ -424,6 +428,13 @@ class Env:
             distill_cmd, "_context", lambda args: replace(orig(args), services=self.services)
         )
         monkeypatch.setattr(gpu, "run_gpu_stage", self._fake_gpu)
+
+    def _board(self, path):
+        """The pre-served quant's /v1/bundle (the deployed artifact) and a capped /v1/stats."""
+        if path == "/v1/stats":
+            return {"cgroup": {"memory_max": 2**32, "effective_memory_max": 2**32}}
+        artifact = Path(dfinal.deployed_student(self.work)["artifact"])
+        return qz.bundle_attestation(artifact if artifact.is_absolute() else self.work / artifact)
 
     def _target(self, name):
         from jev_factory.distill import benchmark as bench
@@ -523,6 +534,15 @@ def approve_corrections(env: Env) -> list:
     return proposed
 
 
+def approve_test_gold(env: Env) -> None:
+    """The operator's `jev review --gold` approval of every sealed test record (t8 ledger)."""
+    test = env.base / "dataset" / "test.jsonl"
+    records = [R.Record.from_json(json.loads(x)) for x in test.read_text().splitlines() if x]
+    for rec in records:
+        entry, _ = gold.make_entry(rec, "approve", at="2026-10-14T00:00:00Z")
+        gold.append_entry(gold.ledger_path(test), entry)
+
+
 # ------------------------------------------------------------------------------ the test
 
 
@@ -540,6 +560,7 @@ def test_every_stage_dry_runs_then_applies_end_to_end_into_a_complete_bundle(env
     proposed = approve_corrections(env)
     assert proposed  # the file never self-approves
     assert {c.status for c in proposed} == {"proposed"}
+    approve_test_gold(env)  # the operator approves every test record before the final
     for stage in ("assemble", "benchmark", "train", "quantize", "gate", "final", "bundle"):
         assert env.apply(stage)["status"] == "complete", stage
     assert env.apply("upload", UPLOAD_KNOBS)["status"] == "complete"
