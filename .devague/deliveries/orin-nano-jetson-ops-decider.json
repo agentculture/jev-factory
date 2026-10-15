@@ -2,7 +2,7 @@
   "plan_slug": "orin-nano-jetson-ops-decider",
   "schema_version": 2,
   "created": "2026-10-15T17:16:36Z",
-  "updated": "2026-10-15T20:53:15Z",
+  "updated": "2026-10-15T20:58:59Z",
   "deviations": [
     {
       "id": "d1",
@@ -88,6 +88,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "Jetson-ops drafted records use choice questions only, each ending with [not_sure, \"I'm not sure.\"]: true/false claims become choice true/false/not_sure and ratings become level_0..level_n plus not_sure (replaces the 50/30/20 choice/noul/score mix; the shapes keep that mix); the gate then fits one question kind for these records, while the typed-decisions guard keeps its noul/score questions",
+      "task_ref": "t22",
+      "reason": "operator rule: always offer an I'm-not-sure option; the systemone noul type is fixed to true/false and score levels are ordered, so only a choice can carry it",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 8
     }
   ],
   "evidence": [],
