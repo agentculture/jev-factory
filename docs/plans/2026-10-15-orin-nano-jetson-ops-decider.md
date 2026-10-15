@@ -41,10 +41,10 @@ slug: `orin-nano-jetson-ops-decider` · status: `exported` · from frame: `orin-
 
 ### t5 — SystemOneClient: bearer key by env-var name and the X-Lobes-Model header, still localhost-only
 
-- instruction: Own `jev_factory`/distill/systemone.py, `jev_factory`/distill/teacher.py and their tests. Do not edit pipeline.py (the wiring task adds config keys). The teacher is reached through an SSH tunnel (ssh -N -L 127.0.0.1:<port>:127.0.0.1:8000 <orin>), documented later by the docs task.
+- instruction: Own `jev_factory`/distill/systemone.py, `jev_factory`/distill/teacher.py and their tests. Do not edit pipeline.py (the wiring task adds config keys). The teacher is reached through an SSH tunnel (`ssh -N -L 127.0.0.1:<port>:127.0.0.1:8000 <orin>`), documented later by the docs task.
 - covers: c12, h12
 - acceptance:
-  - systemone.py: the client takes `auth_env` (an env-var NAME) and `model_header`; requests carry Authorization: Bearer <value of that env var> and X-Lobes-Model: <`model_header`>; a missing env var fails with exit 2 naming the variable, never its value
+  - systemone.py: the client takes `auth_env` (an env-var NAME) and `model_header`; requests carry `Authorization: Bearer` with that env var's value and `X-Lobes-Model` with `model_header`; a missing env var fails with exit 2 naming the variable, never its value
   - a non-127.0.0.1/localhost URL is still refused; tests with a fake server assert both headers, and grep over a written teacher manifest, log and every raised CliError text finds no key value
   - teacher.py passes the two settings through and records the env-var NAME and header value (not the key) in the teacher-label manifest
 
