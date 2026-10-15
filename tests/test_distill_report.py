@@ -1,4 +1,4 @@
-"""Distill final report (t20): paired gate over Clef, stock v21 and the deployed student.
+"""Distill final report (t20, t14): c17 bars over Clef, stock, the bf16 student and the quant.
 
 Pure-function tests over hand-built predictions: no server, no GPU.
 """
@@ -12,11 +12,13 @@ from jev_factory.distill import report as R
 from jev_factory.distill.records import Gold, Question, Record
 
 CLEAN = "Praveenrajus/jev-bench:scifact"
-#: v21 trained on banking77; the jev-bench record source must still be matched to it.
+#: the stock model trained on banking77; the jev-bench record source must still match it.
 OVERLAP = "Praveenrajus/jev-bench:banking77"
 EVAL_ONLY = "jev-bench:emotion"
 TYPED = "LocalLLaMA/typed-decisions"
 RESAMPLES = 200
+PREREG_SHA = "e" * 64
+BUNDLE = {"files": {"torso": "a" * 64}, "manifest_sha256": "b" * 64, "weight_bytes": 900_000_000}
 
 
 def _rec(i: int, source: str = CLEAN, provenance: str = "human") -> Record:
@@ -55,18 +57,19 @@ def _rows(recs, right: int, p_right: float, p_wrong_a: float) -> list[dict]:
 
 
 def _good(recs):
-    """Clef 38/40, v21 20/40 at 0.6 (ECE 0.1), student 36/40 well calibrated."""
+    """Clef 38/40, stock 20/40 at 0.6 (ECE 0.1), both students 36/40 well calibrated."""
     return {
         "clef": _rows(recs, 38, 0.9, 0.2),
         "stock": _rows(recs, 20, 0.6, 0.4),
+        "student_bf16": _rows(recs, 36, 0.97, 0.45),
         "student": _rows(recs, 36, 0.97, 0.45),
     }
 
 
-def _runtime(student_s=0.1, clef_s=1.0, hosts=("box", "box", "box")):
+def _runtime(student_s=0.1, clef_s=1.0, hosts=("box", "box", "box", "box")):
     out = {}
     for (name, median), host in zip(
-        (("clef", clef_s), ("stock", 0.2), ("student", student_s)), hosts
+        (("clef", clef_s), ("stock", 0.2), ("student_bf16", 0.3), ("student", student_s)), hosts
     ):
         out[name] = {
             "host": host,
@@ -79,17 +82,37 @@ def _runtime(student_s=0.1, clef_s=1.0, hosts=("box", "box", "box")):
 QUANT_OK = {"quant_vs_bf16_delta_points": 0.0, "heal_count": 0, "deployed_selection_ece": 0.05}
 
 
-def _build(test, preds, *, prereg=None, runtime=None, quant=None, cal=None, held_out=(), gate=None):
+def _build(
+    test,
+    preds,
+    *,
+    prereg=None,
+    runtime=None,
+    quant=None,
+    cal=None,
+    held_out=(),
+    gate=None,
+    approved=None,
+    bundle=BUNDLE,
+    probe=(),
+):
+    every = [*test, *held_out]
     return R.build_report(
         records_by_side={"test": test, "held_out": list(held_out)},
         predictions=preds,
         calibrations=cal or {"clef": None, "stock": None, "student": None},
         calibration_sources={"clef": "raw", "stock": "served", "student": "quant"},
         runtime=runtime or _runtime(),
-        prereg=prereg or dp.validate(dp.example_doc()),
-        quant_manifest=quant or QUANT_OK,
-        resamples=RESAMPLES,
-        gate=gate,
+        context=R.ReportContext(
+            prereg=prereg or dp.validate(dp.example_doc()),
+            prereg_sha256=PREREG_SHA,
+            approved_ids={r.id for r in every} if approved is None else approved,
+            quant_manifest=quant or QUANT_OK,
+            bundle=bundle,
+            gate=gate,
+            probe_records=list(probe),
+            resamples=RESAMPLES,
+        ),
     )
 
 
@@ -100,7 +123,9 @@ def _bar(rep, name, section="c42"):
 def test_a_good_run_passes_every_c42_and_c43_bar_each_with_n_and_ci():
     recs = [_rec(i) for i in range(40)]
     rep = _build(recs, _good(recs))
-    assert rep["result"] == R.PASSED, rep["c42"]["missed"] + rep["c43"]["missed"]
+    assert rep["result"] == R.PASSED, rep["c17"]["missed"]
+    assert rep["c42"]["result"] == R.PASSED, rep["c42"]["missed"]
+    assert rep["c43"]["result"] == R.PASSED, rep["c43"]["missed"]
     names = [b["bar"] for b in rep["c42"]["bars"]]
     assert names == list(dp.TEST_BARS)
     assert [b["bar"] for b in rep["c43"]["bars"]] == list(dp.QUANT_BARS)
@@ -142,10 +167,11 @@ def test_headline_is_human_gold_from_clean_sources_and_overlap_is_reported_apart
     pools = rep["sides"]["test"]["pools"]
     assert pools[R.HEADLINE]["items"] == 40
     assert pools[R.OVERLAPPING]["items"] == 10
-    assert pools[R.V21_EVALUATED]["items"] == 6
+    assert pools[R.STOCK_EVALUATED]["items"] == 6
     assert pools[R.OVERLAPPING]["stats"]["student.accuracy"]["value"] == 0.0
     assert rep["c42"]["result"] == R.PASSED
     assert _bar(rep, "accuracy_diff_ci_lower_min")["n"] == 40
+    assert rep["c17"]["n_items"] == 40
 
 
 def test_typed_decisions_agreement_is_reported_not_gated():
@@ -190,7 +216,7 @@ def test_paired_bootstrap_hands_every_statistic_one_shared_draw():
     assert out["x"]["n"] == 5
 
 
-def test_higher_accuracy_with_higher_ece_than_v21_is_a_regression():
+def test_higher_accuracy_with_higher_ece_than_stock_is_a_regression():
     recs = [_rec(i) for i in range(40)]
     preds = _good(recs)
     preds["student"] = _rows(recs, 30, 1.0, 0.0)  # 0.75 accuracy, every answer at p = 1
@@ -243,7 +269,8 @@ def test_c43_is_read_from_the_quant_manifest():
     drop = _bar(rep, "max_accuracy_drop_points", "c43")
     assert drop["value"] == 4.0
     assert drop["source"].endswith("quant_manifest.json:quant_vs_bf16_delta_points")
-    assert rep["result"] == R.MISSED
+    assert rep["c43"]["gated"] is False  # the #18-shape table; c17 is the run's verdict
+    assert rep["result"] == rep["c17"]["result"]
 
 
 def test_latency_and_memory_are_reported_for_all_three_on_the_same_box():
@@ -258,10 +285,12 @@ def test_latency_and_memory_are_reported_for_all_three_on_the_same_box():
         assert row["memory_probe"] == "proc-rss"
     assert table["same_box"] is True
     assert _bar(rep, "latency_ratio_max")["value"] == pytest.approx(0.1)
-    split = _build(recs, _good(recs), runtime=_runtime(hosts=("a", "b", "a")))
+    split = _build(recs, _good(recs), runtime=_runtime(hosts=("a", "b", "a", "a")))
     assert split["runtime"]["same_box"] is False
     slow = _build(recs, _good(recs), runtime=_runtime(student_s=0.5))
-    assert "latency_ratio_max" in slow["c42"]["missed"]
+    assert "latency_ratio_max" not in slow["c42"]["missed"]  # latency is never pass/fail
+    assert _bar(slow, "latency_ratio_max")["result"] == R.REPORTED
+    assert slow["result"] == R.PASSED
 
 
 def test_each_models_calibration_is_applied_and_recorded():
@@ -351,3 +380,146 @@ def test_report_without_a_fitted_gate_says_so():
     assert dg["fitted"] is False
     assert dg["sides"] == {}
     assert dg["reason"]
+
+
+# --------------------------------------------------------------------- c17 (t14)
+
+
+def _c17(rep, build, name):
+    return next(b for b in rep["c17"]["builds"][build]["bars"] if b["bar"] == name)
+
+
+def test_every_c17_bar_is_computed_for_bf16_and_quant_with_paired_ci_and_n():
+    """AC3: report.py computes each c17 bar for both the bf16 student and the shipped quant
+    with paired bootstrap CIs and cites the hashed prereg."""
+    recs = [_rec(i) for i in range(40)]
+    rep = _build(recs, _good(recs))
+    c17 = rep["c17"]
+    assert c17["result"] == R.PASSED, c17["missed"]
+    assert set(c17["builds"]) == {"bf16", "quant"}
+    assert c17["builds"]["bf16"]["model"] == R.STUDENT_BF16
+    assert c17["builds"]["quant"]["model"] == R.STUDENT
+    assert [b["bar"] for b in c17["builds"]["bf16"]["bars"]] == list(dp.C17_TOP1_BARS)
+    assert [b["bar"] for b in c17["builds"]["quant"]["bars"]] == [
+        *dp.C17_TOP1_BARS,
+        *dp.C17_QUANT_ONLY_BARS,
+    ]
+    for build in ("bf16", "quant"):
+        over = _c17(rep, build, "top1_over_stock_min_points")
+        assert over["value"] == pytest.approx(100 * (0.9 - 0.5))
+        assert over["n"] == 40
+        assert over["ci_low"] is not None
+        assert over["ci_high"] is not None
+        assert over["threshold"] == dp.C17_STOCK_MARGIN_POINTS
+        under = _c17(rep, build, "top1_under_clef_w4a16_max_points")
+        assert under["value"] == pytest.approx(100 * (0.95 - 0.9))
+        assert under["ci_low"] is not None
+    agree = _c17(rep, "quant", "quant_vs_bf16_agreement_min")
+    assert agree["value"] == 1.0
+    assert agree["n"] == 40
+    weight = _c17(rep, "quant", "weight_bytes_max")
+    assert weight["value"] == BUNDLE["weight_bytes"]
+    assert weight["result"] == R.PASSED
+    assert c17["prereg_sha256"] == PREREG_SHA
+    assert PREREG_SHA in c17["cites"]
+    assert rep["prereg"]["sha256"] == PREREG_SHA
+    assert c17["side"] == "test"
+    assert c17["pool"] == R.HEADLINE
+    assert c17["n_items"] == 40
+    assert rep["headline_n"] == {"records": 40, "items": 40}
+
+
+def test_c17_follows_the_locked_prereg_and_a_tightened_bar_misses():
+    """AC3: each c17 bar is read from bars.c17 of the locked pre-registration."""
+    recs = [_rec(i) for i in range(40)]
+    doc = dp.example_doc()
+    doc["bars"]["c17"]["bf16"]["top1_over_stock_min_points"] = 45.0
+    doc["bars"]["c17"]["quant"]["top1_under_clef_w4a16_max_points"] = 1.0
+    rep = _build(recs, _good(recs), prereg=dp.validate(doc))
+    assert rep["c17"]["missed"] == [
+        "bf16.top1_over_stock_min_points",
+        "quant.top1_under_clef_w4a16_max_points",
+    ]
+    assert rep["result"] == R.MISSED
+    assert _c17(rep, "bf16", "top1_over_stock_min_points")["threshold"] == 45.0
+
+
+def test_a_quant_that_disagrees_with_its_bf16_misses_agreement_on_paired_draws():
+    """AC3: quant-vs-bf16 agreement is a c17 bar with a paired CI (same draws as the rest)."""
+    recs = [_rec(i) for i in range(40)]
+    preds = _good(recs)
+    preds["student_bf16"] = _rows(recs, 38, 0.97, 0.45)  # 2 more right than the quant
+    rep = _build(recs, preds)
+    agree = _c17(rep, "quant", "quant_vs_bf16_agreement_min")
+    assert agree["value"] == pytest.approx(38 / 40)
+    assert agree["result"] == R.MISSED
+    assert agree["ci_low"] <= agree["value"] <= agree["ci_high"]
+    assert "quant.quant_vs_bf16_agreement_min" in rep["c17"]["missed"]
+    assert rep["c17"]["builds"]["bf16"]["result"] == R.PASSED
+
+
+def test_weight_bytes_must_be_strictly_below_the_bar_and_attested():
+    """AC3/c17: '< 1 GB' means < 10^9 bytes of attested weight files."""
+    recs = [_rec(i) for i in range(40)]
+    over = _build(recs, _good(recs), bundle={**BUNDLE, "weight_bytes": 10**9})
+    assert _c17(over, "quant", "weight_bytes_max")["result"] == R.MISSED
+    missing = _build(recs, _good(recs), bundle=None)
+    row = _c17(missing, "quant", "weight_bytes_max")
+    assert row["result"] == R.MISSED
+    assert row["reason"]
+
+
+def test_a_bf16_regression_fails_c17_even_when_the_quant_is_fine():
+    recs = [_rec(i) for i in range(40)]
+    preds = _good(recs)
+    preds["student_bf16"] = _rows(recs, 30, 1.0, 0.0)  # above stock, ECE 0.25 > 0.1
+    rep = _build(recs, preds)
+    assert rep["c17"]["builds"]["bf16"]["regression"]["regression"] is True
+    assert rep["c17"]["builds"]["quant"]["regression"]["regression"] is False
+    assert "bf16.regression" in rep["c17"]["missed"]
+    assert rep["regression"] is True
+    assert rep["result"] == R.MISSED
+
+
+def test_the_headline_counts_only_approved_human_gold_test_records():
+    """AC2: an unapproved human-gold record never counts toward the bars (reported apart)."""
+    recs = [_rec(i) for i in range(40)]
+    unapproved = [_rec(100 + i) for i in range(5)]
+    preds = _good(recs)
+    for name in R.MODELS:
+        preds[name] += _rows(unapproved, 0, 0.9, 0.1)  # all wrong: must not move the bars
+    rep = _build(recs + unapproved, preds, approved={r.id for r in recs})
+    pools = rep["sides"]["test"]["pools"]
+    assert pools[R.HEADLINE]["records"] == 40
+    assert pools[R.UNAPPROVED]["records"] == 5
+    assert rep["c17"]["n_records"] == 40
+    assert rep["c17"]["result"] == R.PASSED
+
+
+def test_probe_table_and_latency_carry_no_pass_fail():
+    """AC3: the Clef probe-set table and latency median/p95 carry no pass/fail."""
+    recs = [_rec(i) for i in range(40)]
+    probe = [_rec(i, "private/clef-probe") for i in range(8)]
+    preds = _good(recs)
+    for name in R.MODELS:
+        preds[name] += _rows(probe, 4 if name == "student" else 8, 0.9, 0.1)
+    rep = _build(recs, preds, probe=probe)
+    table = rep["probe"]
+    assert table["measured"] is True
+    assert table["gated"] is False
+    assert table["items"] == 8
+    assert table["stats"]["student.accuracy"]["value"] == 0.5
+    assert table["stats"]["clef.accuracy"]["value"] == 1.0
+    assert "sources" not in table  # the probe set is private
+    assert "result" not in table
+    assert rep["result"] == R.PASSED  # a worse probe score gates nothing
+    assert "private/clef-probe" not in rep["sources"]  # never mixed into the sealed tables
+    for build in ("bf16", "quant"):
+        lat = rep["c17"]["builds"][build]["latency"]
+        assert lat["median_s"] is not None
+        assert lat["p95_s"] is not None
+        assert lat["gated"] is False
+        assert "result" not in lat
+    assert rep["runtime"]["gated"] is False
+    assert all("result" not in row for row in rep["runtime"]["models"].values())
+    assert _build(recs, _good(recs))["probe"]["measured"] is False
