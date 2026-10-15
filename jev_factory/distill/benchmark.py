@@ -639,7 +639,8 @@ def require_base_match(run_dir: Path | str, deviation_id: str | None = None) -> 
         ) from exc
     if mismatch and not (deviation_id or "").strip():
         raise _refuse(
-            "stock 2610 did not reproduce the card's JevBench w4096 result (base-mismatch) and no deviation id was given: "
+            "stock 2610 did not reproduce the card's JevBench w4096 result (base-mismatch) "
+            "and no deviation id was given: "
             f"{rec.get('n_correct')}/{rec.get('n')} with CI "
             f"[{rec.get('ci_low'):.4f}, {rec.get('ci_high'):.4f}] "
             f"excludes {CARD_ACCURACY:.4f}",

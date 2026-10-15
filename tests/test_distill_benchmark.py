@@ -13,7 +13,8 @@ from jev_factory.cli._errors import CliError
 from jev_factory.distill import benchmark as bm
 from jev_factory.distill import dataset
 from jev_factory.distill.records import Gold, Question, Record
-from tests.test_distill_train import cache  # noqa: F401 - fixture for the train guard test
+from tests import test_distill_train as tt
+from tests.test_distill_train import cache as pin_cache  # noqa: F401 - guard-test fixture
 
 
 def _rec(i: int, split: str = "train") -> Record:
@@ -454,21 +455,18 @@ def test_require_base_match_refuses_a_corrupt_record(tmp_path):
         bm.require_base_match(tmp_path, "d7")
 
 
-def test_train_refuses_on_base_mismatch_without_a_deviation(
-    tmp_path, cache, monkeypatch
-):  # noqa: F811
+def test_train_refuses_on_base_mismatch_without_a_deviation(tmp_path, pin_cache, monkeypatch):
     """AC1: run_grid itself refuses before planning anything; a deviation id lets it through."""
     from jev_factory.backbones.pointer import train_distill as td
     from jev_factory.distill import train as T
     from jev_factory.distill.runspec import TrainerEnv
-    from tests import test_distill_train as tt
 
     path, run_dir = tt.locked(tmp_path)
     _mismatch_record(run_dir, True)
     kwargs = dict(
         prereg_path=path,
         run_dir=run_dir,
-        cache_dir=cache,
+        cache_dir=pin_cache,
         pins=tt.student_pins(),
         folds=tt.folds(),
         trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
