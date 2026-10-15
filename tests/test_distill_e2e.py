@@ -353,8 +353,8 @@ class Env:
                     'distill_teacher_engine = "sglang"',
                     'distill_alt_teacher_url = "http://127.0.0.1:9"',
                     'distill_alt_teacher_model = "fake-drafter"',
-                    'distill_v21_url = "http://127.0.0.1:9"',
-                    'distill_v21_model = "v21"',
+                    'distill_stock_url = "http://127.0.0.1:9"',
+                    'distill_stock_model = "v21"',
                 ]
             )
             + "\n",
@@ -368,7 +368,7 @@ class Env:
         self.hub = FakeHub(tmp_path / "remote")
         self.final_clients = {
             "clef": GoldClient("clef", self.records, 0.95),
-            "stock_v21": GoldClient("stock_v21", self.records, 0.7),
+            "stock": GoldClient("stock", self.records, 0.7),
             "student": GoldClient("student", self.records, 0.85),
         }
         self.services = P.Services(
@@ -377,10 +377,10 @@ class Env:
             drafter=lambda rec: {
                 qid: {"label": g.label} for qid, g in rec.gold.items() if g.label is not None
             },
-            benchmark_targets={n: self._target(n) for n in ("clef", "stock_v21")},
+            benchmark_targets={n: self._target(n) for n in ("clef", "stock")},
             benchmark_clients={
                 "clef": GoldClient("clef", self.records, 0.95),
-                "stock_v21": GoldClient("stock_v21", self.records, 0.7),
+                "stock": GoldClient("stock", self.records, 0.7),
             },
             memory_probe=lambda: None,
             scorer=self.scorer,
@@ -557,7 +557,7 @@ def check_early_stages(env: Env) -> None:
     rows = [json.loads(x) for x in (env.base / P.TRAIN_SET).read_text().splitlines() if x.strip()]
     assert {r["target_source"] for r in rows} == {"clef+gold", "correction"}
     bench = env.read("benchmark/benchmark.json")
-    assert set(bench["models"]) == {"clef", "stock_v21"}
+    assert set(bench["models"]) == {"clef", "stock"}
     assert set(bench["folds"]) == {"fit", "selection"}
 
 

@@ -73,8 +73,8 @@ distill_student_port = 18070
 # distill_teacher_engine = "sglang"
 # distill_alt_teacher_url = "<localhost systemone url of the correction drafter>"
 # distill_alt_teacher_model = "<served drafter model name>"
-# distill_v21_url = "<localhost systemone url of stock v21>"
-# distill_v21_model = "<served v21 model name>"
+# distill_stock_url = "<localhost systemone url of the stock model>"
+# distill_stock_model = "<served stock model name>"
 
 # --- secrets, by the NAME of the environment variable ---
 # aug_key_env = "TEACHER_GATEWAY_KEY"

@@ -453,7 +453,7 @@ def test_explain_learn_and_overview_cover_distill(capsys):
 def test_benchmark_applies_on_the_fit_and_selection_folds_only(assembled):
     from jev_factory.distill import benchmark as bench
 
-    clients = {"clef": FakeTeacher(_records()), "stock_v21": FakeTeacher(_records())}
+    clients = {"clef": FakeTeacher(_records()), "stock": FakeTeacher(_records())}
     targets = {n: bench.Target(n, "http://127.0.0.1:9", n) for n in clients}
     _apply(
         assembled,
@@ -469,5 +469,5 @@ def test_benchmark_applies_on_the_fit_and_selection_folds_only(assembled):
     for client in clients.values():
         assert set(client.asked) == folds
     result = json.loads((assembled / "distill" / P.BENCHMARK_FILE).read_text())
-    assert set(result["models"]) == {"clef", "stock_v21"}
+    assert set(result["models"]) == {"clef", "stock"}
     assert read_manifest(assembled / "distill", "benchmark")["status"] == "complete"

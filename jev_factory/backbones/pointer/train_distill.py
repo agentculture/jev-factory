@@ -1,4 +1,4 @@
-"""Distill trainer for Strands Decider: continue from v21 on teacher soft labels and gold.
+"""Distill trainer for Strands Decider: continue from the stock model on teacher labels and gold.
 
 Two halves in one module:
 
@@ -9,7 +9,7 @@ Two halves in one module:
   :func:`jev_factory.factory.gpu.run_gpu_stage` (residency guard, memory cap, memory-floor
   watchdog) and nowhere else.
 * **Training, in the trainer env.** ``python -m jev_factory.backbones.pointer.train_distill``
-  (:func:`main`) re-checks the lock itself, loads the v21 checkpoint with upstream's
+  (:func:`main`) re-checks the lock itself, loads the stock checkpoint with upstream's
   ``StrandsDeciderModel.load``, renders rows with upstream's ``SystemOneCollator`` (the
   serving prompt and option-position readout) and minimises
   ``alpha * KL(teacher || student at T_kind) + (1 - alpha) * CE(gold)``
@@ -20,21 +20,21 @@ Two halves in one module:
 
 Init modes (a pre-registered knob, ``knob_grid.init_mode``; frame park v6):
 
-* ``continue``: train v21's own LoRA adapter (made trainable again; upstream ``load`` opens
-  it frozen) and v21's own pointer head. The adapter's shape is v21's, so no ``lora_*``
-  knob is read.
-* ``merge_fresh``: merge v21's adapter into the torso (``merge_and_unload``), attach a fresh
-  LoRA of the pre-registered ``lora_r``/``lora_alpha``/``lora_dropout``/``lora_targets``,
-  and train it with v21's head. ``strands-decider serve`` loads one adapter over the
-  *unmerged* base, so at save time v21's adapter and the fresh one are stacked into one
-  adapter of rank ``r_v21 + r_fresh`` (:func:`stack_lora`, exact: ``B A`` of the stack is
-  the sum of both scaled deltas). The fresh adapter was trained against the bf16 merge, so
-  the served model can differ from the trained one by that merge's rounding; the final
-  measurement is taken on the served artifact.
+* ``continue``: train the stock model's own LoRA adapter (made trainable again; upstream
+  ``load`` opens it frozen) and the stock model's own pointer head. The adapter's shape is the
+  stock model's, so no ``lora_*`` knob is read.
+* ``merge_fresh``: merge the stock model's adapter into the torso (``merge_and_unload``),
+  attach a fresh LoRA of the pre-registered ``lora_r``/``lora_alpha``/``lora_dropout``/
+  ``lora_targets``, and train it with the stock model's head. ``strands-decider serve`` loads
+  one adapter over the *unmerged* base, so at save time the stock model's adapter and the
+  fresh one are stacked into one adapter of rank ``r_stock + r_fresh`` (:func:`stack_lora`,
+  exact: ``B A`` of the stack is the sum of both scaled deltas). The fresh adapter was trained
+  against the bf16 merge, so the served model can differ from the trained one by that merge's
+  rounding; the final measurement is taken on the served artifact.
 
 Unlike upstream ``init_from`` (which discards the loaded head for a fresh ``SlotHead``),
-both modes keep v21's pointer head. Upstream's ``kl_frozen_weight`` (KL to the untouched
-torso's option-number readout) and ``teacher_weight`` (an additive teacher term) are not
+both modes keep the stock model's pointer head. Upstream's ``kl_frozen_weight`` (KL to the
+untouched torso's option-number readout) and ``teacher_weight`` (an additive teacher term) are not
 applied: the distill objective is the pre-registered alpha mixture only, and the plan says
 so under ``not_applied``. Training rows are the JSONL items :func:`load_items` reads (one
 per record and question, canonical option order).
@@ -278,7 +278,7 @@ def plan_train(
 ) -> dict[str, Any]:
     """The trainer's subprocess command and resolved hyperparameters; runs nothing.
 
-    *init_from* is the verified v21 checkpoint directory (``lora/``, ``head.safetensors``,
+    *init_from* is the verified stock checkpoint directory (``lora/``, ``head.safetensors``,
     ``strands_decider_config.json``); *decider_repo* is the pinned strands-decider checkout
     whose ``training`` package and ``src`` go on the trainer's ``PYTHONPATH``.
     """
@@ -536,7 +536,7 @@ def _lora_scale(torso: Any) -> float:
 
 
 def prepare_init(model: Any, hp: Mapping[str, Any]) -> dict[str, Any]:
-    """Make v21 trainable per ``init_mode``; v21's pointer head is kept and trained."""
+    """Make the stock model trainable per ``init_mode``; its pointer head is kept and trained."""
     info: dict[str, Any] = {"init_mode": hp["init_mode"]}
     if hp["init_mode"] == "continue":
         n = 0
@@ -545,14 +545,14 @@ def prepare_init(model: Any, hp: Mapping[str, Any]) -> dict[str, Any]:
             p.requires_grad_(trainable)
             n += int(trainable)
         if not n:
-            raise CliError(EXIT_ENV_ERROR, "the v21 checkpoint has no LoRA parameters")
+            raise CliError(EXIT_ENV_ERROR, "the stock checkpoint has no LoRA parameters")
     else:
         peft = _load("peft")
-        info["v21_state"] = {
+        info["stock_state"] = {
             k: v.detach().clone() for k, v in peft.get_peft_model_state_dict(model.torso).items()
         }
-        info["v21_scale"] = _lora_scale(model.torso)
-        info["v21_targets"] = sorted(model.torso.peft_config["default"].target_modules)
+        info["stock_scale"] = _lora_scale(model.torso)
+        info["stock_targets"] = sorted(model.torso.peft_config["default"].target_modules)
         model.torso = model.torso.merge_and_unload()
         model.config.lora_r = int(hp["lora_r"])
         model.config.lora_alpha = int(hp["lora_alpha"])
@@ -683,17 +683,17 @@ def train_steps(
 
 
 def _save_stacked(model: Any, info: Mapping[str, Any], out: Path) -> dict[str, Any]:
-    """merge_fresh: replace the saved fresh adapter by v21 + fresh stacked over the base."""
+    """merge_fresh: replace the saved fresh adapter by stock + fresh stacked over the base."""
     peft = _load("peft")
     st = _load("safetensors.torch")
     fresh = {k: v.detach().cpu() for k, v in peft.get_peft_model_state_dict(model.torso).items()}
-    v21 = {k: v.cpu() for k, v in info["v21_state"].items()}
-    state, rank, alpha = stack_lora(v21, info["v21_scale"], fresh, _lora_scale(model.torso))
+    stock = {k: v.cpu() for k, v in info["stock_state"].items()}
+    state, rank, alpha = stack_lora(stock, info["stock_scale"], fresh, _lora_scale(model.torso))
     lora = out / "lora"
     st.save_file(state, str(safepath.contained(lora / "adapter_model.safetensors", out)))
     cfg_path = safepath.regular_file(lora / "adapter_config.json", out)
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    targets = sorted(set(info["v21_targets"]) | set(model.config.lora_targets))
+    targets = sorted(set(info["stock_targets"]) | set(model.config.lora_targets))
     cfg.update(r=rank, lora_alpha=alpha, target_modules=targets, rank_pattern={}, alpha_pattern={})
     cfg_path.write_text(json.dumps(cfg, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     sd_path = safepath.regular_file(out / "strands_decider_config.json", out)
@@ -804,7 +804,7 @@ def _contain(args: argparse.Namespace) -> None:
     The pipeline puts the registration (``distill/prereg.json``), the assembled rows and every
     checkpoint it trains under the run directory, so a path that resolves outside it (``..``,
     an absolute path elsewhere, a symlink out) is refused before anything is read. Only
-    ``--init-from`` (the verified v21 checkpoint in the pin cache) may live elsewhere.
+    ``--init-from`` (the verified stock checkpoint in the pin cache) may live elsewhere.
     """
     run_dir = safepath.resolved(args.run_dir)
     args.run_dir = str(run_dir)
