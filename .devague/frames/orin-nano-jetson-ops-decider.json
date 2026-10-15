@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-15T05:25:25Z",
-  "updated": "2026-10-15T17:34:27Z",
+  "updated": "2026-10-15T17:41:18Z",
   "claims": [
     {
       "id": "c1",
@@ -873,6 +873,28 @@
       "skipped_check": "",
       "refs": [
         "t13"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l5",
+      "code": "control-absent",
+      "what": "t11's pruned-vocabulary OOV refusal count is measured on the same fit/selection prompts the kept ids were collected from, so it is ~0 by construction and says nothing about unseen requests",
+      "skipped_check": "measure OOV refusals on a set disjoint from the kept-id prompts (the probe set, never test or held-out)",
+      "refs": [
+        "t11"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l6",
+      "code": "assumption-for-measurement",
+      "what": "t11's kept-id collection and in-env pruned build/serve paths never ran: they assume the upstream engine calls embed_tokens as a module and does not catch OutOfVocabulary",
+      "skipped_check": "",
+      "refs": [
+        "t11"
       ],
       "origin": "llm",
       "status": "proposed"
