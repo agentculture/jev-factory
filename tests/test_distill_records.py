@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import subprocess
 import sys
@@ -38,7 +39,7 @@ def _rec(**over):
 def test_valid_record_roundtrips():
     rec = _rec()
     assert R.Record.from_json(rec.to_json()) == rec
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         rec.id = "other"  # frozen
 
 
@@ -83,8 +84,10 @@ def test_typed_decisions_real_row_loads_and_roundtrips():
     assert rec.gold["needs_review"].probability_true == 0.356667
     assert rec.gold["action"].probabilities["continue"] == 0.583333
     risk = rec.questions["risk"]
-    assert risk.type == "score" and risk.names == ("0", "1", "2", "3")
-    assert rec.gold["risk"].label == "1" and rec.gold["risk"].score == 0.79
+    assert risk.type == "score"
+    assert risk.names == ("0", "1", "2", "3")
+    assert rec.gold["risk"].label == "1"
+    assert rec.gold["risk"].score == 0.79
     assert R.Record.from_json(json.loads(json.dumps(rec.to_json()))) == rec
 
 
@@ -128,7 +131,8 @@ def test_jev_bench_hard_noul_and_score_labels():
     assert rec.gold["q"].probability_true == 1.0
     score = {"type": "score", "criteria": ["lo", "mid", "hi"]}
     rec = R.from_jev_bench_row(dict(row, question=json.dumps(score), label="2"))
-    assert rec.questions["q"].names == ("0", "1", "2") and rec.gold["q"].label == "2"
+    assert rec.questions["q"].names == ("0", "1", "2")
+    assert rec.gold["q"].label == "2"
 
 
 def test_domain_renders_as_one_choice_question():
@@ -166,8 +170,10 @@ def test_import_pulls_no_third_party():
 
 def test_source_metadata_defaults_to_none_and_roundtrips():
     rec = _rec()
-    assert rec.hf_id is None and rec.group is None
-    assert "hf_id" not in rec.to_json() and "group" not in rec.to_json()
+    assert rec.hf_id is None
+    assert rec.group is None
+    assert "hf_id" not in rec.to_json()
+    assert "group" not in rec.to_json()
     rich = _rec(hf_id="mteb/banking77", group="agent_trace_observability")
     assert R.Record.from_json(rich.to_json()) == rich
     assert rich.to_json()["hf_id"] == "mteb/banking77"

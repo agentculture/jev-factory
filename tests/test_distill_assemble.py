@@ -204,10 +204,13 @@ def test_clef_teacher_plus_gold_one_row_per_record_question(tmp_path):
     assert a["precedence_rule"] == "gold+teacher"
     assert a["gold"] == {"label": "fix"}
     assert a["teacher"] == pytest.approx({"fix": 0.8, "wait": 0.1, "ask": 0.1})
-    assert a["teacher_build_id"] == "clef-b1" and a["correction_id"] is None
+    assert a["teacher_build_id"] == "clef-b1"
+    assert a["correction_id"] is None
     assert a["teacher_filter"] == "kept"
     assert a["options"] == [["fix", "repair it"], ["wait", "do nothing"], ["ask", "ask"]]
-    assert a["kind"] == "choice" and a["state"] == _state(1) and a["weight"] == 1.0
+    assert a["kind"] == "choice"
+    assert a["state"] == _state(1)
+    assert a["weight"] == 1.0
     b = rows[("r1", "b")]
     assert b["gold"] == {"p_true": 1.0}
     assert b["teacher"] == pytest.approx({"false": 0.1, "true": 0.9})
@@ -236,9 +239,12 @@ def test_approved_correction_replaces_both_targets(tmp_path):
     _decide(env.corrections, corr, "approve")
     rows = _rows(env.go())
     a = rows[("r1", "a")]
-    assert a["target_source"] == "correction" and a["precedence_rule"] == "correction"
-    assert a["gold"] == {"label": "ask"} and a["teacher"] is None
-    assert a["correction_id"] == "r1/a" and a["correction_status"] == "approved"
+    assert a["target_source"] == "correction"
+    assert a["precedence_rule"] == "correction"
+    assert a["gold"] == {"label": "ask"}
+    assert a["teacher"] is None
+    assert a["correction_id"] == "r1/a"
+    assert a["correction_status"] == "approved"
     assert a["teacher_build_id"] is None
     assert rows[("r1", "b")]["target_source"] == "alt_teacher+gold"
 
@@ -252,8 +258,10 @@ def test_edited_correction_uses_the_reviewed_target(tmp_path):
     _decide(env.corrections, corr, "edit", after={"distribution": {"false": 0.25, "true": 0.75}})
     rows = _rows(env.go())
     b = rows[("r1", "b")]
-    assert b["target_source"] == "correction" and b["correction_status"] == "edited"
-    assert b["gold"] == {"p_true": pytest.approx(0.75)} and b["teacher"] is None
+    assert b["target_source"] == "correction"
+    assert b["correction_status"] == "edited"
+    assert b["gold"] == {"p_true": pytest.approx(0.75)}
+    assert b["teacher"] is None
 
 
 def test_only_approved_or_edited_corrections_are_used(tmp_path):
@@ -284,8 +292,10 @@ def test_teacher_weak_source_takes_gold_only_or_correction(tmp_path):
     _decide(env.corrections, corr, "approve")
     rows = _rows(env.go())
     w1 = rows[("w1", "a")]
-    assert w1["target_source"] == "human_gold" and w1["precedence_rule"] == "teacher_weak"
-    assert w1["teacher"] is None and w1["gold"] == {"label": "fix"}
+    assert w1["target_source"] == "human_gold"
+    assert w1["precedence_rule"] == "teacher_weak"
+    assert w1["teacher"] is None
+    assert w1["gold"] == {"label": "fix"}
     assert w1["teacher_filter"] == "not_applied:teacher_weak"
     assert rows[("w2", "a")]["target_source"] == "correction"
     assert rows[("w2", "b")]["target_source"] == "human_gold"
@@ -297,7 +307,8 @@ def test_teacher_error_nulls_the_teacher_slot(tmp_path):
     env.clef_rows(_labels("r1", error="timeout") + _labels("r2", qids=("a",)))
     rows = _rows(env.go())
     a = rows[("r1", "a")]
-    assert a["teacher"] is None and a["gold"] == {"label": "fix"}
+    assert a["teacher"] is None
+    assert a["gold"] == {"label": "fix"}
     assert a["target_source"] == "gold_only:teacher_error"
     assert a["teacher_filter"] == "no_teacher:teacher_error"
     assert rows[("r2", "b")]["target_source"] == "gold_only:no_teacher_label"
@@ -334,8 +345,9 @@ def test_filter_all_keeps_disagreeing_teacher(tmp_path):
 def test_unregistered_filter_knob_is_refused(tmp_path):
     env = _Env(tmp_path, [_rec("r1", 1)])
     env.clef_rows(_labels("r1"))
+    reg = _prereg(filters=("all",))
     with pytest.raises(CliError, match="teacher_filter"):
-        env.go(teacher_filter="agrees_with_gold", reg=_prereg(filters=("all",)))
+        env.go(teacher_filter="agrees_with_gold", reg=reg)
     with pytest.raises(CliError, match="teacher_filter"):
         env.go(teacher_filter="sometimes")
 
@@ -369,7 +381,8 @@ def test_unused_teacher_rows_do_not_count_as_mixed(tmp_path):
     env = _Env(tmp_path, [_rec("w1", 1, source="weak"), _rec("g1", 2)], weak=("weak",))
     env.clef_rows(_labels("w1", build="clef-old") + _labels("g1"))
     m = env.go()
-    assert m["teacher_build_ids"] == ["clef-b1"] and m["deviation_id"] is None
+    assert m["teacher_build_ids"] == ["clef-b1"]
+    assert m["deviation_id"] is None
 
 
 # ----------------------------------------------------------------- train side only
@@ -419,8 +432,10 @@ def test_exact_duplicate_of_a_protected_side_fails_closed(tmp_path, side):
     env.clef_rows(_labels("r1"))
     with pytest.raises(CliError) as err:
         env.go()
-    assert "r1" in err.value.message and "p1" in err.value.message
-    assert secret.split()[0] not in str(err.value) and secret.split()[0] not in err.value.message
+    assert "r1" in err.value.message
+    assert "p1" in err.value.message
+    assert secret.split()[0] not in str(err.value)
+    assert secret.split()[0] not in err.value.message
     assert not (env.run / assemble.OUT_REL).exists()
 
 
@@ -449,7 +464,8 @@ def test_leakage_candidates_match_brute_force():
         (m["train_id"], m["protected_id"], m["kind"])
         for m in assemble.leakage_matches(train, protected)
     }
-    assert brute and fast == brute
+    assert brute
+    assert fast == brute
 
 
 def _all_pairs(train, protected):
@@ -506,7 +522,8 @@ def test_clef_labels_from_an_unaudited_build_are_refused(tmp_path):
     env.clef_rows(_labels("r1", build="clef-b2"))  # audit names clef-b1
     with pytest.raises(CliError, match="audited") as exc:
         env.go()
-    assert "clef-b2" in exc.value.message and "clef-b1" in exc.value.message
+    assert "clef-b2" in exc.value.message
+    assert "clef-b1" in exc.value.message
     assert not (env.run / assemble.OUT_REL).exists()
     with pytest.raises(CliError, match="audited"):
         env.go(deviation_id="d9")

@@ -106,14 +106,19 @@ def test_scores_both_models_into_prediction_records_with_latency_and_memory(serv
     assert set(out["models"]) == {"clef", "v21"}
     for name, srv in (("clef", clef), ("v21", v21)):
         m = out["models"][name]
-        assert m["n_records"] == 5 and m["n_failed"] == 0
+        assert m["n_records"] == 5
+        assert m["n_failed"] == 0
         assert len(srv.requests) == 5
         assert m["latency"]["n"] == 5
-        assert m["latency"]["median_s"] is not None and m["latency"]["p95_s"] is not None
+        assert m["latency"]["median_s"] is not None
+        assert m["latency"]["p95_s"] is not None
         assert m["latency"]["p95_s"] >= m["latency"]["median_s"]
-        assert m["memory"]["measured"] and m["memory"]["peak_mib"] >= 300.0
+        assert m["memory"]["measured"]
+        assert m["memory"]["peak_mib"] >= 300.0
     row = out["models"]["v21"]["predictions"][0]
-    assert row["model"] == "v21" and row["fold"] == "fit" and row["record_id"] == "r1"
+    assert row["model"] == "v21"
+    assert row["fold"] == "fit"
+    assert row["record_id"] == "r1"
     assert row["questions"]["c"]["distribution"] == {"fix": 0.55, "wait": pytest.approx(0.45)}
     assert row["questions"]["n"]["p_true"] == 0.9
     assert row["latency_s"] >= 0.0
@@ -124,7 +129,9 @@ def test_gold_is_never_sent_to_the_server(servers):
     srv = servers("clef")
     bm.run_benchmark([srv.target()], {"fit": [_rec(1)]}, memory_probe=None)
     wire = json.dumps(srv.requests[0])
-    assert "gold" not in wire and "licence" not in wire and "src" not in wire
+    assert "gold" not in wire
+    assert "licence" not in wire
+    assert "src" not in wire
     assert srv.requests[0]["questions"]["s"]["criteria"] == ["low", "mid", "high"]
 
 
@@ -161,7 +168,8 @@ def test_memory_unmeasured_is_reported_not_zero(servers):
     srv = servers("clef")
     out = bm.run_benchmark([srv.target()], {"fit": [_rec(1)]}, memory_probe=lambda: None)
     mem = out["models"]["clef"]["memory"]
-    assert mem["measured"] is False and mem["peak_mib"] is None
+    assert mem["measured"] is False
+    assert mem["peak_mib"] is None
 
 
 def test_broken_memory_probe_does_not_abort(servers):
@@ -179,34 +187,41 @@ def test_broken_memory_probe_does_not_abort(servers):
 
 def test_held_out_and_test_files_are_refused(tmp_path, servers):
     srv = servers("clef")
+    targets = [srv.target()]
     for name in ("held_out.jsonl", "test.jsonl", "train.jsonl"):
         path = tmp_path / name
         path.write_text(json.dumps(_rec(1).to_json()) + "\n", encoding="utf-8")
         with pytest.raises(CliError, match="sealed side refused"):
-            bm.run_benchmark([srv.target()], {"fit": path}, memory_probe=None)
-    assert srv.requests == [] and servers.log == []  # refused before any server starts
+            bm.run_benchmark(targets, {"fit": path}, memory_probe=None)
+    assert srv.requests == []
+    assert servers.log == []  # refused before any server starts
 
 
 def test_unknown_fold_names_and_sealed_sides_are_refused(tmp_path, servers):
     srv = servers("clef")
+    targets = [srv.target()]
+    rec = _rec(1)
     for name in ("train", "held_out", "test"):
         with pytest.raises(CliError, match="refused"):
-            bm.run_benchmark([srv.target()], {name: [_rec(1)]}, memory_probe=None)
+            bm.run_benchmark(targets, {name: [rec]}, memory_probe=None)
     path = tmp_path / "ho.jsonl"
     path.write_text(json.dumps({"id": "x", "source": "s"}) + "\n", encoding="utf-8")
     side = dataset.load_sealed(path)
     with pytest.raises(CliError, match="sealed side"):
-        bm.run_benchmark([srv.target()], {"fit": side}, memory_probe=None)
+        bm.run_benchmark(targets, {"fit": side}, memory_probe=None)
     assert servers.log == []
 
 
 def test_test_split_records_and_sealed_ids_are_refused(servers):
     srv = servers("clef")
+    targets = [srv.target()]
+    mixed = {"fit": [_rec(1), _rec(2, "test")]}
     with pytest.raises(CliError, match="split 'test'"):
-        bm.run_benchmark([srv.target()], {"fit": [_rec(1), _rec(2, "test")]}, memory_probe=None)
+        bm.run_benchmark(targets, mixed, memory_probe=None)
     side = dataset.SealedSide("p", "0" * 64, ("r1",), 1, ())
+    folds = {"fit": [_rec(1)]}
     with pytest.raises(CliError, match="sealed side"):
-        bm.run_benchmark([srv.target()], {"fit": [_rec(1)]}, sealed=[side], memory_probe=None)
+        bm.run_benchmark(targets, folds, sealed=[side], memory_probe=None)
     assert servers.log == []
 
 
@@ -225,8 +240,9 @@ def test_fit_and_selection_files_load_from_write_dataset(tmp_path, servers):
 
 def test_duplicate_target_names_are_refused(servers):
     a = servers("a")
+    targets = [a.target(), a.target()]
     with pytest.raises(CliError, match="duplicate"):
-        bm.run_benchmark([a.target(), a.target()], FOLDS, memory_probe=None)
+        bm.run_benchmark(targets, FOLDS, memory_probe=None)
 
 
 def test_pred_items_feed_metrics(servers):
@@ -266,7 +282,8 @@ def test_gpu_probe_none_falls_back_to_proc_rss_and_records_the_probe(servers, tm
     t = bm.Target(t.name, t.base_url, t.model, start=t.start, stop=t.stop, pid=lambda: 10)
     out = bm.run_benchmark([t], {"fit": [_rec(1)]}, memory_probe=lambda: None, proc_root=tmp_path)
     mem = out["models"]["clef"]["memory"]
-    assert mem["measured"] is True and mem["peak_mib"] == 4.0
+    assert mem["measured"] is True
+    assert mem["peak_mib"] == 4.0
     assert mem["probe"] == "proc-rss"
 
 
@@ -282,7 +299,8 @@ def test_gpu_probe_figure_wins_and_is_labelled_nvidia_smi(servers, tmp_path):
     if mem["probe"] == "nvidia-smi":
         assert mem["measured"] is True
     else:  # no usable GPU probe on this box: the fallback produced the figure
-        assert mem["probe"] == "proc-rss" and mem["peak_mib"] == 2.0
+        assert mem["probe"] == "proc-rss"
+        assert mem["peak_mib"] == 2.0
 
 
 def test_neither_probe_working_stays_unmeasured(servers, tmp_path):
@@ -290,7 +308,9 @@ def test_neither_probe_working_stays_unmeasured(servers, tmp_path):
     t = srv.target()  # no pid
     out = bm.run_benchmark([t], {"fit": [_rec(1)]}, memory_probe=lambda: None, proc_root=tmp_path)
     mem = out["models"]["clef"]["memory"]
-    assert mem["measured"] is False and mem["probe"] is None and mem["peak_mib"] is None
+    assert mem["measured"] is False
+    assert mem["probe"] is None
+    assert mem["peak_mib"] is None
     # a pid whose process is gone is also unmeasured
     t2 = bm.Target(t.name, t.base_url, t.model, pid=4242)
     out = bm.run_benchmark([t2], {"fit": [_rec(1)]}, memory_probe=lambda: None, proc_root=tmp_path)

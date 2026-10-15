@@ -89,7 +89,8 @@ def test_real_banking77_row_is_excluded_and_go_emotions_kept():
     assert not any("banking77" in s for s in kept)
     table = ds.manifest["licences"]
     bank = table["Praveenrajus/jev-bench:banking77"]
-    assert bank["allowed"] is False and bank["excluded"] == 1
+    assert bank["allowed"] is False
+    assert bank["excluded"] == 1
     assert bank["licences"] == ["cc-by-4.0 (PolyAI; mirror: mit)"]
     assert table["Praveenrajus/jev-bench:go_emotions"]["allowed"] is True
 
@@ -105,7 +106,11 @@ def test_folds_are_disjoint_deterministic_and_from_train_only():
     fit, sel = {r.id for r in a.fit}, {r.id for r in a.selection}
     held = set(a.held_out.ids)
     test = set(a.test.ids)
-    assert train and fit and sel and held and test
+    assert train
+    assert fit
+    assert sel
+    assert held
+    assert test
     four = [train, fit, sel, held]
     for i, x in enumerate(four):
         for y in four[i + 1 :]:
@@ -136,8 +141,9 @@ def test_selection_groups_never_straddle_folds():
 
 
 def test_duplicate_ids_refused():
+    recs = [_td(1), _td(1)]
     with pytest.raises(CliError):
-        _build([_td(1), _td(1)])
+        _build(recs)
 
 
 def test_unknown_splits_are_not_trained_on_and_are_counted():
@@ -159,7 +165,8 @@ def test_over_length_records_dropped_not_truncated_with_per_source_counts():
 
     ds = dataset.build_dataset(recs, token_counter=counter, seed=7, max_tokens=4096)
     ids = {r.id for r in ds.all_records()} | set(ds.held_out.ids) | set(ds.test.ids)
-    assert "td_0700" not in ids and "td_0701" not in ids
+    assert "td_0700" not in ids
+    assert "td_0701" not in ids
     assert ds.manifest["dropped_too_long"] == {"LocalLLaMA/typed-decisions": 2}
     assert ds.manifest["max_tokens"] == 4096
     for r in ds.all_records():
@@ -200,8 +207,9 @@ def test_subprocess_counter_failure_is_a_cli_error(tmp_path):
     fake = tmp_path / "bad.sh"
     fake.write_text("#!/bin/sh\nexit 3\n")
     fake.chmod(0o755)
+    counter = dataset.subprocess_token_counter(str(fake), tmp_path / "tok")
     with pytest.raises(CliError):
-        dataset.subprocess_token_counter(str(fake), tmp_path / "tok")("a")
+        counter("a")
 
 
 # --- sealed sides expose no text -------------------------------------------
@@ -226,8 +234,10 @@ def test_sealed_loader_discards_state_text(tmp_path):
     )
     out = dataset.write_dataset(ds, tmp_path)
     side = dataset.load_sealed(out["test"])
-    assert "SECRET" not in repr(side) and "SECRET" not in str(vars(side))
-    assert not hasattr(side, "records") and not hasattr(side, "entries")
+    assert "SECRET" not in repr(side)
+    assert "SECRET" not in str(vars(side))
+    assert not hasattr(side, "records")
+    assert not hasattr(side, "entries")
     # the dataset object holds the sealed sides as SealedSide, not records
     assert type(ds.held_out).__name__ == "SealedSide"
     assert "SECRET" not in repr(ds.held_out) + repr(ds.test)
@@ -243,7 +253,8 @@ def test_write_dataset_manifest_and_files(tmp_path):
         assert info["sha256"] == dataset.sha256_bytes(Path(out[name]).read_bytes())
         assert info["count"] == man["counts"][name]
     assert man["knobs"]["seed"] == 7
-    assert "licences" in man and "dropped_too_long" in man
+    assert "licences" in man
+    assert "dropped_too_long" in man
     # records round-trip
     back = dataset.read_records(out["fit"])
     assert [r.id for r in back] == [r.id for r in ds.fit]
