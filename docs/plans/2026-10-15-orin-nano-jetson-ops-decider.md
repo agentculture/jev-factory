@@ -130,7 +130,7 @@ slug: `orin-nano-jetson-ops-decider` · status: `exported` · from frame: `orin-
 
 ### t15 — Edge stage: non-test measurement on the AGX Orin and the Nano through a tunnel
 
-- instruction: New module `jev_factory`/distill/edge.py and tests/`test_distill_edge.py` only; registering it as a stage is the wiring task's job. The board serves with the documented command under systemd-run --user -p MemoryMax=<cap>; jev never ssh-executes on the board.
+- instruction: New module `jev_factory`/distill/edge.py and tests/`test_distill_edge.py` only; registering it as a stage is the wiring task's job. The board serves with the documented command under `systemd-run --user -p MemoryMax=<cap>`; jev never ssh-executes on the board.
 - depends on: t10
 - covers: c4, h4, c1, h1, c14, h22
 - acceptance:
