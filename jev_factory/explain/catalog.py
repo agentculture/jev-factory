@@ -305,7 +305,8 @@ matches, and a malformed ledger is an error (fails closed).
 - `--reviewer NAME`, `--note TEXT`: stored with each decision.
 - `--apply`: appends the decisions to the ledger.
 
-`--gold` has no `--serve`. A missing file is an environment error (exit 2); an
+`--gold --serve` opens the local approval page (127.0.0.1 only) over the same ledger.
+A missing file is an environment error (exit 2); an
 unreadable file, a corrupted ledger or an unknown id is a user error (exit 1).
 
 ## Usage
