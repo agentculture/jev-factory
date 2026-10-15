@@ -19,9 +19,14 @@ pre-registration (:func:`jev_factory.distill.prereg.require_locked`).
    strands-decider checkout, the two torchao weight-only formats (deviation d3):
    ``torch_int8_wo`` and ``torch_int4_wo`` merge the LoRA, quantize the torso's Linear
    weights with torchao and keep the pointer head fp32
-   (:mod:`jev_factory.backbones.pointer.quantized`); a build that fails on the box is
-   recorded unavailable with its error. Their artifacts are served by that module's wrapper
-   with the same /v1/systemone shapes, through the same benchmark path. strands-decider serve
+   (:mod:`jev_factory.backbones.pointer.quantized`, which also drops the vision tower and
+   MTP head and packs the full-vocabulary embedding per its ``QuantScheme``); a build that
+   fails on the box is recorded unavailable with its error. **Size budget (#20):** every
+   quantized candidate's weight files are summed from the built files on disk; a build at
+   or over :data:`SIZE_BUDGET_BYTES` (10^9 bytes) is recorded unavailable with its byte
+   count and is never served, measured or chosen. Their artifacts are served by that
+   module's wrapper with the same /v1/systemone shapes (plus ``/v1/bundle`` and
+   ``/v1/stats``), through the same benchmark path. strands-decider serve
    @ 8b6faa5 (``StrandsDeciderModel.load``) loads the torso from the config's base id at the
    checkpoint dtype, wraps it in ``PeftModel`` unmerged and runs a torch or MLX engine, so the
    other four formats have no serve path on this stack until a builder for one is supplied
@@ -60,7 +65,7 @@ import math
 import os
 import subprocess  # nosec B404 - only its exception types are used here
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -90,6 +95,10 @@ BUILDS_DIR = "builds"
 BF16 = "bf16"
 STOP_VERDICT = "stop_escalate"
 HEAL_KEYS = ("epochs", "lr", "init_mode")
+#: '< 1 GB' means < 10^9 bytes of weight files on disk; one owner (the quantized builder).
+SIZE_BUDGET_BYTES = qz.SIZE_BUDGET_BYTES
+#: Files counted as weights in an artifact that carries no ``jev_quant.json``.
+WEIGHT_SUFFIXES = (".safetensors", ".pt", ".pth", ".bin", ".gguf", ".onnx")
 
 #: The deployed-format candidates (frame decision on v1), in tie-break order.
 FORMATS: dict[str, str] = {
@@ -128,6 +137,8 @@ UNSUPPORTED: dict[str, str] = {
 
 FORMAT_RULE = {
     "available": "built by a registered builder and served by the measurer",
+    "size": f"weight files on disk total < {SIZE_BUDGET_BYTES} bytes; a build at or over "
+    "it is unavailable, never a candidate",
     "safety": "answered every fit and selection question without an error",
     "calibration": "calibrated (own fit) selection ECE <= bars.quant.ece_max",
     "accuracy": f"selection accuracy within {HEAL_MARGIN_POINTS} points of the bf16 winner; "
@@ -287,15 +298,19 @@ def _gpu_guard(stage: str) -> Any:
     return gpu.assert_gpu_free(stage)
 
 
-def _reusable(out_dir: Path, checkpoint: Path, fmt: str) -> bool:
-    """An artifact already built in *out_dir* for this exact checkpoint and format."""
+def _reusable(out_dir: Path, checkpoint: Path, fmt: str, scheme: qz.QuantScheme) -> bool:
+    """An artifact already built in *out_dir* for this exact checkpoint, format and scheme."""
     if not (out_dir / qz.MANIFEST_FILE).is_file():
         return False
     try:
         manifest = qz.read_artifact(out_dir)["manifest"]
     except CliError:
         return False
-    return manifest["format"] == fmt and manifest["source"] == qz.source_record(checkpoint)
+    return (
+        manifest["format"] == fmt
+        and manifest["scheme"] == scheme.record()
+        and manifest["source"] == qz.source_record(checkpoint)
+    )
 
 
 def torch_wo_builder(
@@ -310,8 +325,13 @@ def torch_wo_builder(
     memory_max: str | None = None,
     memory_floor: str = "8G",
     allow_foreign: bool = False,
+    scheme: qz.QuantScheme | None = None,
 ) -> Builder:
-    """Build a torchao weight-only artifact in the student env; a failure is unavailable.
+    """Build a quantized artifact in the student env; a failure is unavailable.
+
+    The format names the block bits (``torch_int4_wo``: 4, ``torch_int8_wo``: 8); the rest
+    of *scheme* (embedding bits, group sizes; default :class:`~qz.QuantScheme`) applies to
+    both and is recorded in each artifact's manifest.
 
     The GPU residency guard runs before each build (one GPU job at a time). A build that
     exits non-zero (a memory-floor watchdog stop included), cannot start, or leaves no
@@ -325,7 +345,8 @@ def torch_wo_builder(
         if fmt not in TORCH_FORMATS:
             raise FormatUnavailable(f"the torchao builder builds {list(TORCH_FORMATS)}, not {fmt}")
         out_dir = Path(out_dir)
-        if _reusable(out_dir, Path(checkpoint), fmt):
+        fmt_scheme = replace(scheme or qz.QuantScheme(), block_bits=TORCH_FORMATS[fmt])
+        if _reusable(out_dir, Path(checkpoint), fmt, fmt_scheme):
             return out_dir
         if not memory_max:
             raise _refuse("a GPU quantize build needs a memory cap", "pass memory_max with apply")
@@ -334,7 +355,7 @@ def torch_wo_builder(
             qz.build_weight_only(
                 checkpoint,
                 out_dir,
-                TORCH_FORMATS[fmt],
+                fmt_scheme,
                 apply=True,
                 python=python,
                 decider_repo=decider_repo,
@@ -369,6 +390,7 @@ def default_builders(
     memory_max: str | None = None,
     memory_floor: str = "8G",
     allow_foreign: bool = False,
+    scheme: qz.QuantScheme | None = None,
 ) -> dict[str, Builder]:
     """bf16, plus the torchao weight-only formats when the student env is given.
 
@@ -388,6 +410,7 @@ def default_builders(
             memory_max=memory_max,
             memory_floor=memory_floor,
             allow_foreign=allow_foreign,
+            scheme=scheme,
         )
         builders.update(dict.fromkeys(TORCH_FORMATS, torch_build))
     return builders
@@ -442,8 +465,52 @@ def assess(
     }
 
 
-def _unavailable(fmt: str, reason: str) -> dict[str, Any]:
-    return {"format": fmt, "available": False, "reason": reason}
+def _unavailable(fmt: str, reason: str, **extra: Any) -> dict[str, Any]:
+    known = {k: v for k, v in extra.items() if v is not None}
+    return {"format": fmt, "available": False, "reason": reason, **known}
+
+
+def _weight_files(artifact: Path) -> dict[str, int]:
+    """Each weight file's size: the manifest's own list, else every weight-suffixed file."""
+    if (artifact / qz.MANIFEST_FILE).is_file():
+        return dict(qz.read_artifact(artifact)["manifest"]["weight_files"])
+    files = sorted(p for p in artifact.rglob("*") if p.suffix in WEIGHT_SUFFIXES)
+    if any(p.is_symlink() or not p.is_file() for p in files):
+        raise FormatUnavailable(f"{artifact}: a weight file is a symlink or not a regular file")
+    return {p.relative_to(artifact).as_posix(): p.stat().st_size for p in files}
+
+
+def size_record(artifact: Path | str) -> dict[str, Any]:
+    """The weight files' byte sum, measured from the files on disk, against the budget.
+
+    For a ``jev_quant.json`` artifact the files are verified first (hashes and recorded
+    sizes match). Raises :class:`FormatUnavailable` when the weight bytes cannot be known.
+    """
+    artifact = Path(artifact)
+    if not artifact.is_dir():
+        raise FormatUnavailable(f"{artifact} is not an artifact directory; its size is unknown")
+    try:
+        files = _weight_files(artifact)
+    except CliError as exc:
+        raise FormatUnavailable(f"{artifact} failed verification: {exc.message}") from exc
+    if not files:
+        raise FormatUnavailable(f"{artifact} has no weight files; its size is unknown")
+    for name in files:  # the sizes are re-read here, never taken from a record
+        files[name] = (artifact / name).stat().st_size
+    total = sum(files.values())
+    return {
+        "weight_files": files,
+        "weight_bytes": total,
+        "size_budget_bytes": SIZE_BUDGET_BYTES,
+        "within_size_budget": total < SIZE_BUDGET_BYTES,
+    }
+
+
+def _over_budget(fmt: str, size: Mapping[str, Any]) -> str:
+    return (
+        f"{fmt} weight files total {size['weight_bytes']} bytes, at or over the "
+        f"{SIZE_BUDGET_BYTES}-byte budget; it is never a candidate"
+    )
 
 
 def _drop_points(bf16: Mapping[str, Any], quant: Mapping[str, Any]) -> float | None:
@@ -464,12 +531,17 @@ def _measure_format(
     builder = builders.get(fmt)
     if builder is None:
         return _unavailable(fmt, UNSUPPORTED.get(fmt, f"no builder registered for {fmt}"))
+    size = None
     try:
         artifact = Path(builder(fmt, checkpoint, out_dir))
+        if fmt != BF16:  # the reference, never a candidate: no size gate
+            size = size_record(artifact)
+            if not size["within_size_budget"]:
+                return _unavailable(fmt, _over_budget(fmt, size), size=size)
         measured = measurer(fmt, artifact, {f: list(fold_records[f]) for f in dtrain.FOLDS})
     except FormatUnavailable as exc:
-        return _unavailable(fmt, exc.reason)
-    return assess(fmt, artifact, fold_records, measured, **kw)
+        return _unavailable(fmt, exc.reason, size=size)
+    return {**assess(fmt, artifact, fold_records, measured, **kw), "size": size}
 
 
 def _measure_all(
@@ -580,6 +652,7 @@ def _cited(measured: Mapping[str, Mapping[str, Any]], source: Path) -> list[dict
             "accuracy_delta_points_vs_bf16": m.get("delta_points", 0.0 if fmt == BF16 else None),
             "latency_median_s": (m["latency"] or {}).get("median_s"),
             "peak_memory_mib": (m["memory"] or {}).get("peak_mib"),
+            "weight_bytes": (m.get("size") or {}).get("weight_bytes"),
         }
         for name, value in values.items():
             value = float(value) if _is_num(value) else None
@@ -770,6 +843,7 @@ def run_quant(
         "folds": {f: len(fold_records[f]) for f in dtrain.FOLDS},
         "heal_margin_points": HEAL_MARGIN_POINTS,
         "heal_rounds_max": HEAL_ROUNDS,
+        "size_budget_bytes": SIZE_BUDGET_BYTES,
         "format_rule": FORMAT_RULE,
     }
     if not apply:
@@ -887,6 +961,7 @@ def _finish(
         "chosen_format": fmt,
         "deployed_checkpoint": str(deployed_checkpoint),
         "deployed_artifact": final["artifact"],
+        "deployed_size": final.get("size"),
         "heal_count": 1 if heal_record else 0,
         "heal": heal_record,
         "quant_vs_bf16_delta_points": 0.0 if fmt == BF16 else delta,
