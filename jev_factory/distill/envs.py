@@ -31,7 +31,7 @@ _LOCK = re.compile(r"^[0-9a-f]{64}$")
 #: language as the earlier ``^[0-9]+(\.[0-9]+)*([.+-]?[A-Za-z0-9]+)*$``, but every separator in
 #: the repeated group is mandatory, so each character has one parse and matching is linear
 #: (that pattern backtracked exponentially on inputs like ``1aaaa...!``, Sonar S5852).
-_EXACT = re.compile(r"^[0-9][A-Za-z0-9]*(?:[.+-][A-Za-z0-9]+)*$")
+_EXACT = re.compile(r"^\d[A-Za-z0-9]*(?:[.+-][A-Za-z0-9]+)*$", re.ASCII)
 
 
 def _refuse(message: str, remediation: str = "") -> CliError:

@@ -441,6 +441,40 @@ def _check_audited_builds(rows: Sequence[Mapping[str, Any]], audits: Mapping[str
             )
 
 
+def _require_audits(
+    run_dir: Path, clef_labels: Path | str | None, alt_labels: Path | str | None
+) -> dict[str, Any]:
+    """The audit of each teacher whose labels were given; refused when none were."""
+    audits = {}
+    if clef_labels is not None:
+        audits["clef"] = require_audit(run_dir, "clef")
+    if alt_labels is not None:
+        audits["alt"] = require_audit(run_dir, "alt")
+    if not audits:
+        raise _fail("no teacher labels given", "pass Clef's and/or an alternative teacher's")
+    return audits
+
+
+def _refuse_non_train(records: Sequence[Any]) -> None:
+    bad = [f"{r.id} ({r.split})" for r in records if r.split != TRAIN_SPLIT]
+    if bad:
+        raise _fail(
+            f"refusing non-train record(s) on the train side: {bad[:5]}",
+            "only train-split records may become training targets",
+        )
+
+
+def _refuse_refreeze(manifest_path: Path, digest: str) -> None:
+    """A run's frozen training set may only be replaced under a recorded deviation."""
+    if manifest_path.is_file():
+        frozen = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if frozen.get("output", {}).get("sha256") != digest:
+            raise _fail(
+                "a different training set is already frozen for this run",
+                "a changed training set is a recorded deviation: pass its id",
+            )
+
+
 def assemble(
     run_dir: Path | str,
     dataset_dir: Path | str,
@@ -455,22 +489,11 @@ def assemble(
     """Assemble, leakage-check and freeze the training set; return the manifest."""
     run_dir, dataset_dir = Path(run_dir), Path(dataset_dir)
     deviation = (deviation_id or "").strip() or None
-    audits = {}
-    if clef_labels is not None:
-        audits["clef"] = require_audit(run_dir, "clef")
-    if alt_labels is not None:
-        audits["alt"] = require_audit(run_dir, "alt")
-    if not audits:
-        raise _fail("no teacher labels given", "pass Clef's and/or an alternative teacher's")
+    audits = _require_audits(run_dir, clef_labels, alt_labels)
     require_knobs(prereg, {"teacher_filter": teacher_filter})
     allowed = train_ids(dataset_dir)
     records = read_records(dataset_dir / "train.jsonl")
-    bad = [f"{r.id} ({r.split})" for r in records if r.split != TRAIN_SPLIT]
-    if bad:
-        raise _fail(
-            f"refusing non-train record(s) on the train side: {bad[:5]}",
-            "only train-split records may become training targets",
-        )
+    _refuse_non_train(records)
     clef_path = None if clef_labels is None else Path(clef_labels)
     alt_path = None if alt_labels is None else Path(alt_labels)
     clef = _load_labels(clef_path, "clef")
@@ -505,13 +528,8 @@ def assemble(
     blob = data.encode("utf-8")
     digest = _sha256(blob)
     out_path, manifest_path = run_dir / OUT_REL, run_dir / MANIFEST_REL
-    if manifest_path.is_file() and deviation is None:
-        frozen = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if frozen.get("output", {}).get("sha256") != digest:
-            raise _fail(
-                "a different training set is already frozen for this run",
-                "a changed training set is a recorded deviation: pass its id",
-            )
+    if deviation is None:
+        _refuse_refreeze(manifest_path, digest)
     manifest = {
         "stage": STAGE,
         "status": "frozen",

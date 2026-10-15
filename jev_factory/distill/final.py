@@ -276,17 +276,31 @@ def run_final(
             sealed=sealed,
             models=models,
             run_dir=run_dir,
-            reg=reg,
-            quant_manifest=student["manifest"],
             memory_probe=memory_probe,
             proc_root=proc_root,
             host=host or platform.node(),
             now=now,
-            contamination_manifest=contamination_manifest,
-            seed=seed,
-            resamples=resamples,
-            gate=None if gate is None else gate["doc"],
+            report_inputs=_ReportInputs(
+                prereg=reg,
+                quant_manifest=student["manifest"],
+                contamination_manifest=contamination_manifest,
+                seed=seed,
+                resamples=resamples,
+                gate=None if gate is None else gate["doc"],
+            ),
         )
+
+
+@dataclass(frozen=True)
+class _ReportInputs:
+    """What the final report needs beyond the measurement itself."""
+
+    prereg: dp.DistillPrereg
+    quant_manifest: Mapping[str, Any]
+    contamination_manifest: Mapping[str, Any] | None
+    seed: int
+    resamples: int
+    gate: Mapping[str, Any] | None = None
 
 
 def _measure(
@@ -296,16 +310,11 @@ def _measure(
     sealed: Mapping[str, dataset.SealedSide],
     models: Mapping[str, FinalModel],
     run_dir: Path,
-    reg: dp.DistillPrereg,
-    quant_manifest: Mapping[str, Any],
     memory_probe: bench.MemoryProbe | None,
     proc_root: Path | str,
     host: str,
     now: Callable[[], str],
-    contamination_manifest: Mapping[str, Any] | None,
-    seed: int,
-    resamples: int,
-    gate: Mapping[str, Any] | None = None,
+    report_inputs: _ReportInputs,
 ) -> dict[str, Any]:
     records = {stem: _read_side(side) for stem, side in sealed.items()}
     started = now()
@@ -373,12 +382,12 @@ def _measure(
         calibrations={k: v["calibration"] for k, v in base["calibrations"].items()},
         calibration_sources={k: v["source"] for k, v in base["calibrations"].items()},
         runtime=runtime,
-        prereg=reg,
-        quant_manifest=quant_manifest,
-        contamination_manifest=contamination_manifest,
-        seed=seed,
-        resamples=resamples,
-        gate=gate,
+        prereg=report_inputs.prereg,
+        quant_manifest=report_inputs.quant_manifest,
+        contamination_manifest=report_inputs.contamination_manifest,
+        seed=report_inputs.seed,
+        resamples=report_inputs.resamples,
+        gate=report_inputs.gate,
     )
     _write_json(out_dir / FINAL_FILE, final)
     _write_json(out_dir / REPORT_FILE, report)

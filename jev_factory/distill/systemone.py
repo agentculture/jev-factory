@@ -100,11 +100,10 @@ def _prob(value: Any) -> float | None:
     return number if math.isfinite(number) and 0.0 <= number <= 1.0 else None
 
 
-def _distribution(spec: Mapping[str, Any], answer: Any) -> dict[str, float]:
-    """Per-option probabilities over exactly the offered options, or ``ValueError``."""
-    offered = _offered(spec)
-    if len(offered) < 2:
-        raise ValueError("fewer than 2 offered options")
+def _raw_probabilities(
+    spec: Mapping[str, Any], answer: Any, offered: list[str]
+) -> Mapping[Any, Any]:
+    """The answer's probabilities keyed by option name (score lists and level indices mapped)."""
     raw = answer.get("probabilities") if isinstance(answer, Mapping) else None
     if isinstance(raw, (list, tuple)) and spec["type"] == "score":
         if len(raw) != len(offered):
@@ -117,9 +116,18 @@ def _distribution(spec: Mapping[str, Any], answer: Any) -> dict[str, float]:
     if spec["type"] == "score" and keys != set(offered) and keys & set(index):
         # strands_decider keys score probabilities by level index ("0".."n-1"); the i-th key
         # is the record's i-th level. Missing, extra or out-of-range indices fall through to
-        # the same fail-closed checks below.
+        # the same fail-closed checks in _distribution.
         raw = {(offered[int(k)] if k in index else str(k)): v for k, v in raw.items()}
-        keys = {str(k) for k in raw}
+    return raw
+
+
+def _distribution(spec: Mapping[str, Any], answer: Any) -> dict[str, float]:
+    """Per-option probabilities over exactly the offered options, or ``ValueError``."""
+    offered = _offered(spec)
+    if len(offered) < 2:
+        raise ValueError("fewer than 2 offered options")
+    raw = _raw_probabilities(spec, answer, offered)
+    keys = {str(k) for k in raw}
     if missing := [o for o in offered if o not in keys]:
         raise ValueError(f"missing option(s): {missing}")
     if extra := sorted(keys - set(offered)):

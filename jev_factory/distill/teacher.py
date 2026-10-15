@@ -70,7 +70,7 @@ def to_wire(record: Record, qids: Sequence[str] | None = None) -> dict[str, Any]
     questions: dict[str, Any] = {}
     for qid in chosen:
         q = record.questions[qid]
-        spec: dict[str, Any] = {"type": q.type, "criteria": {n: d for n, d in q.criteria}}
+        spec: dict[str, Any] = {"type": q.type, "criteria": dict(q.criteria)}
         if q.instructions is not None:
             spec["instructions"] = q.instructions
         questions[qid] = spec

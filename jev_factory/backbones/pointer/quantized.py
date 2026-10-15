@@ -68,6 +68,7 @@ MANIFEST_FILE = "jev_quant.json"
 TORSO_FILE = "torso_quantized.pt"
 LOOPBACK = "127.0.0.1"
 HEAD_DTYPE = "float32"
+TORCHAO_QUANTIZATION = "torchao.quantization"
 #: bits -> the deployed-format name :mod:`jev_factory.distill.quant` registers.
 FORMAT_OF_BITS: dict[int, str] = {8: "torch_int8_wo", 4: "torch_int4_wo"}
 #: bits -> the torchao API names tried in order (config class, then the pre-0.10 function).
@@ -569,7 +570,7 @@ def make_server(
             except RequestError as exc:
                 self._send(exc.status, {"detail": exc.detail})
                 return
-            except Exception as exc:  # noqa: BLE001 - answered, never a dropped connection
+            except Exception as exc:  # noqa: BLE001 - answered rather than a dropped connection
                 self._send(500, {"detail": f"{type(exc).__name__}: {exc}"})
                 return
             payload["latency_ms"] = round((time.perf_counter() - started) * 1000, 2)
@@ -596,7 +597,7 @@ def _version(dist: str) -> str | None:
 
 
 def _quant_config(bits: int) -> tuple[str, Any]:
-    aoq = _load("torchao.quantization")
+    aoq = _load(TORCHAO_QUANTIZATION)
     for api in TORCHAO_APIS[bits]:
         factory = getattr(aoq, api, None)
         if factory is not None:
@@ -611,7 +612,7 @@ def _quant_config(bits: int) -> tuple[str, Any]:
 def quantize_torso(torso: Any, bits: int) -> str:
     """Quantize *torso*'s ``nn.Linear`` weights weight-only in place; return the API used."""
     api, config = _quant_config(_bits(bits))
-    _load("torchao.quantization").quantize_(torso, config)
+    _load(TORCHAO_QUANTIZATION).quantize_(torso, config)
     return api
 
 
@@ -653,7 +654,7 @@ def _build_in_env(checkpoint: Path, out: Path, bits: int, revision: str, device:
     torso = torso.to(device)
     with torch.no_grad():
         api, config = _quant_config(bits)
-        _load("torchao.quantization").quantize_(torso, config)
+        _load(TORCHAO_QUANTIZATION).quantize_(torso, config)
     out.mkdir(parents=True, exist_ok=True)
     torch.save(torso.state_dict(), str(safepath.contained(out / TORSO_FILE, out)))
     head = {

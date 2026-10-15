@@ -182,14 +182,14 @@ def _pick(
     raise _refuse(f"hyperparameter {name} is not in the distill pre-registration")
 
 
-def _check_values(hp: Mapping[str, Any]) -> None:
-    if hp["init_mode"] not in INIT_MODES:
-        raise _refuse(f"init_mode {hp['init_mode']!r} is not one of {list(INIT_MODES)}")
-    temp = hp["temperature"]
+def _check_temperature(temp: Any) -> None:
     if not isinstance(temp, dict) or sorted(temp) != sorted(QUESTION_KINDS):
         raise _refuse(f"temperature must give one value per question kind {list(QUESTION_KINDS)}")
     if not all(_is_num(v) and v > 0 for v in temp.values()):
         raise _refuse("temperature values must be positive numbers")
+
+
+def _check_numeric_ranges(hp: Mapping[str, Any]) -> None:
     for name in _POS_INT:
         if name in hp and not (_is_int(hp[name]) and hp[name] >= 1):
             raise _refuse(f"{name} must be a positive integer, got {hp[name]!r}")
@@ -199,15 +199,25 @@ def _check_values(hp: Mapping[str, Any]) -> None:
     for name in _UNIT:
         if not (_is_num(hp[name]) and 0.0 <= hp[name] <= 1.0):
             raise _refuse(f"{name} must be a number in [0, 1], got {hp[name]!r}")
-    if not _is_int(hp["seed"]):
-        raise _refuse(f"seed must be an integer, got {hp['seed']!r}")
-    if not isinstance(hp["shuffle_options"], bool):
-        raise _refuse("shuffle_options must be true or false")
-    targets = hp.get("lora_targets")
+
+
+def _check_lora_targets(targets: Any) -> None:
     if targets is not None and not (
         isinstance(targets, list) and targets and all(isinstance(t, str) and t for t in targets)
     ):
         raise _refuse("lora_targets must be a non-empty list of module names")
+
+
+def _check_values(hp: Mapping[str, Any]) -> None:
+    if hp["init_mode"] not in INIT_MODES:
+        raise _refuse(f"init_mode {hp['init_mode']!r} is not one of {list(INIT_MODES)}")
+    _check_temperature(hp["temperature"])
+    _check_numeric_ranges(hp)
+    if not _is_int(hp["seed"]):
+        raise _refuse(f"seed must be an integer, got {hp['seed']!r}")
+    if not isinstance(hp["shuffle_options"], bool):
+        raise _refuse("shuffle_options must be true or false")
+    _check_lora_targets(hp.get("lora_targets"))
 
 
 def resolve_hyperparameters(reg: dp.DistillPrereg, run_knobs: Mapping[str, Any]) -> dict[str, Any]:

@@ -156,7 +156,6 @@ def _serve(domain: Domain, review_file: Path, port: int, json_mode: bool) -> int
 
 def _corrections_mode(args: argparse.Namespace, json_mode: bool) -> int:
     """Review distillery corrections: ``--serve`` stages decisions, ``--apply`` records them."""
-    from jev_factory.distill.corrections import CorrectionError, read_corrections
     from jev_factory.review import corrections as cr
 
     path = Path(args.corrections)
@@ -166,20 +165,9 @@ def _corrections_mode(args: argparse.Namespace, json_mode: bool) -> int:
     draft = cr.draft_path(path)
     if args.serve:
         return _serve_corrections(path, review_file, args.port, json_mode)
-    try:
-        corrections = read_corrections(path)
-        recorded = cr.read_records(review_file)
-        staged = list(cr.latest(cr.read_records(draft)).values())
-    except (CorrectionError, cr.CorrectionReviewError, ValueError) as exc:
-        raise CliError(EXIT_USER_ERROR, str(exc), "fix or restore the file") from None
+    corrections, recorded, staged = _read_corrections_review(path, review_file, draft)
     by_key = cr.current(corrections)
-    last = cr.latest(recorded)
-    new = [
-        r
-        for r in staged
-        if (last.get(r["key"]) or {}).get("action") != r["action"]
-        or (last.get(r["key"]) or {}).get("after") != r.get("after")
-    ]
+    new = _unrecorded(staged, cr.latest(recorded))
     stale = [r["key"] for r in new if r["key"] not in by_key or cr.is_stale(by_key[r["key"]], r)]
     plan = cr.plan(corrections, [*recorded, *new])
     result = {
@@ -214,6 +202,30 @@ def _corrections_mode(args: argparse.Namespace, json_mode: bool) -> int:
         lines.append("dry run: nothing was written; pass --apply to record the decisions")
     emit_result(result if json_mode else "\n".join(lines), json_mode=json_mode)
     return 0
+
+
+def _read_corrections_review(path: Path, review_file: Path, draft: Path) -> tuple[Any, Any, Any]:
+    """The corrections, the recorded decisions and the latest staged decision per key."""
+    from jev_factory.distill.corrections import read_corrections
+    from jev_factory.review import corrections as cr
+
+    try:
+        corrections = read_corrections(path)
+        recorded = cr.read_records(review_file)
+        staged = list(cr.latest(cr.read_records(draft)).values())
+    except ValueError as exc:  # CorrectionError and CorrectionReviewError are ValueErrors
+        raise CliError(EXIT_USER_ERROR, str(exc), "fix or restore the file") from None
+    return corrections, recorded, staged
+
+
+def _unrecorded(staged: list[Any], last: Any) -> list[Any]:
+    """The staged decisions whose action or edit differs from the last recorded one."""
+    return [
+        r
+        for r in staged
+        if (last.get(r["key"]) or {}).get("action") != r["action"]
+        or (last.get(r["key"]) or {}).get("after") != r.get("after")
+    ]
 
 
 def _serve_corrections(path: Path, review_file: Path, port: int, json_mode: bool) -> int:

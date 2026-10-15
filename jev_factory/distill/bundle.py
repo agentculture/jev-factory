@@ -63,6 +63,7 @@ DATASET_MANIFEST = "dataset.json"
 BUNDLE_FORMAT = "jev-distill-bundle/1"
 SURFACE_KIND = "frozen train set (sha256 of distill/assemble/train_set.jsonl)"
 IDENTITY_TEMPERATURE = 1.0
+_ASSEMBLE_MANIFEST = "assemble manifest"
 _INDEX_KEYS = (
     "record_id",
     "question_id",
@@ -123,7 +124,7 @@ def _no_symlinks(folder: Path) -> None:
 
 def _train_rows(run_dir: Path) -> tuple[bytes, list[dict[str, Any]]]:
     blob = _read_bytes(run_dir / dassemble.OUT_REL, "frozen training set")
-    manifest = _read_json(run_dir / dassemble.MANIFEST_REL, "assemble manifest")
+    manifest = _read_json(run_dir / dassemble.MANIFEST_REL, _ASSEMBLE_MANIFEST)
     recorded = (manifest.get("output") or {}).get("sha256")
     if recorded != _sha256_bytes(blob):
         raise _refuse(
@@ -280,7 +281,7 @@ def _provenance(
         path = run_dir / rel
         if path.is_file():
             audits[role] = {"path": rel, "sha256": _sha256_bytes(_read_bytes(path, "audit"))}
-    assemble = _read_json(run_dir / dassemble.MANIFEST_REL, "assemble manifest")
+    assemble = _read_json(run_dir / dassemble.MANIFEST_REL, _ASSEMBLE_MANIFEST)
     manifest = student["manifest"]
     return {
         "format": BUNDLE_FORMAT,
@@ -327,7 +328,7 @@ def build_bundles(
             f"training rows on a sealed side: {leaked[:5]}", "the sealed sets are never bundled"
         )
     report = _read_bytes(run_dir / dfinal.FINAL_REL / dfinal.REPORT_FILE, "final report")
-    assemble_bytes = _read_bytes(run_dir / dassemble.MANIFEST_REL, "assemble manifest")
+    assemble_bytes = _read_bytes(run_dir / dassemble.MANIFEST_REL, _ASSEMBLE_MANIFEST)
     calibration_bytes = _read_bytes(
         run_dir / dquant.QUANT_REL / dquant.CALIBRATION_FILE, "calibration"
     )

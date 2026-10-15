@@ -325,7 +325,7 @@ def wire_record(rec: Record) -> dict[str, Any]:
     questions: dict[str, Any] = {}
     for qid, q in rec.questions.items():
         if q.type == "choice":
-            criteria: Any = {name: desc for name, desc in q.criteria}
+            criteria: Any = dict(q.criteria)
         elif q.type == "score":
             criteria = [desc for _name, desc in q.criteria]
         else:
@@ -442,17 +442,21 @@ def pred_items(
         for qid, ans in row["questions"].items():
             if ans["error"] or qid not in rec.questions:
                 continue
-            gold = rec.gold[qid]
-            names = rec.questions[qid].names
-            if ans["kind"] == "noul":
-                items.append(metrics.noul_item(ans["p_true"], gold_true=_gold_true(gold)))
-                continue
-            probs = list(ans["distribution"].values())  # offered order (wire order == names)
-            index = names.index(gold.label) if gold.label in names else None
-            maker = metrics.choice_item if ans["kind"] == "choice" else metrics.score_item
-            kw = "gold_index" if ans["kind"] == "choice" else "gold_level"
-            items.append(maker(_normalise(probs), **{kw: index}))
+            items.append(_pred_item(rec, qid, ans))
     return items
+
+
+def _pred_item(rec: Record, qid: str, ans: Mapping[str, Any]) -> metrics.PredItem:
+    """The metric item for one answered question of *rec*."""
+    gold = rec.gold[qid]
+    names = rec.questions[qid].names
+    if ans["kind"] == "noul":
+        return metrics.noul_item(ans["p_true"], gold_true=_gold_true(gold))
+    probs = list(ans["distribution"].values())  # offered order (wire order == names)
+    index = names.index(gold.label) if gold.label in names else None
+    maker = metrics.choice_item if ans["kind"] == "choice" else metrics.score_item
+    kw = "gold_index" if ans["kind"] == "choice" else "gold_level"
+    return maker(_normalise(probs), **{kw: index})
 
 
 def _gold_true(gold) -> bool | None:

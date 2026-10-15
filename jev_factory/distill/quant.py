@@ -626,6 +626,84 @@ def _outputs(paths: Sequence[Path]) -> dict[str, str]:
     return {str(p): dp.sha256_file(p) for p in paths if p.is_file()}
 
 
+def _dry_run(
+    base: Mapping[str, Any],
+    formats: Sequence[str],
+    builders: Mapping[str, Builder],
+    heal_plan: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The dry-run plan: each candidate format, whether it has a builder, and the heal plan."""
+    return {
+        **base,
+        "dry_run": True,
+        "formats": [
+            {
+                "format": f,
+                "description": FORMATS[f],
+                "builder": f in builders,
+                "unavailable_reason": None if f in builders else UNSUPPORTED[f],
+            }
+            for f in formats
+        ],
+        "heal_plan": heal_plan,
+    }
+
+
+def _check_apply_inputs(measurer: Measurer | None, builders: Mapping[str, Builder]) -> None:
+    if measurer is None:
+        raise _refuse(
+            "apply needs a measurer for the fit and selection folds",
+            "pass measurer=served_measurer(...) (or a test double)",
+        )
+    if BF16 not in builders:
+        raise _refuse("apply needs a bf16 builder", "pass builders=default_builders(revision)")
+
+
+def _check_heal_allowed(
+    fmt: str, measured: Mapping[str, Mapping[str, Any]], heal_log: Path, train_file: Path
+) -> None:
+    """The one heal round must still be unspent, and the frozen training set must exist."""
+    if heal_rounds_spent(heal_log) >= HEAL_ROUNDS:
+        raise _stop(
+            f"{fmt} loses {measured[fmt]['drop_points']} points against its own bf16 "
+            f"(> {HEAL_MARGIN_POINTS}) and the heal round is already spent ({heal_log})"
+        )
+    if not train_file.is_file():
+        raise _refuse(
+            f"the frozen training set {train_file} does not exist; heal trains on it",
+            "run the distill assemble stage first",
+        )
+
+
+def _heal_trigger(
+    reg: dp.DistillPrereg, fmt: str, measured: Mapping[str, Mapping[str, Any]], heal_log: Path
+) -> dict[str, Any]:
+    return {
+        "event": "heal_trigger",
+        "format": fmt,
+        "heal_round": heal_rounds_spent(heal_log) + 1,
+        "drop_points": measured[fmt]["drop_points"],
+        "bf16_accuracy": measured[BF16]["accuracy"],
+        "quant_accuracy": measured[fmt]["accuracy"],
+        "margin_points": HEAL_MARGIN_POINTS,
+        "heal_knobs": heal_knobs(reg),
+        "heal_source": reg.raw["heal"]["source"],
+    }
+
+
+def _check_healed(fmt: str, again: Mapping[str, Any], bars: Mapping[str, Any]) -> None:
+    """The healed build must measure cleanly, within the heal margin and the ECE bar."""
+    if not again["available"] or not again["safe"]:
+        raise _stop(f"the healed {fmt} could not be measured cleanly: {again.get('reason')}")
+    if again["drop_points"] is None or again["drop_points"] > HEAL_MARGIN_POINTS + _EPS:
+        raise _stop(
+            f"second heal trigger: the healed {fmt} still loses {again['drop_points']} "
+            f"points against its own bf16 (> {HEAL_MARGIN_POINTS})"
+        )
+    if again["ece"] is None or again["ece"] > float(bars["ece_max"]) + _EPS:
+        raise _stop(f"the healed {fmt} has calibrated ECE {again['ece']} > {bars['ece_max']}")
+
+
 def run_quant(
     *,
     prereg_path: Path | str,
@@ -683,27 +761,8 @@ def run_quant(
         "format_rule": FORMAT_RULE,
     }
     if not apply:
-        return {
-            **base,
-            "dry_run": True,
-            "formats": [
-                {
-                    "format": f,
-                    "description": FORMATS[f],
-                    "builder": f in builders,
-                    "unavailable_reason": None if f in builders else UNSUPPORTED[f],
-                }
-                for f in formats
-            ],
-            "heal_plan": heal_plan,
-        }
-    if measurer is None:
-        raise _refuse(
-            "apply needs a measurer for the fit and selection folds",
-            "pass measurer=served_measurer(...) (or a test double)",
-        )
-    if BF16 not in builders:
-        raise _refuse("apply needs a bf16 builder", "pass builders=default_builders(revision)")
+        return _dry_run(base, formats, builders, heal_plan)
+    _check_apply_inputs(measurer, builders)
     kw = {"threshold": threshold, "seed": seed, "resamples": resamples}
     measured = _measure_all(
         winner["checkpoint"], out_dir / BUILDS_DIR, builders, measurer, fold_records, formats, **kw
@@ -714,27 +773,8 @@ def run_quant(
     healed: dict[str, dict[str, Any]] | None = None
     if choice["heal"]:
         fmt = choice["format"]
-        if heal_rounds_spent(heal_log) >= HEAL_ROUNDS:
-            raise _stop(
-                f"{fmt} loses {measured[fmt]['drop_points']} points against its own bf16 "
-                f"(> {HEAL_MARGIN_POINTS}) and the heal round is already spent ({heal_log})"
-            )
-        if not train_file.is_file():
-            raise _refuse(
-                f"the frozen training set {train_file} does not exist; heal trains on it",
-                "run the distill assemble stage first",
-            )
-        trigger = {
-            "event": "heal_trigger",
-            "format": fmt,
-            "heal_round": heal_rounds_spent(heal_log) + 1,
-            "drop_points": measured[fmt]["drop_points"],
-            "bf16_accuracy": measured[BF16]["accuracy"],
-            "quant_accuracy": measured[fmt]["accuracy"],
-            "margin_points": HEAL_MARGIN_POINTS,
-            "heal_knobs": heal_knobs(reg),
-            "heal_source": reg.raw["heal"]["source"],
-        }
+        _check_heal_allowed(fmt, measured, heal_log, train_file)
+        trigger = _heal_trigger(reg, fmt, measured, heal_log)
         _append(heal_log, trigger)  # logged before anything heals
         if trainer is None:
             trainer = _default_trainer(
@@ -756,15 +796,7 @@ def run_quant(
             **kw,
         )
         again = healed[fmt]
-        if not again["available"] or not again["safe"]:
-            raise _stop(f"the healed {fmt} could not be measured cleanly: {again.get('reason')}")
-        if again["drop_points"] is None or again["drop_points"] > HEAL_MARGIN_POINTS + _EPS:
-            raise _stop(
-                f"second heal trigger: the healed {fmt} still loses {again['drop_points']} "
-                f"points against its own bf16 (> {HEAL_MARGIN_POINTS})"
-            )
-        if again["ece"] is None or again["ece"] > float(bars["ece_max"]) + _EPS:
-            raise _stop(f"the healed {fmt} has calibrated ECE {again['ece']} > {bars['ece_max']}")
+        _check_healed(fmt, again, bars)
         deployed_checkpoint = healed_checkpoint
         heal_record = {**trigger, "healed_checkpoint": str(healed_checkpoint)}
         _append(
@@ -879,6 +911,57 @@ def _record_uncapped(jobdir: Path, name: str) -> None:
     _write_json(path, record)
 
 
+def _torchao_starter(
+    jobdir: Path,
+    name: str,
+    env: Any,
+    artifact: Path,
+    port: int,
+    device: str | None,
+    decider_repo: Path | str | None,
+) -> Callable[[], Any]:
+    """Verify a torchao artifact; return what starts its wrapper server."""
+    try:
+        qz.read_artifact(artifact)
+    except CliError as exc:
+        raise FormatUnavailable(
+            f"{artifact} is not a verified torchao artifact: {exc.message}"
+        ) from exc
+
+    def start() -> Any:
+        return qz.launch(
+            jobdir,
+            name,
+            env,
+            artifact,
+            port=port,
+            decider_repo=decider_repo,
+            device=device,
+        )
+
+    return start
+
+
+def _bundle_starter(
+    jobdir: Path, name: str, env: Any, artifact: Path, port: int, device: str | None
+) -> Callable[[], Any]:
+    """Verify a ``hobson-hf-export/1`` bundle; return what starts ``strands-decider serve``."""
+    try:
+        player.read_layout(artifact)
+    except CliError as exc:
+        raise FormatUnavailable(
+            f"{artifact} is not a hobson-hf-export/1 bundle strands-decider serve "
+            f"can load: {exc.message}"
+        ) from exc
+
+    def start() -> Any:
+        pid = pserve.launch(jobdir, name, env, artifact, port=port, device=device)
+        _record_uncapped(jobdir, name)
+        return pid
+
+    return start
+
+
 def served_measurer(
     *,
     env: Any,
@@ -918,38 +1001,9 @@ def served_measurer(
         name = f"distill-quant-{fmt}"
         quantized = (Path(artifact) / qz.MANIFEST_FILE).is_file()
         if quantized:
-            try:
-                qz.read_artifact(artifact)
-            except CliError as exc:
-                raise FormatUnavailable(
-                    f"{artifact} is not a verified torchao artifact: {exc.message}"
-                ) from exc
-
-            def start() -> Any:
-                return qz.launch(
-                    jobdir,
-                    name,
-                    env,
-                    artifact,
-                    port=port,
-                    decider_repo=decider_repo,
-                    device=device,
-                )
-
+            start = _torchao_starter(jobdir, name, env, artifact, port, device, decider_repo)
         else:
-            try:
-                player.read_layout(artifact)
-            except CliError as exc:
-                raise FormatUnavailable(
-                    f"{artifact} is not a hobson-hf-export/1 bundle strands-decider serve "
-                    f"can load: {exc.message}"
-                ) from exc
-
-            def start() -> Any:
-                pid = pserve.launch(jobdir, name, env, artifact, port=port, device=device)
-                _record_uncapped(jobdir, name)
-                return pid
-
+            start = _bundle_starter(jobdir, name, env, artifact, port, device)
         gpu.assert_gpu_free("measure")
         target = bench.Target(
             name=name,

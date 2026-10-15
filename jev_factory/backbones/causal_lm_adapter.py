@@ -10,8 +10,10 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, Mapping, Sequence
 
+from jev_factory.backbones.base import Backbone
 
-class CausalLMBackbone:
+
+class CausalLMBackbone(Backbone):
     """Letter-token readout over a causal decoder (Qwen3.5-0.8B, LFM2.5-350M)."""
 
     name = "causal_lm"
