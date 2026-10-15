@@ -41,6 +41,18 @@ This module adds one, in two halves:
   installed, the quantized state assigned over it with ``torch.load(weights_only=True)``
   after the hashes are checked) and answers with upstream's own engine and schema.
 
+**Pruned-vocabulary comparison (decision c38, h9).** Given a prompt set (the run's train,
+fit and selection ``/v1/systemone`` bodies; :data:`PROMPT_SIDES` only, never test or held-out),
+the build runs every prompt through upstream's engine over the merged bf16 torso, records
+each token id the embedding looks up, adds the tokenizer's special and added tokens
+(:func:`special_token_ids`) and packs only those rows (:func:`kept_vocabulary`). The kept id
+list ships as :data:`KEPT_IDS_FILE`; the manifest records its sha256 and the weight bytes,
+and its format is :data:`PRUNED_FORMAT_OF_BITS` (never a shipped format name). Served, an id
+outside the kept list raises :class:`OutOfVocabulary` at the embedding gather itself, so a
+request is refused with an ``out_of_vocabulary`` 422 and never answered from a wrong row.
+It is a comparison only: :mod:`jev_factory.distill.quant` measures it beside the
+full-vocabulary build and never selects it.
+
 Which block kernel runs on the Jetson (int4 on ``sm_87``, else int8) is the t1 spike's
 verdict; the scheme is a parameter recorded in the manifest, never assumed. A build whose
 weight files total 10^9 bytes or more is still written and verified here;
@@ -62,6 +74,7 @@ the stdlib ``http.server`` instead of FastAPI/uvicorn. Heavy packages are loaded
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import json
 import os
@@ -75,7 +88,7 @@ from dataclasses import asdict, dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from importlib import metadata
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from jev_factory.backbones.pointer import layout as player
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
@@ -97,6 +110,15 @@ TORCHAO_APIS: dict[int, tuple[str, str]] = {
     8: ("Int8WeightOnlyConfig", "int8_weight_only"),
     4: ("Int4WeightOnlyConfig", "int4_weight_only"),
 }
+#: bits -> the pruned-vocabulary comparison build's format name (c38: never shipped).
+PRUNED_FORMAT_OF_BITS: dict[int, str] = {b: f"{f}_pruned_vocab" for b, f in FORMAT_OF_BITS.items()}
+#: The pruned build's kept token ids (canonical JSON: sorted, no spaces).
+KEPT_IDS_FILE = "kept_token_ids.json"
+#: The sides whose prompts may shape the kept vocabulary (test and held-out never do).
+PROMPT_SIDES = ("train", "fit", "selection")
+#: The error a pruned build answers for a token outside its kept ids (and its HTTP status).
+OOV_ERROR = "out_of_vocabulary"
+OOV_STATUS = 422
 #: The files the manifest always hashes (the tokenizer files present are hashed too).
 HASHED_FILES = (TORSO_FILE, player.HEAD, player.CONFIG)
 REQUIRED_FILES = (MANIFEST_FILE, *HASHED_FILES, *player.TOKENIZER_FILES)
@@ -356,6 +378,130 @@ def check_inventory(rows: Sequence[Mapping[str, Any]], scheme: QuantScheme) -> d
     return {"tensors": counts, "kept_unquantized": dict(sorted(kept.items()))}
 
 
+class OutOfVocabulary(Exception):
+    """A token id the pruned embedding has no row for; raised before any row is read."""
+
+    def __init__(self, token_ids: Sequence[int]) -> None:
+        self.token_ids = sorted({int(i) for i in token_ids})
+        super().__init__(
+            f"{OOV_ERROR}: token id(s) {self.token_ids[:16]} are outside the pruned "
+            "vocabulary's kept ids"
+        )
+
+    def detail(self) -> dict[str, Any]:
+        return {"error": OOV_ERROR, "token_ids": self.token_ids, "message": str(self)}
+
+
+def kept_ids_bytes(kept_ids: Sequence[int]) -> bytes:
+    """The canonical encoding of a kept id list (what :data:`KEPT_IDS_FILE` holds)."""
+    return json.dumps(list(kept_ids), separators=(",", ":")).encode("utf-8")
+
+
+def kept_ids_sha256(kept_ids: Sequence[int]) -> str:
+    return hashlib.sha256(kept_ids_bytes(kept_ids)).hexdigest()
+
+
+def _id_list(ids: Any, what: str) -> list[int]:
+    if not isinstance(ids, (list, tuple)) or not ids:
+        raise _refuse(f"{what} must be a non-empty list of token ids")
+    if any(isinstance(i, bool) or not isinstance(i, int) or i < 0 for i in ids):
+        raise _refuse(f"{what} must hold non-negative integer token ids")
+    if list(ids) != sorted(set(ids)):
+        raise _refuse(f"{what} must be sorted with no repeats")
+    return list(ids)
+
+
+def kept_vocabulary(
+    prompt_ids: Iterable[int], special_ids: Iterable[int], vocab_rows: int
+) -> list[int]:
+    """The sorted ids a pruned embedding keeps: every prompt id plus every special id.
+
+    Refuses an id outside ``[0, vocab_rows)`` (it has no row to keep) and an empty prompt
+    set (a pruned build over nothing is not a measurement).
+    """
+    used = {int(i) for i in prompt_ids}
+    if not used:
+        raise _refuse("no prompt token ids were recorded; the kept vocabulary would be empty")
+    kept = sorted(used | {int(i) for i in special_ids})
+    if bad := [i for i in kept if not 0 <= i < vocab_rows]:
+        raise _refuse(f"token id(s) {bad[:8]} are outside the embedding's {vocab_rows} rows")
+    return kept
+
+
+def special_token_ids(tokenizer: Any) -> list[int]:
+    """The tokenizer's special, added, pad, eos, bos and unk ids (kept by every pruned build)."""
+    ids = set(getattr(tokenizer, "all_special_ids", None) or ())
+    ids.update(getattr(tokenizer, "added_tokens_decoder", None) or {})
+    for name in ("pad_token_id", "eos_token_id", "bos_token_id", "unk_token_id"):
+        value = getattr(tokenizer, name, None)
+        if isinstance(value, int) and not isinstance(value, bool):
+            ids.add(value)
+    return sorted(int(i) for i in ids)
+
+
+def _prompt_row(text: str, where: str) -> dict[str, Any]:
+    try:
+        row = json.loads(text)
+    except ValueError as exc:
+        raise _refuse(f"{where} is not valid JSON: {exc}") from exc
+    side = row.get("side") if isinstance(row, dict) else None
+    if side not in PROMPT_SIDES:
+        raise _refuse(
+            f"{where}: side {side!r} may not shape the pruned vocabulary",
+            f"a prompt set holds {', '.join(PROMPT_SIDES)} prompts only",
+        )
+    body = row.get("body")
+    if not (isinstance(body, dict) and isinstance(body.get("questions"), dict)):
+        raise _refuse(f"{where}: body must be a /v1/systemone request")
+    return row
+
+
+def read_prompt_set(path: Path | str) -> list[dict[str, Any]]:
+    """The prompt set's rows (``{"side", "body"}``); a side outside :data:`PROMPT_SIDES` fails.
+
+    The bodies are ``/v1/systemone`` requests; only train, fit and selection prompts may
+    shape the pruned vocabulary, so a test or held-out row refuses the whole file.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise _refuse(f"the prompt set {path} does not exist")
+    rows = []
+    for line, text in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not text.strip():
+            continue
+        rows.append(_prompt_row(text, f"{path.name} row {line}"))
+    if not rows:
+        raise _refuse(f"the prompt set {path} holds no prompts")
+    return rows
+
+
+def prompt_set_record(path: Path | str) -> dict[str, Any]:
+    """The prompt set's path, sha256 and per-side counts (validated)."""
+    rows = read_prompt_set(path)
+    counts = {side: sum(1 for r in rows if r["side"] == side) for side in PROMPT_SIDES}
+    return {"path": str(path), "sha256": player.sha256_file(Path(path)), "counts": counts}
+
+
+def check_pruned_vocabulary(
+    kept_ids: Sequence[int], tokenizer_size: int, embedding: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The pruned embedding keeps exactly *kept_ids*, each a real tokenizer id."""
+    kept = _id_list(list(kept_ids), "the kept ids")
+    if kept[-1] >= tokenizer_size:
+        raise _refuse(f"kept id {kept[-1]} is not a tokenizer id (size {tokenizer_size})")
+    if embedding.get("rows") != len(kept):
+        raise _refuse(
+            f"the pruned embedding holds {embedding.get('rows')} rows for {len(kept)} kept ids"
+        )
+    return {
+        "full_vocabulary": False,
+        "kept_rows": len(kept),
+        "tokenizer_size": tokenizer_size,
+        "embedding_vocab_rows": embedding.get("vocab_rows"),
+        "kept_ids_sha256": kept_ids_sha256(kept),
+    }
+
+
 def check_full_vocabulary(embedding_rows: int, tokenizer_size: int) -> dict[str, Any]:
     """Every tokenizer id has an embedding row (no id is unreachable)."""
     if not (isinstance(tokenizer_size, int) and 0 < tokenizer_size <= embedding_rows):
@@ -422,23 +568,39 @@ def write_manifest(
     base_model_revision: str,
     scheme: QuantScheme | None = None,
     extra: Mapping[str, Any] | None = None,
+    kept_ids: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """Write :data:`MANIFEST_FILE` over the files already in *root*; return it.
 
     *bits* is the block bits (the deployed-format name follows it); *scheme* defaults to
     :class:`QuantScheme` at those bits. Every file is hashed and the weight files' byte sum
-    recorded, so the manifest is what ``GET /v1/bundle`` attests.
+    recorded, so the manifest is what ``GET /v1/bundle`` attests. *kept_ids* marks a
+    pruned-vocabulary comparison build (c38): :data:`KEPT_IDS_FILE` is written and hashed,
+    ``pruned_vocabulary`` records its sha256, and the format is
+    :data:`PRUNED_FORMAT_OF_BITS`'s.
     """
     root = Path(root)
     bits = _bits(bits)
     scheme = as_scheme(scheme if scheme is not None else bits)
     if scheme.block_bits != bits:
         raise _refuse(f"bits {bits} disagrees with the scheme's block_bits {scheme.block_bits}")
+    pruned = None
+    if kept_ids is not None:
+        kept = _id_list(list(kept_ids), "kept_ids")
+        safepath.contained(root / KEPT_IDS_FILE, root).write_bytes(kept_ids_bytes(kept))
+        pruned = {
+            "kept_ids_file": KEPT_IDS_FILE,
+            "kept_ids_sha256": kept_ids_sha256(kept),
+            "kept_ids_count": len(kept),
+            "comparison_only": True,
+            "decision": "c38: a comparison build, reported only; never the shipped format",
+        }
     tokenizer = _tokenizer_record(root, source)
+    hashed = (*HASHED_FILES, *tokenizer["files"], *((KEPT_IDS_FILE,) if pruned else ()))
     manifest = {
         **dict(extra or {}),
         "artifact_format": ARTIFACT_FORMAT,
-        "format": FORMAT_OF_BITS[bits],
+        "format": format_name(bits, pruned=pruned is not None),
         "bits": bits,
         "scheme": scheme.record(),
         "torchao_api": torchao_api,
@@ -449,17 +611,26 @@ def write_manifest(
         "source": dict(source),
         "base_model": base_model,
         "base_model_revision": base_model_revision,
-        "files": {
-            name: player.sha256_file(player.member(root, name))
-            for name in (*HASHED_FILES, *tokenizer["files"])
-        },
+        "files": {name: player.sha256_file(player.member(root, name)) for name in hashed},
         "tokenizer": tokenizer,
         **weight_record(root),
         "upstream": {k: UPSTREAM_PROVENANCE[k] for k in ("repo", "commit", "licence")},
     }
+    if pruned:
+        manifest["pruned_vocabulary"] = pruned
     target = safepath.contained(root / MANIFEST_FILE, root)
     target.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest
+
+
+def format_name(bits: int, *, pruned: bool = False) -> str:
+    """The format name of a build at *bits* (the pruned comparison has its own names)."""
+    return (PRUNED_FORMAT_OF_BITS if pruned else FORMAT_OF_BITS)[_bits(bits)]
+
+
+def is_pruned(manifest: Mapping[str, Any]) -> bool:
+    """Whether a manifest describes a pruned-vocabulary comparison build."""
+    return "pruned_vocabulary" in manifest
 
 
 def _nonempty_str(manifest: Mapping[str, Any], key: str) -> None:
@@ -477,10 +648,11 @@ def _check_format(manifest: Mapping[str, Any]) -> None:
     bits = manifest.get("bits")
     if isinstance(bits, bool) or bits not in FORMAT_OF_BITS:
         raise _refuse(f"{MANIFEST_FILE}: bits must be 8 or 4, got {bits!r}")
-    if manifest.get("format") != FORMAT_OF_BITS[bits]:
+    want = format_name(bits, pruned=is_pruned(manifest))
+    if manifest.get("format") != want:
         raise _refuse(
             f"{MANIFEST_FILE}: format {manifest.get('format')!r} does not match "
-            f"{bits} bits ({FORMAT_OF_BITS[bits]})"
+            f"{bits} bits ({want})"
         )
     if _scheme_from(manifest.get("scheme")).block_bits != bits:
         raise _refuse(f"{MANIFEST_FILE}: scheme.block_bits disagrees with bits {bits}")
@@ -545,6 +717,36 @@ def _check_tokenizer(manifest: Mapping[str, Any]) -> None:
             )
 
 
+def read_kept_ids(root: Path | str) -> list[int]:
+    """The pruned build's kept ids from :data:`KEPT_IDS_FILE` (validated)."""
+    try:
+        ids = json.loads(player.member(Path(root), KEPT_IDS_FILE).read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise _refuse(f"{KEPT_IDS_FILE} is not valid JSON: {exc}") from exc
+    return _id_list(ids, KEPT_IDS_FILE)
+
+
+def _check_pruned(root: Path, manifest: Mapping[str, Any]) -> None:
+    """A pruned build's kept id list is hashed, matches its recorded sha256 and count."""
+    if not is_pruned(manifest):
+        return
+    record = manifest["pruned_vocabulary"]
+    if not isinstance(record, dict) or record.get("kept_ids_file") != KEPT_IDS_FILE:
+        raise _refuse(f"{MANIFEST_FILE}: pruned_vocabulary must name {KEPT_IDS_FILE}")
+    if record.get("comparison_only") is not True:
+        raise _refuse(f"{MANIFEST_FILE}: a pruned-vocabulary build is a comparison only (c38)")
+    if manifest["files"].get(KEPT_IDS_FILE) != record.get("kept_ids_sha256"):
+        raise _refuse(f"{MANIFEST_FILE}: the kept id list is not hashed as recorded")
+    kept = read_kept_ids(root)
+    if kept_ids_sha256(kept) != record["kept_ids_sha256"] or len(kept) != record.get(
+        "kept_ids_count"
+    ):
+        raise _refuse(
+            f"{KEPT_IDS_FILE} is not the canonical kept id list its manifest records",
+            "rebuild the artifact; never edit a built artifact by hand",
+        )
+
+
 def read_artifact(path: Path | str) -> dict[str, Any]:
     """Verify a :data:`ARTIFACT_FORMAT` directory; return its manifest and config. Fail closed."""
     root = Path(path)
@@ -561,6 +763,7 @@ def read_artifact(path: Path | str) -> dict[str, Any]:
     _check_hashes(root, manifest)
     _check_weights(root, manifest)
     _check_tokenizer(manifest)
+    _check_pruned(root, manifest)
     config = _json_object(paths[player.CONFIG])
     if config.get("head_type") != "pointer":
         raise _refuse(
@@ -578,6 +781,7 @@ def bundle_attestation(path: Path | str) -> dict[str, Any]:
     return {
         **{k: manifest[k] for k in keys},
         **{k: manifest[k] for k in weight_record(path)},
+        **({"pruned_vocabulary": manifest["pruned_vocabulary"]} if is_pruned(manifest) else {}),
         "manifest_sha256": player.sha256_file(player.member(Path(path), MANIFEST_FILE)),
     }
 
@@ -594,16 +798,20 @@ def plan_weight_only(
     decider_repo: Path | str | None = None,
     base_revision: str | None = None,
     device: str = "cuda",
+    prompts: Path | str | None = None,
 ) -> dict[str, Any]:
     """The in-env build command for *checkpoint_dir*; validates the inputs, runs nothing.
 
     *scheme* is a :class:`QuantScheme` (a bare int is the block bits, the rest default).
+    *prompts* (a prompt set, :func:`read_prompt_set`) plans the pruned-vocabulary
+    comparison build instead of the full-vocabulary one.
     """
     scheme = as_scheme(scheme)
     bits = scheme.block_bits
     src, out = Path(checkpoint_dir), Path(out_dir)
     player.plan_export(src, out)  # refuses an incomplete or non-pointer checkpoint
     revision = player._base_revision(src, base_revision)
+    prompt_set = prompt_set_record(prompts) if prompts is not None else None
     if out.exists() and (not out.is_dir() or any(out.iterdir())):
         raise _refuse(f"{out} exists and is not empty", "build into a fresh directory")
     if not (isinstance(python, str) and python.strip()):
@@ -628,10 +836,14 @@ def plan_weight_only(
         "--device",
         device,
     ]
+    if prompt_set:
+        argv += ["--prompts", prompt_set["path"]]
+    pruned = {"comparison_only": True, "prompt_set": prompt_set} if prompt_set else {}
     return {
         "backbone": "pointer",
         "stage": "quantize",
-        "format": FORMAT_OF_BITS[bits],
+        "format": format_name(bits, pruned=bool(prompt_set)),
+        **pruned,
         "bits": bits,
         "scheme": scheme.record(),
         "tensor_policy": tensor_policy(),
@@ -688,6 +900,56 @@ def build_weight_only(
     )
     if not apply:
         return plan
+    limits = {"timeout": timeout, "memory_max": memory_max, "memory_floor": memory_floor}
+    return _run_build(plan, runner=runner, allow_foreign=allow_foreign, **limits)
+
+
+def build_pruned_vocabulary(
+    checkpoint_dir: Path | str,
+    out_dir: Path | str,
+    scheme: QuantScheme | int,
+    prompts: Path | str,
+    *,
+    apply: bool = False,
+    python: str = "python",
+    decider_repo: Path | str | None = None,
+    base_revision: str | None = None,
+    device: str = "cuda",
+    **limits: Any,
+) -> dict[str, Any]:
+    """The pruned-vocabulary comparison build (c38): as :func:`build_weight_only`, but the
+    embedding keeps only the ids *prompts* (train / fit / selection) look up, plus the
+    special tokens. *limits* are :func:`build_weight_only`'s ``runner``, ``timeout``,
+    ``memory_max``, ``memory_floor`` and ``allow_foreign``. Dry-run by default."""
+    plan = plan_weight_only(
+        checkpoint_dir,
+        out_dir,
+        scheme,
+        python=python,
+        decider_repo=decider_repo,
+        base_revision=base_revision,
+        device=device,
+        prompts=prompts,
+    )
+    if not apply:
+        return plan
+    info = _run_build(plan, **limits)
+    if not is_pruned(info["artifact"]["manifest"]):
+        raise CliError(
+            EXIT_ENV_ERROR, "the pruned-vocabulary build left a full-vocabulary artifact"
+        )
+    return info
+
+
+def _run_build(
+    plan: Mapping[str, Any],
+    *,
+    runner: Runner | None = None,
+    timeout: float | None = None,
+    memory_max: str | None = None,
+    memory_floor: str = "8G",
+    allow_foreign: bool = False,
+) -> dict[str, Any]:
     if not memory_max:
         raise _refuse(
             "a GPU quantize build needs a memory cap",
@@ -933,12 +1195,25 @@ def host_stats(paths: HostPaths = HostPaths(), pid: str = "self") -> dict[str, A
 
 
 class RequestError(Exception):
-    """A caller error: answered with *status* and ``{"detail": detail}`` (FastAPI's shape)."""
+    """A caller error: answered with *status* and ``{"detail": detail}`` (FastAPI's shape).
 
-    def __init__(self, status: int, detail: Any) -> None:
+    *reason* replaces the HTTP reason phrase, so a client that keeps only the status line
+    (``HTTP Error 422: out_of_vocabulary``) still sees which refusal it got.
+    """
+
+    def __init__(self, status: int, detail: Any, reason: str | None = None) -> None:
         super().__init__(str(detail))
         self.status = status
         self.detail = detail
+        self.reason = reason
+
+
+def refuse_out_of_vocabulary(call: Callable[[], Any]) -> Any:
+    """Run *call*; an :class:`OutOfVocabulary` becomes an ``out_of_vocabulary`` 422."""
+    try:
+        return call()
+    except OutOfVocabulary as exc:
+        raise RequestError(OOV_STATUS, exc.detail(), reason=OOV_ERROR) from exc
 
 
 def make_server(
@@ -960,9 +1235,9 @@ def make_server(
     routes = {"/health": health, "/v1/bundle": bundle, "/v1/stats": stats}
 
     class Handler(BaseHTTPRequestHandler):
-        def _send(self, status: int, payload: Any) -> None:
+        def _send(self, status: int, payload: Any, reason: str | None = None) -> None:
             body = json.dumps(payload).encode("utf-8")
-            self.send_response(status)
+            self.send_response(status, reason)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -997,7 +1272,7 @@ def make_server(
             try:
                 payload = dict(evaluate(body))
             except RequestError as exc:
-                self._send(exc.status, {"detail": exc.detail})
+                self._send(exc.status, {"detail": exc.detail}, exc.reason)
                 return
             except Exception as exc:  # noqa: BLE001 - answered rather than a dropped connection
                 self._send(500, {"detail": f"{type(exc).__name__}: {exc}"})
@@ -1051,11 +1326,25 @@ def _packed_embedding_class(torch: Any) -> Any:
         """Grouped symmetric int4 (two values per byte, offset 8) or int8 rows, one scale per
         *group_size* values; a lookup gathers the rows and dequantizes only those."""
 
-        def __init__(self, rows, dim, bits, group_size, scale_dtype, device=None):
+        def __init__(
+            self, rows, dim, bits, group_size, scale_dtype, device=None, kept=None, vocab=None
+        ):
             super().__init__()
             if dim % group_size or (bits == 4 and dim % 2):
                 raise ValueError(f"embedding dim {dim} is not a multiple of {group_size}")
             self.rows, self.dim, self.bits, self.group_size = rows, dim, bits, group_size
+            # A pruned build (c38) maps a token id to its kept row, -1 for none; the map is
+            # rebuilt from the kept id list at load, so it is not part of the saved state.
+            self.vocab = rows if kept is None else int(vocab)
+            id_map = None
+            if kept is not None:
+                if len(kept) != rows:
+                    raise ValueError(f"{len(kept)} kept ids for {rows} rows")
+                id_map = torch.full((self.vocab,), -1, dtype=torch.long, device=device)
+                id_map[torch.tensor(kept, dtype=torch.long, device=device)] = torch.arange(
+                    rows, device=device
+                )
+            self.register_buffer("id_map", id_map, persistent=False)
             qdtype, width = (torch.uint8, dim // 2) if bits == 4 else (torch.int8, dim)
             self.register_buffer(
                 EMBED_QWEIGHT, torch.empty(rows, width, dtype=qdtype, device=device)
@@ -1067,13 +1356,25 @@ def _packed_embedding_class(torch: Any) -> Any:
 
         @property
         def num_embeddings(self) -> int:
-            return self.rows
+            return self.vocab
 
         @property
         def embedding_dim(self) -> int:
             return self.dim
 
+        def kept_rows(self, ids):
+            """The kept row of each id; any id without one refuses before a row is read."""
+            flat = ids.reshape(-1)
+            outside = (flat < 0) | (flat >= self.vocab)
+            mapped = self.id_map[flat.clamp(0, self.vocab - 1)]
+            missing = outside | (mapped < 0)
+            if bool(missing.any()):
+                raise OutOfVocabulary(flat[missing].tolist())
+            return mapped.reshape(ids.shape)
+
         def forward(self, ids):
+            if self.id_map is not None:
+                ids = self.kept_rows(ids)
             q = getattr(self, EMBED_QWEIGHT)[ids]
             if self.bits == 4:
                 low = (q & 0x0F).to(torch.int16) - 8
@@ -1136,8 +1437,13 @@ def _embedding(torso: Any) -> tuple[str, Any]:
     return found[0]
 
 
-def install_packed_embedding(torso: Any, record: Mapping[str, Any]) -> Any:
-    """Replace the torso's embedding with an empty packed one shaped by *record* (serving)."""
+def install_packed_embedding(
+    torso: Any, record: Mapping[str, Any], kept_ids: Sequence[int] | None = None
+) -> Any:
+    """Replace the torso's embedding with an empty packed one shaped by *record* (serving).
+
+    *kept_ids* (a pruned build) installs the id-to-row map that refuses any other id.
+    """
     torch = _load("torch")
     fqn, current = _embedding(torso)
     weight = getattr(current, "weight", None)
@@ -1149,17 +1455,28 @@ def install_packed_embedding(torso: Any, record: Mapping[str, Any]) -> Any:
         int(record["group_size"]),
         scale_dtype,
         device=weight.device if weight is not None else None,
+        kept=None if kept_ids is None else list(kept_ids),
+        vocab=record.get("vocab_rows"),
     )
     _set_module(torso, fqn, packed)
     return packed
 
 
-def pack_embedding(torso: Any, scheme: QuantScheme) -> dict[str, Any]:
-    """Replace the torso's embedding with a packed copy of every row; return its record."""
+def pack_embedding(
+    torso: Any, scheme: QuantScheme, kept_ids: Sequence[int] | None = None
+) -> dict[str, Any]:
+    """Replace the torso's embedding with a packed copy of every row; return its record.
+
+    *kept_ids* (the pruned comparison build, c38) packs only those rows, in that order.
+    """
     torch = _load("torch")
     fqn, current = _embedding(torso)
     weight = current.weight
-    rows, dim = (int(x) for x in weight.shape)
+    vocab_rows, dim = (int(x) for x in weight.shape)
+    kept = None if kept_ids is None else _id_list(list(kept_ids), "kept_ids")
+    if kept is not None and kept[-1] >= vocab_rows:
+        raise _refuse(f"kept id {kept[-1]} is outside the embedding's {vocab_rows} rows")
+    rows = vocab_rows if kept is None else len(kept)
     packed = _packed_embedding_class(torch)(
         rows,
         dim,
@@ -1167,13 +1484,20 @@ def pack_embedding(torso: Any, scheme: QuantScheme) -> dict[str, Any]:
         scheme.embedding_group_size,
         weight.dtype,
         device=weight.device,
+        kept=kept,
+        vocab=vocab_rows,
     )
     with torch.no_grad():
-        packed.pack_(weight)
+        if kept is None:
+            packed.pack_(weight)
+        else:
+            packed.pack_(weight[torch.tensor(kept, dtype=torch.long, device=weight.device)])
     _set_module(torso, fqn, packed)
     return {
         "module": fqn,
         "rows": rows,
+        "vocab_rows": vocab_rows,
+        "pruned": kept is not None,
         "dim": dim,
         "bits": scheme.embedding_bits,
         "group_size": scheme.embedding_group_size,
@@ -1183,15 +1507,18 @@ def pack_embedding(torso: Any, scheme: QuantScheme) -> dict[str, Any]:
     }
 
 
-def quantize_torso(torso: Any, scheme: QuantScheme | int) -> dict[str, Any]:
+def quantize_torso(
+    torso: Any, scheme: QuantScheme | int, kept_ids: Sequence[int] | None = None
+) -> dict[str, Any]:
     """Apply *scheme* to *torso* in place: drop, pack the embedding, quantize block linears.
 
     Returns the record the manifest keeps (``torchao_api``, ``dropped``, ``embedding``).
+    *kept_ids* packs only those embedding rows (the pruned comparison build).
     """
     scheme = as_scheme(scheme)
     torch = _load("torch")
     dropped = drop_unused(torso)
-    embedding = pack_embedding(torso, scheme)
+    embedding = pack_embedding(torso, scheme, kept_ids)
     api, config = _quant_config(scheme.block_bits, scheme.block_group_size)
 
     def blocks(module: Any, fqn: str) -> bool:
@@ -1251,10 +1578,56 @@ def _write_side_files(model: Any, checkpoint: Path, out: Path, revision: str) ->
     return config_doc
 
 
-def _build_in_env(checkpoint: Path, out: Path, scheme: QuantScheme, revision: str, device: str):
+def collect_prompt_ids(model: Any, rows: Sequence[Mapping[str, Any]], device: str) -> list[int]:
+    """Every token id the embedding looks up while upstream's engine answers *rows*.
+
+    A forward pre-hook on the token embedding records the ids each forward pass reads, so
+    the kept set is what the engine actually feeds the model (its own prompt rendering),
+    not a re-tokenization of the request text.
+    """
+    torch = _load("torch")
+    infer = _load("strands_decider.infer")
+    schema = _load("strands_decider.schema")
+    _fqn, embedding = _embedding(model.torso)
+    seen: set[int] = set()
+
+    def record(_module: Any, args: tuple) -> None:
+        seen.update(int(i) for i in args[0].reshape(-1).tolist())
+
+    handle = embedding.register_forward_pre_hook(record)
+    try:
+        with torch.inference_mode():
+            engine = infer.SystemOneEngine(
+                model, infer.EngineConfig(device=device, model_name="kept-ids")
+            )
+            for row in rows:
+                engine.evaluate(schema.SystemOneRequest.model_validate(row["body"]))
+    finally:
+        handle.remove()
+    return sorted(seen)
+
+
+def _kept_ids_in_env(model: Any, torso: Any, prompts: Path, device: str) -> list[int]:
+    """The pruned build's kept ids: the prompt set's looked-up ids plus the special tokens."""
+    model.torso = torso
+    used = collect_prompt_ids(model, read_prompt_set(prompts), device)
+    _fqn, embedding = _embedding(torso)
+    return kept_vocabulary(used, special_token_ids(model.tokenizer), embedding.num_embeddings)
+
+
+def _build_in_env(
+    checkpoint: Path,
+    out: Path,
+    scheme: QuantScheme,
+    revision: str,
+    device: str,
+    prompts: Path | None = None,
+):
     # Validate (every checkpoint file a regular file inside the checkpoint, a fresh output
-    # directory) before anything heavy is imported.
-    plan_weight_only(checkpoint, out, scheme, python=sys.executable, base_revision=revision)
+    # directory, the prompt set's sides) before anything heavy is imported.
+    plan_weight_only(
+        checkpoint, out, scheme, python=sys.executable, base_revision=revision, prompts=prompts
+    )
     torch = _load("torch")
     modeling = _load("strands_decider.modeling")
     model = _load_pinned(modeling, checkpoint, revision)
@@ -1262,14 +1635,19 @@ def _build_in_env(checkpoint: Path, out: Path, scheme: QuantScheme, revision: st
     if hasattr(torso, "merge_and_unload"):
         torso = torso.merge_and_unload()
     torso = torso.to(device)
-    quantization = quantize_torso(torso, scheme)
+    kept = None if prompts is None else _kept_ids_in_env(model, torso, prompts, device)
+    quantization = quantize_torso(torso, scheme, kept)
     state = torso.state_dict()
     inventory = check_inventory(state_inventory(state), scheme)
     out.mkdir(parents=True, exist_ok=True)
     torch.save(state, str(safepath.contained(out / TORSO_FILE, out)))
     config_doc = _write_side_files(model, checkpoint, out, revision)
     tokenizer = _load("transformers").AutoTokenizer.from_pretrained(str(out))
-    vocabulary = check_full_vocabulary(quantization["embedding"]["rows"], len(tokenizer))
+    if kept is None:
+        vocabulary = check_full_vocabulary(quantization["embedding"]["rows"], len(tokenizer))
+    else:
+        vocabulary = check_pruned_vocabulary(kept, len(tokenizer), quantization["embedding"])
+        vocabulary["prompt_set"] = prompt_set_record(prompts)
     source = source_record(checkpoint)
     if not _tokenizer_record(out, source)["unmodified"]:
         raise CliError(EXIT_ENV_ERROR, "the copied tokenizer differs from the checkpoint's")
@@ -1289,7 +1667,12 @@ def _build_in_env(checkpoint: Path, out: Path, scheme: QuantScheme, revision: st
                 f"{quantization['torchao_api']}(...), filter_fn=<text-block linears>)",
                 "config": quantization["config"],
                 "scope": "text-block linears weight-only after merge_and_unload of the LoRA; "
-                "the full-vocabulary embedding packed; the pointer head fp32",
+                + (
+                    "the full-vocabulary embedding packed"
+                    if kept is None
+                    else "only the kept ids' embedding rows packed (c38 comparison)"
+                )
+                + "; the pointer head fp32",
             },
             "tensor_policy": tensor_policy(),
             "inventory": inventory,
@@ -1301,6 +1684,7 @@ def _build_in_env(checkpoint: Path, out: Path, scheme: QuantScheme, revision: st
                 d: _version(d) for d in ("transformers", "peft", "safetensors", "strands-decider")
             },
         },
+        kept_ids=kept,
     )
     keys = ("format", "torchao_api", "weight_bytes", "within_size_budget")
     print(json.dumps({"artifact": str(out), **{k: manifest[k] for k in keys}}))
@@ -1332,7 +1716,10 @@ def _load_engine(artifact: Path, device: str, model_name: str) -> tuple[Any, dic
     if attn:
         torso.set_attn_implementation(attn)
     drop_unused(torso)
-    install_packed_embedding(torso, manifest["embedding"])
+    kept = read_kept_ids(artifact) if is_pruned(manifest) else None
+    if kept is not None and manifest["embedding"].get("rows") != len(kept):
+        raise _refuse(f"{MANIFEST_FILE}: the embedding rows disagree with {KEPT_IDS_FILE}")
+    install_packed_embedding(torso, manifest["embedding"], kept)
     load_quantized_state(torso, player.member(artifact, TORSO_FILE), device=device)
     model = modeling.StrandsDeciderModel.__new__(modeling.StrandsDeciderModel)
     torch.nn.Module.__init__(model)
@@ -1370,9 +1757,13 @@ def _serve_in_env(artifact: Path, host: str, port: int, device: str, model_name:
             request = schema.SystemOneRequest.model_validate(body)
         except pydantic.ValidationError as exc:
             raise RequestError(422, json.loads(exc.json())) from exc
-        try:
+
+        def call() -> Any:
             with lock, torch.inference_mode():
-                response = engine.evaluate(request)
+                return engine.evaluate(request)
+
+        try:
+            response = refuse_out_of_vocabulary(call)
         except ValueError as exc:
             raise RequestError(422, str(exc)) from exc
         return response.model_dump()
@@ -1391,6 +1782,7 @@ def _serve_in_env(artifact: Path, host: str, port: int, device: str, model_name:
             "prefix_cache": engine.cfg.use_prefix_cache,
             "vision": False,
             "quant_format": info["manifest"]["format"],
+            "pruned_vocabulary": is_pruned(info["manifest"]),
             "torchao_api": info["manifest"]["torchao_api"],
         }
 
@@ -1427,6 +1819,11 @@ def _parser() -> argparse.ArgumentParser:
     b.add_argument("--embedding-group-size", type=int, default=defaults.embedding_group_size)
     b.add_argument("--base-revision", required=True)
     b.add_argument("--device", default="cuda")
+    b.add_argument(
+        "--prompts",
+        default=None,
+        help="a train/fit/selection prompt set: build the pruned-vocabulary comparison (c38)",
+    )
     s = sub.add_parser("serve", help="answer /v1/systemone on 127.0.0.1 (student env)")
     s.add_argument("artifact")
     s.add_argument("--host", default=LOOPBACK)
@@ -1451,8 +1848,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             block_group_size=args.block_group_size,
             embedding_group_size=args.embedding_group_size,
         ).validated()
+        prompts = Path(args.prompts) if args.prompts else None
         return _build_in_env(
-            Path(args.checkpoint), Path(args.out), scheme, args.base_revision, args.device
+            Path(args.checkpoint), Path(args.out), scheme, args.base_revision, args.device, prompts
         )
     except CliError as exc:
         print(f"error: {exc.message}", file=sys.stderr)

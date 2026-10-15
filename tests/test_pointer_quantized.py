@@ -1169,3 +1169,272 @@ def test_a_failing_stats_read_is_a_500_not_a_dropped_connection(tmp_path):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+# --------------------------------------------------------------------- pruned vocabulary (c38/h9)
+
+KEPT = [0, 3, 4, 7, 151643]
+
+
+class FakeTokenizer:
+    all_special_ids = [151643, 151645]
+    added_tokens_decoder = {151644: "<|im_start|>", 151645: "<|im_end|>"}
+    pad_token_id = 151643
+    eos_token_id = 151645
+    bos_token_id = None
+    unk_token_id = None
+
+
+def _prompts(path: Path, sides=("train", "fit", "selection")) -> Path:
+    body = {"id": "r1", "state": "s", "questions": {"c": {"type": "choice", "criteria": {}}}}
+    path.write_text("".join(json.dumps({"side": s, "body": body}) + "\n" for s in sides))
+    return path
+
+
+def test_the_kept_vocabulary_is_the_prompt_ids_plus_the_special_tokens():
+    """h9: the embedding keeps only the ids the prompts use, plus the special tokens."""
+    special = qz.special_token_ids(FakeTokenizer())
+    assert special == [151643, 151644, 151645]
+    kept = qz.kept_vocabulary([7, 3, 3, 0, 4], special, vocab_rows=248320)
+    assert kept == [0, 3, 4, 7, 151643, 151644, 151645]
+
+
+def test_the_kept_vocabulary_refuses_an_id_without_a_row_or_an_empty_prompt_set():
+    with pytest.raises(CliError, match="outside the embedding"):
+        qz.kept_vocabulary([5, 300], [], vocab_rows=256)
+    with pytest.raises(CliError, match="empty"):
+        qz.kept_vocabulary([], [1, 2], vocab_rows=256)
+
+
+def test_a_pruned_manifest_records_the_kept_id_list_sha256_and_weight_bytes(tmp_path):
+    """h9: the pruned artifact's manifest records the kept id list sha256 and weight bytes."""
+    art = _artifact(tmp_path / "p", bits=4, kept_ids=KEPT)
+    manifest = qz.read_artifact(art)["manifest"]
+    record = manifest["pruned_vocabulary"]
+    on_disk = player.sha256_file(art / qz.KEPT_IDS_FILE)
+    assert record["kept_ids_sha256"] == on_disk
+    assert (
+        record["kept_ids_sha256"]
+        == hashlib.sha256(json.dumps(KEPT).replace(" ", "").encode()).hexdigest()
+    )
+    assert record["kept_ids_count"] == len(KEPT)
+    assert record["comparison_only"] is True
+    assert manifest["files"][qz.KEPT_IDS_FILE] == on_disk
+    assert manifest["weight_bytes"] == sum((art / n).stat().st_size for n in qz.WEIGHT_FILES)
+    assert manifest["format"] == "torch_int4_wo_pruned_vocab"
+    assert manifest["format"] not in qz.FORMAT_OF_BITS.values()  # never a shipped format name
+    assert qz.read_kept_ids(art) == KEPT
+    attested = qz.bundle_attestation(art)
+    assert attested["pruned_vocabulary"] == record
+    assert attested["weight_bytes"] == manifest["weight_bytes"]
+
+
+def test_a_full_vocabulary_manifest_is_not_pruned(tmp_path):
+    art = _artifact(tmp_path / "f", bits=4)
+    manifest = qz.read_artifact(art)["manifest"]
+    assert not qz.is_pruned(manifest)
+    assert manifest["format"] == "torch_int4_wo"
+    assert not (art / qz.KEPT_IDS_FILE).exists()
+    assert "pruned_vocabulary" not in qz.bundle_attestation(art)
+
+
+def test_an_edited_kept_id_list_is_refused(tmp_path):
+    art = _artifact(tmp_path / "p", bits=8, kept_ids=KEPT)
+    (art / qz.KEPT_IDS_FILE).write_text("[0,3,4,7,151643,9]")
+    with pytest.raises(CliError, match="sha256"):
+        qz.read_artifact(art)
+
+
+@pytest.mark.parametrize(
+    "changes, match",
+    [
+        ({"format": "torch_int8_wo"}, "does not match"),
+        ({"pruned_vocabulary": {"kept_ids_file": "x.json"}}, "must name"),
+    ],
+)
+def test_a_pruned_manifest_that_misdescribes_itself_is_refused(tmp_path, changes, match):
+    art = _artifact(tmp_path / "p", bits=8, kept_ids=KEPT)
+    _rewrite(art, **changes)
+    with pytest.raises(CliError, match=match):
+        qz.read_artifact(art)
+
+
+def test_a_pruned_manifest_must_stay_comparison_only(tmp_path):
+    art = _artifact(tmp_path / "p", bits=8, kept_ids=KEPT)
+    record = {**_manifest(art)["pruned_vocabulary"], "comparison_only": False}
+    _rewrite(art, pruned_vocabulary=record)
+    with pytest.raises(CliError, match="comparison only"):
+        qz.read_artifact(art)
+
+
+@pytest.mark.parametrize("ids", [[3, 1], [1, 1], [-1, 2], [], [True]])
+def test_a_kept_id_list_must_be_sorted_unique_non_negative_ids(tmp_path, ids):
+    root = tmp_path / "p"
+    with pytest.raises(CliError, match="kept_ids"):
+        _artifact(root, bits=8, kept_ids=ids)
+
+
+def test_the_pruned_build_plan_carries_the_prompt_set_and_writes_nothing(tmp_path):
+    """h9: the pruned build is planned with the run's prompt set; dry-run writes nothing."""
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    prompts = _prompts(tmp_path / "prompts.jsonl")
+    plan = qz.build_pruned_vocabulary(
+        ckpt, tmp_path / "out", 4, prompts, python="py", base_revision=REV
+    )
+    assert plan["dry_run"] is True
+    assert plan["format"] == "torch_int4_wo_pruned_vocab"
+    assert plan["comparison_only"] is True
+    assert plan["argv"][-2:] == ["--prompts", str(prompts)]
+    assert plan["prompt_set"]["counts"] == {"train": 1, "fit": 1, "selection": 1}
+    assert plan["prompt_set"]["sha256"] == player.sha256_file(prompts)
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("side", ["test", "held_out", "heldout", None])
+def test_a_prompt_set_with_a_protected_or_unknown_side_is_refused(tmp_path, side):
+    """h9: only train/fit/selection prompts shape the kept ids (test and held-out never do)."""
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    prompts = _prompts(tmp_path / "prompts.jsonl", sides=("train", side))
+    args = dict(python="py", base_revision=REV, prompts=prompts)
+    with pytest.raises(CliError, match="may not shape"):
+        qz.plan_weight_only(ckpt, tmp_path / "out", 8, **args)
+
+
+def test_an_empty_or_missing_prompt_set_is_refused(tmp_path):
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    empty = tmp_path / "empty.jsonl"
+    empty.write_text("\n")
+    args = dict(python="py", base_revision=REV, prompts=empty)
+    with pytest.raises(CliError, match="holds no prompts"):
+        qz.plan_weight_only(ckpt, tmp_path / "out", 8, **args)
+    with pytest.raises(CliError, match="does not exist"):
+        qz.read_prompt_set(tmp_path / "missing.jsonl")
+
+
+def test_apply_builds_and_verifies_the_pruned_artifact(tmp_path):
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    prompts = _prompts(tmp_path / "prompts.jsonl")
+    seen = []
+
+    def runner(argv, env):
+        seen.append(list(argv))
+        _artifact(Path(argv[5]), bits=int(argv[7]), kept_ids=KEPT)
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    info = qz.build_pruned_vocabulary(
+        ckpt,
+        tmp_path / "out",
+        8,
+        prompts,
+        apply=True,
+        python="py",
+        base_revision=REV,
+        runner=runner,
+        memory_max="90G",
+    )
+    assert info["artifact"]["manifest"]["pruned_vocabulary"]["kept_ids_count"] == len(KEPT)
+    assert "--prompts" in seen[0]
+
+
+def test_a_pruned_build_that_left_a_full_vocabulary_artifact_is_refused(tmp_path):
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    prompts = _prompts(tmp_path / "prompts.jsonl")
+
+    def runner(argv, env):
+        _artifact(Path(argv[5]), bits=int(argv[7]))
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    args = dict(apply=True, python="py", base_revision=REV, runner=runner, memory_max="9G")
+    with pytest.raises(CliError, match="full-vocabulary artifact"):
+        qz.build_pruned_vocabulary(ckpt, tmp_path / "out", 8, prompts, **args)
+
+
+def test_the_build_entry_passes_the_prompt_set(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(qz, "_build_in_env", lambda *a: seen.append(a) or 0)
+    argv = ["build", "c", "o", "--bits", "4", "--base-revision", REV, "--prompts", "p.jsonl"]
+    assert qz.main(argv) == 0
+    assert seen[0][-1] == Path("p.jsonl")
+    assert qz.main(["build", "c", "o", "--bits", "4", "--base-revision", REV]) == 0
+    assert seen[1][-1] is None
+
+
+def test_the_pruned_vocabulary_check_matches_rows_to_kept_ids():
+    record = qz.check_pruned_vocabulary(KEPT, 248320, {"rows": len(KEPT), "vocab_rows": 248320})
+    assert record["full_vocabulary"] is False
+    assert record["kept_ids_sha256"] == qz.kept_ids_sha256(KEPT)
+    with pytest.raises(CliError, match="rows"):
+        qz.check_pruned_vocabulary(KEPT, 248320, {"rows": 4})
+    with pytest.raises(CliError, match="not a tokenizer id"):
+        qz.check_pruned_vocabulary(KEPT, 1000, {"rows": len(KEPT)})
+
+
+@pytest.fixture
+def oov_server():
+    def evaluate(body):
+        def call():
+            if "unseen" in body.get("state", ""):
+                raise qz.OutOfVocabulary([248000, 5, 248000])
+            return dict(ANSWER)
+
+        return qz.refuse_out_of_vocabulary(call)
+
+    srv = qz.make_server("127.0.0.1", 0, evaluate=evaluate, health=lambda: {"status": "ok"})
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{srv.server_address[1]}"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_a_request_outside_the_kept_ids_is_refused_out_of_vocabulary(oov_server):
+    """h9: a token outside the kept ids is refused with out_of_vocabulary, never answered."""
+    status, body = _post(oov_server, {"state": "an unseen word", "questions": {}})
+    assert status == 422
+    assert body["detail"]["error"] == "out_of_vocabulary"
+    assert body["detail"]["token_ids"] == [5, 248000]
+    assert "decision" not in json.dumps(body)  # no answer rides along with the refusal
+    status, _ = _post(oov_server, {"state": "seen", "questions": {}})
+    assert status == 200
+
+
+def test_the_shared_client_sees_the_out_of_vocabulary_reason(oov_server):
+    from jev_factory.backbones.pointer import serve as pserve
+
+    record = {"id": "r", "state": "unseen", "questions": {"c": {"type": "choice", "criteria": {}}}}
+    result = pserve.PointerClient(oov_server, model="p").ask(record)
+    assert "out_of_vocabulary" in result.error
+
+
+def test_pruned_embedding_answers_kept_rows_and_refuses_any_other_id(tmp_path):
+    """h9: the pruned embedding returns each kept id's own row and raises OutOfVocabulary
+    for any other id before reading a row (so it is never answered from a wrong row)."""
+    torch = pytest.importorskip("torch")
+    kept = [0, 3, 17, 500, 999]
+    for bits in (4, 8):
+        full = _toy_torso(torch).to(torch.bfloat16)
+        pruned = _toy_torso(torch).to(torch.bfloat16)
+        pruned.load_state_dict(full.state_dict())
+        qz.pack_embedding(full, qz.QuantScheme(embedding_bits=bits))
+        record = qz.pack_embedding(pruned, qz.QuantScheme(embedding_bits=bits), kept)
+        assert (record["rows"], record["vocab_rows"], record["pruned"]) == (5, 1000, True)
+        ids = torch.tensor([[999, 0, 17], [3, 500, 3]])
+        assert torch.equal(pruned.embed_tokens(ids), full.embed_tokens(ids))
+        for bad in ([[1]], [[0, 998]], [[1000]], [[-1]]):
+            outside = torch.tensor(bad)
+            with pytest.raises(qz.OutOfVocabulary):
+                pruned.embed_tokens(outside)
+        state = pruned.state_dict()
+        assert state["embed_tokens.qweight"].shape[0] == 5
+        assert "embed_tokens.id_map" not in state  # rebuilt from the kept list at load
+        torch.save(state, tmp_path / f"p{bits}.pt")
+        fresh = _toy_torso(torch).to(torch.bfloat16)
+        qz.drop_unused(fresh)
+        qz.install_packed_embedding(fresh, record, kept)
+        fresh.load_state_dict(torch.load(tmp_path / f"p{bits}.pt", weights_only=True), assign=True)
+        assert torch.equal(fresh.embed_tokens(ids), pruned.embed_tokens(ids))
+        unkept = torch.tensor([[2]])
+        with pytest.raises(qz.OutOfVocabulary):
+            fresh.embed_tokens(unkept)
