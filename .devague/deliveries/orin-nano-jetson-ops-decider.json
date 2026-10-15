@@ -1,0 +1,35 @@
+{
+  "plan_slug": "orin-nano-jetson-ops-decider",
+  "schema_version": 2,
+  "created": "2026-10-15T17:16:36Z",
+  "updated": "2026-10-15T17:16:36Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "contamination manifest also lists 2610's non-card training sources from training/sources.md (e.g. MuSiQue), beyond t6's 'exactly the 48 card datasets'",
+      "task_ref": "t6",
+      "reason": "operator: fail closed \u2014 a source 2610 trained on but missing from the card would otherwise check clean",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "add a task: jev review --serve gains a gold page over t8's ledger (approve / edit / reject per record)",
+      "task_ref": "t8",
+      "reason": "operator: ~200-300 test records are approved one by one; t8 shipped CLI-only because server.py was outside its files",
+      "affects": [
+        "t23"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

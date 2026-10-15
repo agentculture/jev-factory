@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-15T05:25:25Z",
-  "updated": "2026-10-15T17:04:41Z",
+  "updated": "2026-10-15T17:26:52Z",
   "claims": [
     {
       "id": "c1",
@@ -840,6 +840,17 @@
       "skipped_check": "git ls-remote / GitHub API check that each pinned commit exists at the recorded repo URL",
       "refs": [
         "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l2",
+      "code": "assumption-for-measurement",
+      "what": "t10 never ran the int4 block path on any device (CPU fails 'Requires mslk >= 1.0.0'); the default scheme's ~0.99 GB size is arithmetic, not a measured artifact",
+      "skipped_check": "a real int4 build of 2610 and an on-disk byte count",
+      "refs": [
+        "t10"
       ],
       "origin": "llm",
       "status": "proposed"
