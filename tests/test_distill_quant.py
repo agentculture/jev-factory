@@ -124,9 +124,10 @@ class FakeMeasurer:
 
 
 class FakeBuilders(dict):
-    def __init__(self, formats=("bf16", *Q.FORMATS), unavailable=None):
+    def __init__(self, formats=("bf16", *Q.FORMATS), unavailable=None, weight_bytes=None):
         super().__init__()
         self.calls = []
+        self.weight_bytes = dict(weight_bytes or {})
         unavailable = unavailable or {}
         for fmt in formats:
             self[fmt] = self._make(unavailable.get(fmt))
@@ -137,6 +138,8 @@ class FakeBuilders(dict):
             if reason:
                 raise Q.FormatUnavailable(reason)
             out_dir.mkdir(parents=True, exist_ok=True)
+            with (out_dir / "model.safetensors").open("wb") as fh:  # sparse: no disk used
+                fh.truncate(self.weight_bytes.get(fmt, 64))
             return out_dir
 
         return build
@@ -540,7 +543,7 @@ def _ckpt(root: Path) -> Path:
     return root
 
 
-def _write_artifact(out: Path, bits: int, source=None) -> None:
+def _write_artifact(out: Path, bits: int, source=None, scheme=None) -> None:
     from jev_factory.backbones.pointer import layout as player
     from jev_factory.backbones.pointer import quantized as qz
 
@@ -559,6 +562,20 @@ def _write_artifact(out: Path, bits: int, source=None) -> None:
         source=source or {"checkpoint": "c", "sha256": {"head.safetensors": "0" * 64}},
         base_model="Qwen/x",
         base_model_revision="a" * 40,
+        scheme=scheme,
+    )
+
+
+def _argv_scheme(argv):
+    """The QuantScheme a build argv asks for (what the in-env build would record)."""
+    from jev_factory.backbones.pointer import quantized as qz
+
+    flag = {argv[i]: argv[i + 1] for i in range(6, len(argv) - 1, 2)}
+    return qz.QuantScheme(
+        block_bits=int(flag["--bits"]),
+        embedding_bits=int(flag["--embedding-bits"]),
+        block_group_size=int(flag["--block-group-size"]),
+        embedding_group_size=int(flag["--embedding-group-size"]),
     )
 
 
@@ -573,7 +590,12 @@ class Runner:
         if self.rc == 0:
             from jev_factory.backbones.pointer import quantized as qz
 
-            _write_artifact(Path(argv[5]), int(argv[7]), qz.source_record(Path(argv[4])))
+            _write_artifact(
+                Path(argv[5]),
+                int(argv[7]),
+                qz.source_record(Path(argv[4])),
+                scheme=_argv_scheme(argv),
+            )
         return subprocess.CompletedProcess(argv, self.rc, stdout="", stderr=self.stderr)
 
 
@@ -646,7 +668,9 @@ def test_the_torchao_builder_builds_through_run_gpu_stage(tmp_path, monkeypatch)
 
     def stage(name, run_dir, cmd, **kw):
         seen.append((name, kw))
-        _write_artifact(Path(cmd[5]), int(cmd[7]), qz.source_record(Path(cmd[4])))
+        _write_artifact(
+            Path(cmd[5]), int(cmd[7]), qz.source_record(Path(cmd[4])), scheme=_argv_scheme(cmd)
+        )
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr(qz.gpu, "run_gpu_stage", stage)
@@ -784,3 +808,137 @@ def test_a_tampered_torchao_artifact_is_unavailable_not_served(tmp_path, monkeyp
     with pytest.raises(Q.FormatUnavailable, match="sha256"):
         measure("torch_int8_wo", art, all_folds)
     assert calls["launch"] == []
+
+
+# --------------------------------------------------------------------- size budget (#20, t10)
+
+
+def test_the_size_budget_is_ten_to_the_ninth_bytes_with_one_owner():
+    """c9/h21: '< 1 GB' means < 10^9 bytes of weight files; quant.py uses the builder's value."""
+    from jev_factory.backbones.pointer import quantized as qz
+
+    assert Q.SIZE_BUDGET_BYTES == 10**9
+    assert Q.SIZE_BUDGET_BYTES == qz.SIZE_BUDGET_BYTES
+    assert "size" in Q.FORMAT_RULE
+
+
+def test_a_build_at_or_over_the_size_budget_is_unavailable_never_a_candidate(tmp_path):
+    """c9/h21: quant.py records a build at or over 10^9 bytes as unavailable, never a candidate.
+
+    torch_int4_wo is the better candidate on every measured axis but weighs exactly 10^9
+    bytes (a sparse file), so it is never measured; torch_int8_wo at 10^9 - 1 ships.
+    """
+    builders = FakeBuilders(
+        formats=("bf16", "torch_int8_wo", "torch_int4_wo"),
+        weight_bytes={"torch_int4_wo": 10**9, "torch_int8_wo": 10**9 - 1},
+    )
+    measurer = FakeMeasurer()
+    out, run_dir, _ = run(
+        tmp_path,
+        builders=builders,
+        measurer=measurer,
+        formats=("torch_int8_wo", "torch_int4_wo"),
+    )
+    measured = {fmt for fmt, _heal, _folds in measurer.calls}
+    assert measured == {"bf16", "torch_int8_wo"}
+    meas = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]
+    over = meas["torch_int4_wo"]
+    assert over["available"] is False
+    assert over["size"]["weight_bytes"] == 10**9
+    assert over["size"]["within_size_budget"] is False
+    assert "1000000000 bytes" in over["reason"]
+    assert "never a candidate" in over["reason"]
+    assert meas["torch_int8_wo"]["size"]["weight_bytes"] == 10**9 - 1
+    assert meas["torch_int8_wo"]["size"]["within_size_budget"] is True
+    decision = _read(run_dir, Q.DECISION_FILE)
+    assert "torch_int4_wo" in decision["unavailable"]
+    assert decision["trail"][0] == {"step": "available", "survivors": ["torch_int8_wo"]}
+    assert out["chosen_format"] == "torch_int8_wo"
+    assert out["deployed_size"]["weight_bytes"] == 10**9 - 1
+    cited = {c["name"]: c["value"] for c in decision["cited"]}
+    assert cited["torch_int8_wo.weight_bytes"] == 10**9 - 1
+
+
+def test_the_size_is_measured_from_the_files_on_disk(tmp_path):
+    """c9/h21: the byte sum comes from the files; a missing or unverifiable size is unavailable."""
+    from jev_factory.backbones.pointer import quantized as qz
+
+    art = tmp_path / "q4"
+    _write_artifact(art, 4)
+    size = Q.size_record(art)
+    want = {n: (art / n).stat().st_size for n in qz.WEIGHT_FILES}
+    assert size["weight_files"] == want
+    assert size["weight_bytes"] == sum(want.values())
+    manifest = json.loads((art / qz.MANIFEST_FILE).read_text())
+    manifest["weight_bytes"] = 1
+    (art / qz.MANIFEST_FILE).write_text(json.dumps(manifest))
+    with pytest.raises(Q.FormatUnavailable, match="weight_bytes"):
+        Q.size_record(art)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(Q.FormatUnavailable, match="no weight files"):
+        Q.size_record(empty)
+
+
+def test_an_unverifiable_quant_artifact_is_unavailable_in_the_stage(tmp_path):
+    """c9/h21: a candidate whose size cannot be known is unavailable, not measured."""
+    builders = FakeBuilders(formats=("bf16",))
+    builders["torch_int4_wo"] = lambda fmt, ck, out: out.mkdir(parents=True) or out
+    measurer = FakeMeasurer()
+    _out, run_dir, _ = run(
+        tmp_path, builders=builders, measurer=measurer, formats=("torch_int4_wo",)
+    )
+    meas = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]["torch_int4_wo"]
+    assert meas["available"] is False
+    assert "size is unknown" in meas["reason"]
+    assert [c[0] for c in measurer.calls] == ["bf16"]
+
+
+def test_the_dry_run_names_the_size_budget(tmp_path):
+    plan, _run_dir, _ = run(tmp_path, apply=False)
+    assert plan["size_budget_bytes"] == 10**9
+    assert plan["format_rule"]["size"].startswith("weight files on disk")
+
+
+def test_the_torchao_builder_passes_the_scheme_and_the_format_sets_the_block_bits(tmp_path):
+    """c9/h21: block bits follow the format; embedding bits and group sizes are recorded."""
+    from jev_factory.backbones.pointer import quantized as qz
+
+    runner = Runner()
+    scheme = qz.QuantScheme(embedding_bits=8, block_group_size=128, embedding_group_size=64)
+    builders = Q.default_builders(
+        "a" * 40,
+        python="py",
+        decider_repo="/sd",
+        runner=runner,
+        guard=lambda s: None,
+        memory_max="90G",
+        scheme=scheme,
+    )
+    ckpt = _ckpt(tmp_path / "ckpt")
+    art = builders["torch_int4_wo"]("torch_int4_wo", ckpt, tmp_path / "q4")
+    recorded = qz.read_artifact(art)["manifest"]["scheme"]
+    assert recorded == {
+        "block_bits": 4,
+        "embedding_bits": 8,
+        "block_group_size": 128,
+        "embedding_group_size": 64,
+    }
+    assert _argv_scheme(runner.calls[0]) == qz.QuantScheme(4, 8, 128, 64)
+    builders["torch_int8_wo"]("torch_int8_wo", ckpt, tmp_path / "q8")
+    assert _argv_scheme(runner.calls[1]).block_bits == 8
+
+
+def test_a_built_artifact_with_another_scheme_is_not_reused(tmp_path):
+    from jev_factory.backbones.pointer import quantized as qz
+
+    runner = Runner()
+    common = dict(python="py", decider_repo="/sd", runner=runner, guard=lambda s: None)
+    ckpt = _ckpt(tmp_path / "ckpt")
+    first = Q.default_builders("a" * 40, memory_max="90G", **common)["torch_int4_wo"]
+    first("torch_int4_wo", ckpt, tmp_path / "q4")
+    other = qz.QuantScheme(embedding_group_size=32)
+    second = Q.default_builders("a" * 40, memory_max="90G", scheme=other, **common)
+    with pytest.raises(Q.FormatUnavailable, match="not empty"):
+        second["torch_int4_wo"]("torch_int4_wo", ckpt, tmp_path / "q4")
+    assert len(runner.calls) == 1
