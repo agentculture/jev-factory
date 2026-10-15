@@ -30,7 +30,7 @@ def _run_pins() -> pins.StudentPins:
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def cache(tmp_path: Path) -> Path:
     base = tmp_path / pins.cache_dirname(pins.BASE_REPO)
     base.mkdir()
@@ -64,8 +64,9 @@ def test_flipped_head_byte_fails_closed_naming_file(cache: Path) -> None:
     data = bytearray(p.read_bytes())
     data[0] ^= 0x01
     p.write_bytes(bytes(data))
+    run_pins = _run_pins()
     with pytest.raises(CliError) as exc:
-        pins.verify_pins(cache, _run_pins())
+        pins.verify_pins(cache, run_pins)
     assert "hash-mismatch" in exc.value.message
     assert "head.safetensors" in exc.value.message
 
@@ -73,36 +74,41 @@ def test_flipped_head_byte_fails_closed_naming_file(cache: Path) -> None:
 def test_flipped_adapter_byte_fails(cache: Path) -> None:
     p = cache / pins.cache_dirname(pins.DECIDER_REPO) / "lora" / "adapter_model.safetensors"
     p.write_bytes(ADAPTER + b"x")
+    run_pins = _run_pins()
     with pytest.raises(CliError, match="adapter_model.safetensors"):
-        pins.verify_pins(cache, _run_pins())
+        pins.verify_pins(cache, run_pins)
 
 
 def test_wrong_base_revision_fails(cache: Path) -> None:
     f = cache / pins.cache_dirname(pins.BASE_REPO) / pins.REVISION_FILE
     f.write_text("deadbeef" + "2" * 32)
+    run_pins = _run_pins()
     with pytest.raises(CliError, match="revision-mismatch"):
-        pins.verify_pins(cache, _run_pins())
+        pins.verify_pins(cache, run_pins)
 
 
 def test_wrong_decider_revision_fails(cache: Path) -> None:
     f = cache / pins.cache_dirname(pins.DECIDER_REPO) / pins.REVISION_FILE
     f.write_text("deadbeef" + "2" * 32)
+    run_pins = _run_pins()
     with pytest.raises(CliError, match="revision-mismatch"):
-        pins.verify_pins(cache, _run_pins())
+        pins.verify_pins(cache, run_pins)
 
 
 def test_provenance_disagreeing_with_run_pin_fails(cache: Path) -> None:
     prov = cache / pins.cache_dirname(pins.DECIDER_REPO) / "provenance.json"
     prov.write_text(json.dumps({"adapter_sha256": "f" * 64, "head_sha256": _sha(HEAD)}))
+    run_pins = _run_pins()
     with pytest.raises(CliError, match="provenance"):
-        pins.verify_pins(cache, _run_pins())
+        pins.verify_pins(cache, run_pins)
 
 
 def test_missing_file_and_missing_provenance_fail_closed(cache: Path) -> None:
     dec = cache / pins.cache_dirname(pins.DECIDER_REPO)
     (dec / "provenance.json").unlink()
+    run_pins = _run_pins()
     with pytest.raises(CliError, match="provenance.json"):
-        pins.verify_pins(cache, _run_pins())
+        pins.verify_pins(cache, run_pins)
 
 
 def test_unpinned_revision_is_rejected() -> None:
@@ -144,5 +150,6 @@ def test_adapter_lives_under_lora_not_at_the_repo_root(cache: Path) -> None:
     (dec / "adapter_model.safetensors").write_bytes(b"decoy")  # a root file is never read
     assert pins.verify_pins(cache, _run_pins())["status"] == "ok"
     (dec / "lora" / "adapter_model.safetensors").unlink()
+    run_pins = _run_pins()
     with pytest.raises(CliError, match="lora/adapter_model.safetensors"):
-        pins.verify_pins(cache, _run_pins())
+        pins.verify_pins(cache, run_pins)

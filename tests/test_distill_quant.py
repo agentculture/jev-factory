@@ -218,11 +218,12 @@ def _read(run_dir, name):
 
 def test_refuses_without_a_locked_prereg(tmp_path):
     path, run_dir, _ = setup(tmp_path, lock=False)
+    all_folds = folds()
     with pytest.raises(CliError, match="no distill pre-registration is locked"):
         Q.run_quant(
             prereg_path=path,
             run_dir=run_dir,
-            folds=folds(),
+            folds=all_folds,
             trainer_python="python3",
             decider_repo=tmp_path,
         )
@@ -247,13 +248,16 @@ def test_refuses_bars_that_disagree_with_the_heal_rule(tmp_path):
 
 
 def test_refuses_a_sealed_fold(tmp_path):
+    sealed = {**folds(), "test": [_rec(99)]}
     with pytest.raises(CliError, match="refused"):
-        run(tmp_path, folds={**folds(), "test": [_rec(99)]})
+        run(tmp_path, folds=sealed)
 
 
 def test_the_margin_and_rounds_are_the_decide_rule_constants():
-    assert Q.HEAL_MARGIN_POINTS is HEAL_MARGIN_POINTS and HEAL_MARGIN_POINTS == 3.0
-    assert Q.HEAL_ROUNDS is HEAL_ROUNDS and HEAL_ROUNDS == 1
+    assert Q.HEAL_MARGIN_POINTS is HEAL_MARGIN_POINTS
+    assert HEAL_MARGIN_POINTS == 3.0
+    assert Q.HEAL_ROUNDS is HEAL_ROUNDS
+    assert HEAL_ROUNDS == 1
 
 
 # --------------------------------------------------------------------- the spike
@@ -272,7 +276,8 @@ def test_dry_run_plans_every_format_and_the_heal_and_writes_nothing(tmp_path):
         "torch_int4_wo",
     }
     for f in out["formats"]:
-        assert f["builder"] is False and f["unavailable_reason"] == Q.UNSUPPORTED[f["format"]]
+        assert f["builder"] is False
+        assert f["unavailable_reason"] == Q.UNSUPPORTED[f["format"]]
     for fmt in ("w4a16_fp32_head", "onnx_int8", "onnx_int4", "gguf_side_head"):
         assert "8b6faa5" in Q.UNSUPPORTED[fmt]
     hp = out["heal_plan"]["hyperparameters"]
@@ -322,7 +327,8 @@ def test_apply_measures_every_format_and_records_the_choice_citing_measurements(
         "accuracy",
         "footprint",
     ]
-    assert out["heal_count"] == 0 and trainer.plans == []
+    assert out["heal_count"] == 0
+    assert trainer.plans == []
 
 
 def test_an_unbuildable_format_is_recorded_unavailable_never_dropped(tmp_path):
@@ -340,7 +346,8 @@ def test_an_unbuildable_format_is_recorded_unavailable_never_dropped(tmp_path):
     }
     no_builder = ("onnx_int4", "gguf_side_head", "torch_int8_wo", "torch_int4_wo")
     for fmt in no_builder:  # no builder registered at all
-        assert meas[fmt]["available"] is False and Q.UNSUPPORTED[fmt] == meas[fmt]["reason"]
+        assert meas[fmt]["available"] is False
+        assert Q.UNSUPPORTED[fmt] == meas[fmt]["reason"]
     unavailable = _read(run_dir, Q.DECISION_FILE)["unavailable"]
     assert set(unavailable) == {"onnx_int8", *no_builder}
     assert out["chosen_format"] == "w4a16_fp32_head"
@@ -349,9 +356,11 @@ def test_an_unbuildable_format_is_recorded_unavailable_never_dropped(tmp_path):
 def test_bf16_is_the_outcome_when_no_quantized_format_qualifies(tmp_path):
     builders = FakeBuilders(formats=("bf16",))
     out, run_dir, trainer = run(tmp_path, builders=builders)
-    assert out["chosen_format"] == "bf16" and out["heal_count"] == 0
+    assert out["chosen_format"] == "bf16"
+    assert out["heal_count"] == 0
     decision = _read(run_dir, Q.DECISION_FILE)
-    assert "stays bf16" in decision["reason"] and "available" in decision["reason"]
+    assert "stays bf16" in decision["reason"]
+    assert "available" in decision["reason"]
     assert out["quant_vs_bf16_delta_points"] == 0.0
     assert trainer.plans == []
 
@@ -399,7 +408,9 @@ def test_a_quant_within_the_margin_ships_without_a_heal(tmp_path):
     builders, measurer = only("onnx_int8", 0.9)
     out, run_dir, trainer = run(tmp_path, builders=builders, measurer=measurer)
     assert out["chosen_format"] == "onnx_int8"
-    assert out["heal_count"] == 0 and out["heal"] is None and trainer.plans == []
+    assert out["heal_count"] == 0
+    assert out["heal"] is None
+    assert trainer.plans == []
     assert not (run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE).exists()
 
 
@@ -413,7 +424,8 @@ def test_heal_runs_once_from_the_winner_and_lands_in_the_manifest(tmp_path):
     assert plan["init_from"].endswith("c007/checkpoint")
     assert plan["train_file"].endswith("distill/assemble/train_set.jsonl")
     # the trigger was logged before the trainer ran
-    assert trainer.log_at_call and '"heal_trigger"' in trainer.log_at_call
+    assert trainer.log_at_call
+    assert '"heal_trigger"' in trainer.log_at_call
     # healed checkpoint re-quantized and re-measured (bf16 and the quant)
     heal_builds = [c for c in builders.calls if Q.HEAL_DIR in c[1].parts]
     assert [c[0] for c in heal_builds] == ["bf16", "onnx_int8"]
@@ -445,11 +457,12 @@ def test_a_spent_heal_round_refuses_a_new_trigger_without_training(tmp_path):
     log.write_text(json.dumps({"event": "heal_trigger", "format": "onnx_int8"}) + "\n")
     builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
     trainer = FakeTrainer(log)
+    all_folds = folds()
     with pytest.raises(CliError, match="stop_escalate"):
         Q.run_quant(
             prereg_path=path,
             run_dir=run_dir,
-            folds=folds(),
+            folds=all_folds,
             trainer_python="python3",
             decider_repo=tmp_path,
             apply=True,
@@ -497,8 +510,9 @@ def test_recalibration_fits_on_the_deployed_quants_own_fit_fold(tmp_path):
 
 def test_served_measurer_records_a_non_bundle_artifact_as_unavailable(tmp_path):
     measure = Q.served_measurer(env=None, jobdir=tmp_path / "jobs", port=8123)
+    all_folds = folds()
     with pytest.raises(Q.FormatUnavailable, match="hobson-hf-export/1"):
-        measure("onnx_int8", tmp_path / "model.onnx", folds())
+        measure("onnx_int8", tmp_path / "model.onnx", all_folds)
 
 
 def test_default_builders_register_bf16_and_the_torchao_formats():
@@ -508,7 +522,8 @@ def test_default_builders_register_bf16_and_the_torchao_formats():
     assert set(Q.UNSUPPORTED) == set(Q.FORMATS)
     for fmt in ("torch_int8_wo", "torch_int4_wo"):
         assert "fp32 pointer head" in Q.FORMATS[fmt]
-        assert "python" in Q.UNSUPPORTED[fmt] and "decider_repo" in Q.UNSUPPORTED[fmt]
+        assert "python" in Q.UNSUPPORTED[fmt]
+        assert "decider_repo" in Q.UNSUPPORTED[fmt]
 
 
 # --------------------------------------------------------------------- torchao builders (d3)
@@ -579,7 +594,8 @@ def test_the_torchao_builder_builds_a_verified_artifact_in_the_student_env(tmp_p
     art = builders["torch_int4_wo"]("torch_int4_wo", ckpt, tmp_path / "builds" / "q4")
     assert art == tmp_path / "builds" / "q4"
     assert runner.calls[0][:4] == ["py", "-m", "jev_factory.backbones.pointer.quantized", "build"]
-    assert runner.calls[0][7] == "4" and guarded == ["quantize"]
+    assert runner.calls[0][7] == "4"
+    assert guarded == ["quantize"]
     # a second call on a built artifact for the same checkpoint reuses it
     builders["torch_int4_wo"]("torch_int4_wo", ckpt, tmp_path / "builds" / "q4")
     assert len(runner.calls) == 1
@@ -618,8 +634,9 @@ def test_a_torchao_build_without_a_memory_cap_is_refused_not_recorded_unavailabl
     builders = Q.default_builders(
         "a" * 40, python="py", decider_repo="/sd", runner=runner, guard=lambda stage: None
     )
+    ckpt = _ckpt(tmp_path / "ckpt")
     with pytest.raises(CliError, match="memory cap"):
-        builders["torch_int8_wo"]("torch_int8_wo", _ckpt(tmp_path / "ckpt"), tmp_path / "q8")
+        builders["torch_int8_wo"]("torch_int8_wo", ckpt, tmp_path / "q8")
     assert runner.calls == []
 
 
@@ -646,7 +663,8 @@ def test_the_torchao_builder_builds_through_run_gpu_stage(tmp_path, monkeypatch)
     )
     builders["torch_int8_wo"]("torch_int8_wo", _ckpt(tmp_path / "ckpt"), tmp_path / "q8")
     assert seen[0][0] == "quantize"
-    assert seen[0][1]["memory_max"] == "90G" and seen[0][1]["memory_floor"] == "10G"
+    assert seen[0][1]["memory_max"] == "90G"
+    assert seen[0][1]["memory_floor"] == "10G"
 
 
 def test_a_watchdog_stop_is_recorded_unavailable_with_the_reason(tmp_path, monkeypatch):
@@ -664,8 +682,9 @@ def test_a_watchdog_stop_is_recorded_unavailable_with_the_reason(tmp_path, monke
     builders = Q.default_builders(
         "a" * 40, python="py", decider_repo="/sd", guard=lambda s: None, memory_max="90G"
     )
+    ckpt = _ckpt(tmp_path / "ckpt")
     with pytest.raises(Q.FormatUnavailable, match="memory-floor watchdog"):
-        builders["torch_int4_wo"]("torch_int4_wo", _ckpt(tmp_path / "ckpt"), tmp_path / "q4")
+        builders["torch_int4_wo"]("torch_int4_wo", ckpt, tmp_path / "q4")
 
 
 def test_the_bf16_server_launch_records_that_it_is_not_capped(tmp_path, monkeypatch):
@@ -682,7 +701,8 @@ def test_the_bf16_server_launch_records_that_it_is_not_capped(tmp_path, monkeypa
     measure = Q.served_measurer(env="e", jobdir=tmp_path / "jobs", port=8125)
     measure("bf16", tmp_path / "bundle", folds())
     record = json.loads((tmp_path / "jobs" / "distill-quant-bf16.serve.json").read_text())
-    assert record["argv"] == ["x"] and record["capped"] is False
+    assert record["argv"] == ["x"]
+    assert record["capped"] is False
     assert "long-lived" in record["capped_note"]
 
 
@@ -738,7 +758,8 @@ def test_the_served_measurer_serves_a_torchao_artifact_through_the_wrapper(tmp_p
     out = measure("torch_int8_wo", art, folds())
     assert calls["launch"] == [("distill-quant-torch_int8_wo", art, 8124, tmp_path / "sd")]
     assert calls["ready"] == ["http://127.0.0.1:8124"]
-    assert out["memory"]["probe"] == "proc-rss" and out["memory"]["peak_mib"] == 900.0
+    assert out["memory"]["probe"] == "proc-rss"
+    assert out["memory"]["peak_mib"] == 900.0
     assert set(out["predictions"]) == {"fit", "selection"}
     assert callable(bench.targets[0].pid)
 
@@ -750,8 +771,9 @@ def test_a_torchao_artifact_that_cannot_be_served_is_unavailable(tmp_path, monke
     measure, _calls, _ = _measurer(tmp_path, monkeypatch, ready=die)
     art = tmp_path / "q4"
     _write_artifact(art, 4)
+    all_folds = folds()
     with pytest.raises(Q.FormatUnavailable, match="exited before it was ready"):
-        measure("torch_int4_wo", art, folds())
+        measure("torch_int4_wo", art, all_folds)
 
 
 def test_a_tampered_torchao_artifact_is_unavailable_not_served(tmp_path, monkeypatch):
@@ -761,6 +783,7 @@ def test_a_tampered_torchao_artifact_is_unavailable_not_served(tmp_path, monkeyp
     art = tmp_path / "q8"
     _write_artifact(art, 8)
     (art / qz.TORSO_FILE).write_bytes(b"tampered")
+    all_folds = folds()
     with pytest.raises(Q.FormatUnavailable, match="sha256"):
-        measure("torch_int8_wo", art, folds())
+        measure("torch_int8_wo", art, all_folds)
     assert calls["launch"] == []

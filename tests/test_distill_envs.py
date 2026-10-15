@@ -71,22 +71,25 @@ def test_environment_needs_python_xor_digest_and_lock_hash():
 
 @pytest.mark.parametrize("rev", ["main", "", "v1.0", "abc123", "latest"])
 def test_unpinned_hf_revision_refused(rev, tmp_path):
+    spec = _server(hf_revision=rev)
     with pytest.raises(CliError) as exc:
-        envs.launch_server(tmp_path, "s", _server(hf_revision=rev))
+        envs.launch_server(tmp_path, "s", spec)
     assert "revision" in exc.value.message
 
 
 @pytest.mark.parametrize("ver", ["", "latest", ">=1.0", "~=1.0", "1.*", "*"])
 def test_unpinned_package_version_refused(ver, tmp_path):
+    spec = _server(packages={"transformers": ver})
     with pytest.raises(CliError) as exc:
-        envs.launch_server(tmp_path, "s", _server(packages={"transformers": ver}))
+        envs.launch_server(tmp_path, "s", spec)
     assert "transformers" in exc.value.message
 
 
 @pytest.mark.parametrize("host", ["0.0.0.0", "localhost", "::1", "192.168.1.5", ""])
 def test_non_loopback_bind_refused(host, tmp_path):
+    spec = _server(host=host)
     with pytest.raises(CliError) as exc:
-        envs.launch_server(tmp_path, "s", _server(host=host))
+        envs.launch_server(tmp_path, "s", spec)
     assert "127.0.0.1" in exc.value.message
 
 
@@ -128,13 +131,16 @@ def test_strands_decider_argv_is_the_real_serve_cli_on_a_local_bundle(tmp_path):
     assert argv[:5] == ["/opt/venv/bin/python", "-m", "strands_decider.cli", "serve", str(bundle)]
     assert argv[argv.index("--host") + 1] == "127.0.0.1"
     assert argv[argv.index("--port") + 1] == "8123"
-    assert "--model" not in argv and "--revision" not in argv and "strands_decider" not in argv[2:3]
+    assert "--model" not in argv
+    assert "--revision" not in argv
+    assert "strands_decider" not in argv[2:3]
     assert argv == envs.build_argv(_server(model=str(bundle)))
 
 
 def test_strands_decider_refuses_a_hub_id_instead_of_a_local_bundle(tmp_path):
+    spec = _server(model="StrandsAgents/strands-decider-2B-hobson-v21")
     with pytest.raises(CliError):
-        envs.build_argv(_server(model="StrandsAgents/strands-decider-2B-hobson-v21"))
+        envs.build_argv(spec)
 
 
 def test_valid_launch_uses_detach_with_loopback_argv(tmp_path, monkeypatch):
@@ -149,7 +155,8 @@ def test_valid_launch_uses_detach_with_loopback_argv(tmp_path, monkeypatch):
     assert envs.launch_server(tmp_path, "student", _server(model=str(bundle))) == 4242
     argv = seen["argv"]
     assert argv[0] == "/opt/venv/bin/python"
-    assert "127.0.0.1" in argv and "0.0.0.0" not in argv
+    assert "127.0.0.1" in argv
+    assert "0.0.0.0" not in argv
 
 
 def test_image_launch_binds_loopback_and_pins_digest(tmp_path, monkeypatch):

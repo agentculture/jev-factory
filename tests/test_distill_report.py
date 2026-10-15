@@ -105,10 +105,13 @@ def test_a_good_run_passes_every_c42_and_c43_bar_each_with_n_and_ci():
     assert names == list(dp.TEST_BARS)
     assert [b["bar"] for b in rep["c43"]["bars"]] == list(dp.QUANT_BARS)
     acc = _bar(rep, "accuracy_diff_ci_lower_min")
-    assert acc["n"] == 40 and acc["ci_low"] is not None and acc["ci_high"] is not None
+    assert acc["n"] == 40
+    assert acc["ci_low"] is not None
+    assert acc["ci_high"] is not None
     assert acc["point"] == pytest.approx(0.9 - 0.5)
     assert _bar(rep, "gap_closure_min")["value"] == pytest.approx(0.4 / 0.45)
-    assert rep["c42"]["side"] == "test" and rep["c42"]["pool"] == R.HEADLINE
+    assert rep["c42"]["side"] == "test"
+    assert rep["c42"]["pool"] == R.HEADLINE
 
 
 def test_every_c42_bar_follows_the_locked_prereg():
@@ -168,7 +171,8 @@ def test_the_three_models_are_resampled_jointly():
     rep = _build(recs, preds)
     diff = rep["sides"]["test"]["pools"][R.HEADLINE]["stats"]["accuracy_diff_student_v21"]
     # Unpaired resampling would give a spread; paired draws give exactly zero every time.
-    assert diff["ci_low"] == 0.0 and diff["ci_high"] == 0.0
+    assert diff["ci_low"] == 0.0
+    assert diff["ci_high"] == 0.0
     assert rep["c42"]["result"] == R.MISSED
     assert "accuracy_diff_ci_lower_min" in rep["c42"]["missed"]
 
@@ -196,7 +200,8 @@ def test_higher_accuracy_with_higher_ece_than_v21_is_a_regression():
     rep = _build(recs, preds, prereg=dp.validate(doc))
     assert rep["regression"] is True
     assert rep["sides"]["test"]["pools"][R.HEADLINE]["regression"]["regression"] is True
-    assert rep["c42"]["result"] == R.MISSED and "regression" in rep["c42"]["missed"]
+    assert rep["c42"]["result"] == R.MISSED
+    assert "regression" in rep["c42"]["missed"]
     assert rep["result"] == R.MISSED
 
 
@@ -247,8 +252,10 @@ def test_latency_and_memory_are_reported_for_all_three_on_the_same_box():
     table = rep["runtime"]
     assert set(table["models"]) == set(R.MODELS)
     for row in table["models"].values():
-        assert row["latency_median_s"] is not None and row["latency_p95_s"] is not None
-        assert row["peak_memory_mib"] == 1000.0 and row["memory_probe"] == "proc-rss"
+        assert row["latency_median_s"] is not None
+        assert row["latency_p95_s"] is not None
+        assert row["peak_memory_mib"] == 1000.0
+        assert row["memory_probe"] == "proc-rss"
     assert table["same_box"] is True
     assert _bar(rep, "latency_ratio_max")["value"] == pytest.approx(0.1)
     split = _build(recs, _good(recs), runtime=_runtime(hosts=("a", "b", "a")))
@@ -281,7 +288,8 @@ def test_clef_calibrated_row_is_reported_beside_raw_clef():
         cal={"clef": None, "stock_v21": None, "student": None, "clef_calibrated": cal},
     )
     stats = rep["sides"]["test"]["pools"][R.HEADLINE]["stats"]
-    assert "clef_calibrated.ece" in stats and "clef.ece" in stats
+    assert "clef_calibrated.ece" in stats
+    assert "clef.ece" in stats
     assert stats["clef_calibrated.accuracy"]["value"] == stats["clef.accuracy"]["value"]
 
 
@@ -318,14 +326,18 @@ def test_report_shows_per_kind_coverage_and_selective_accuracy_of_the_gated_stud
     preds["student"][-1] = _row(recs[-1], None)  # one unanswered question
     rep = _build(recs, preds, gate=GATE)
     dg = rep["decision_gate"]
-    assert dg["fitted"] is True and dg["gated"] is False and dg["reason"]
+    assert dg["fitted"] is True
+    assert dg["gated"] is False
+    assert dg["reason"]
     assert dg["thresholds_by_kind"] == GATE["thresholds_by_kind"]
     choice = dg["sides"]["test"]["choice"]
     # floor 0.9 answers the 36 confident right ones; the 3 hesitant and 1 unanswered abstain
     assert choice["coverage"]["value"] == pytest.approx(36 / 40)
     assert choice["selective_accuracy"]["value"] == 1.0
-    assert choice["coverage"]["n"] == 40 and choice["coverage"]["ci_low"] is not None
-    assert choice["abstained"] == 4 and choice["unanswered"] == 1
+    assert choice["coverage"]["n"] == 40
+    assert choice["coverage"]["ci_low"] is not None
+    assert choice["abstained"] == 4
+    assert choice["unanswered"] == 1
     assert dg["sides"]["test"]["all"]["coverage"]["value"] == pytest.approx(36 / 40)
     assert dg["sides"]["test"]["noul"]["coverage"]["n"] == 0
     # reported only: the gate never changes the c42 verdict
@@ -336,4 +348,6 @@ def test_report_shows_per_kind_coverage_and_selective_accuracy_of_the_gated_stud
 def test_report_without_a_fitted_gate_says_so():
     recs = [_rec(i) for i in range(40)]
     dg = _build(recs, _good(recs))["decision_gate"]
-    assert dg["fitted"] is False and dg["sides"] == {} and dg["reason"]
+    assert dg["fitted"] is False
+    assert dg["sides"] == {}
+    assert dg["reason"]
