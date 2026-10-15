@@ -350,6 +350,9 @@ class Env:
             "".join(json.dumps(r.to_json(), sort_keys=True) + "\n" for r in self.records), "utf-8"
         )
         cache = self._pin_cache(tmp_path / "cache", monkeypatch)
+        probe, side = tmp_path / "probe.jsonl", tmp_path / "side.txt"  # operator-held, t16
+        probe.write_text(json.dumps({"id": "probe-only", "state": "PROBE"}) + "\n", "utf-8")
+        side.write_text("zz-side-model\n", "utf-8")
         (self.work / "run.toml").write_text(
             "\n".join(
                 [
@@ -360,6 +363,8 @@ class Env:
                     'licence = "Apache-2.0"',
                     f"distill_records = {json.dumps(str(records_file))}",
                     f"distill_pin_cache = {json.dumps(str(cache))}",
+                    f"distill_probe_set = {json.dumps(str(probe))}",
+                    f"distill_side_model_list = {json.dumps(str(side))}",
                     f'distill_decider_revision = "{REV}"',
                     f"distill_decider_repo = {json.dumps(str(tmp_path / 'strands-decider'))}",
                     'distill_trainer_python = "python3"',

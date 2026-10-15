@@ -20,6 +20,12 @@ Two private upload folders are written under one output directory:
     Apache-2.0 or MIT**, each row keeping its ``licence``, ``source`` and ``target_source``;
     the rest are counted by licence in ``dataset.json`` and left out.
 
+Both folders carry a ``NOTICE`` listing every attribution string from the dataset manifest
+(``licences`` table, ``attribution`` key at any depth, plus any per-record ``attribution``
+field); a ``cc-by-4.0`` record in the dataset bundle without one refuses the build and the
+upload. Before anything is sent, :func:`upload_bundles` runs the pre-upload scans
+(:func:`pre_upload_scan`) and prints file and line only.
+
 Neither folder ever holds the sealed held-out or test text; a training row whose record id is
 on a sealed side refuses the build. A symlink anywhere in an input refuses it. Nothing here
 uploads: :func:`upload_bundles` calls :mod:`jev_factory.release.hub`, which sends nothing
@@ -32,6 +38,8 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import subprocess  # nosec B404 -- runs the repo's own scan-secrets.py, argv list, no shell
+import sys
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -50,7 +58,12 @@ from jev_factory.release import hub, scan
 
 MODEL_DIR = "model"
 DATASET_DIR = "dataset"
-ALLOWED_LICENCES = frozenset({"apache-2.0", "mit"})
+ALLOWED_LICENCES = frozenset({"apache-2.0", "mit", "cc-by-4.0"})
+ATTRIBUTION_LICENCES = frozenset({"cc-by-4.0"})
+NOTICE_FILE = "NOTICE"
+PROBE_SET_KEY = "distill_probe_set"
+SIDE_MODEL_LIST_KEY = "distill_side_model_list"
+SECRETS_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "scan-secrets.py"
 BUNDLE_FILE = "bundle.json"
 CALIBRATION_FILE = "calibration.json"
 GATE_FILE = "gate.json"
@@ -258,11 +271,74 @@ def _stage_student(src: Path, out: Path, calibration: Mapping[str, Any]) -> dict
 
 
 def _licence_ok(row: Mapping[str, Any]) -> bool:
-    return str(row.get("licence", "")).strip().lower() in ALLOWED_LICENCES
+    """Apache-2.0 and MIT rows pass; a cc-by-4.0 row passes only with a non-blank attribution."""
+    licence = str(row.get("licence", "")).strip().lower()
+    if licence in ATTRIBUTION_LICENCES:
+        return bool(str(row.get("attribution") or "").strip())
+    return licence in ALLOWED_LICENCES
 
 
 def _index_row(row: Mapping[str, Any]) -> dict[str, Any]:
     return {k: row.get(k) for k in _INDEX_KEYS}
+
+
+# --------------------------------------------------------------------- NOTICE
+
+
+def _collect_attributions(node: Any, found: set[str]) -> None:
+    """Every ``attribution`` string (or list of strings) at any depth of *node*."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in ("attribution", "attributions"):
+                items = value if isinstance(value, list) else [value]
+                found.update(i.strip() for i in items if isinstance(i, str) and i.strip())
+            else:
+                _collect_attributions(value, found)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_attributions(item, found)
+
+
+def attribution_strings(manifest: Mapping[str, Any] | None, rows: Iterable[Mapping[str, Any]]):
+    """Sorted, de-duplicated attribution strings from the dataset manifest's licence table
+    (``licences``, key ``attribution``, a string or a list) and the rows' own field."""
+    found: set[str] = set()
+    for table in ("licences", "licence_table"):
+        _collect_attributions((manifest or {}).get(table), found)
+    _collect_attributions(list(rows), found)
+    return sorted(found)
+
+
+def notice_text(attributions: Iterable[str]) -> bytes:
+    lines = ["NOTICE", "", "This bundle includes material under the attributions below.", ""]
+    lines.extend(f"- {a}" for a in attributions)
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def _needs_notice(rows: Iterable[Mapping[str, Any]]) -> bool:
+    return any(str(r.get("licence", "")).strip().lower() in ATTRIBUTION_LICENCES for r in rows)
+
+
+def _read_manifest(path: Path | None) -> dict[str, Any] | None:
+    if path is None or not (path.is_file() or path.is_symlink()):
+        return None
+    return _read_json(path, "dataset manifest")
+
+
+def check_notice(folder: Path) -> None:
+    """Refuse a dataset bundle that holds a cc-by-4.0 record but no non-empty ``NOTICE``."""
+    train = folder / TRAIN_FILE
+    if not train.is_file():
+        return
+    rows = [json.loads(ln) for ln in train.read_text("utf-8").splitlines() if ln.strip()]
+    if not _needs_notice(rows):
+        return
+    notice = folder / NOTICE_FILE
+    if not notice.is_file() or not notice.read_text("utf-8").strip():
+        raise _refuse(
+            f"{folder}: a cc-by-4.0 record is present but there is no {NOTICE_FILE}",
+            "write the attribution NOTICE from the dataset manifest (rebuild the bundle)",
+        )
 
 
 # --------------------------------------------------------------------- build
@@ -311,6 +387,7 @@ def build_bundles(
     deviation_id: str | None = None,
     deviations: Iterable[str] = (),
     provenance_extra: Mapping[str, Any] | None = None,
+    dataset_manifest: Path | str | None = None,
 ) -> dict[str, Any]:
     """Write ``<out_dir>/model`` and ``<out_dir>/dataset`` (scanned); return a summary."""
     run_dir, out_dir, prereg_path = Path(run_dir), Path(out_dir), Path(prereg_path)
@@ -337,6 +414,18 @@ def build_bundles(
     if not keep:
         raise _refuse("no training row has an Apache-2.0 or MIT licence; no dataset to bundle")
     excluded = Counter(str(r.get("licence", "")) for r in rows if not _licence_ok(r))
+
+    manifest_path = Path(dataset_manifest) if dataset_manifest else None
+    if manifest_path is None and dataset_dir:
+        manifest_path = Path(dataset_dir) / "manifest.json"
+    attributions = attribution_strings(_read_manifest(manifest_path), keep)
+    if _needs_notice(keep) and not attributions:
+        raise _refuse(
+            "a cc-by-4.0 record is in the dataset bundle but the dataset manifest holds no "
+            "attribution string",
+            "the dataset build must record an attribution per licence; no NOTICE, no bundle",
+        )
+    notice = notice_text(attributions)
 
     src = _artifact_path(run_dir, student["artifact"])
     info = _stage_student(src, model_out, calibration)
@@ -366,6 +455,7 @@ def build_bundles(
         MANIFEST_COPY: assemble_bytes,
     }.items():
         _write(model_out / name, data)
+    _write(model_out / NOTICE_FILE, notice)
 
     text = "".join(json.dumps(r, sort_keys=True, ensure_ascii=False) + "\n" for r in keep)
     meta = {
@@ -384,6 +474,8 @@ def build_bundles(
         DATASET_MANIFEST: _dump(meta),
     }.items():
         _write(data_out / name, data)
+    _write(data_out / NOTICE_FILE, notice)
+    check_notice(data_out)
     for folder in (model_out, data_out):
         _no_symlinks(folder)
         scan.write_scan(folder)
@@ -397,6 +489,148 @@ def build_bundles(
         "dataset_rows": len(keep),
         "rows_excluded_by_licence": meta["rows_excluded_by_licence"],
     }
+
+
+# --------------------------------------------------------------------- pre-upload scans
+
+Hit = tuple[str, int]  # (file relative to the bundle, 1-based line); never the content
+
+
+def _config_path(config: Any, key: str) -> Path:
+    value = None
+    for source in (getattr(config, "values", None) or {}, getattr(config, "extra", None) or {}):
+        value = value or source.get(key)
+    if not value:
+        raise _refuse(
+            f"run config key {key!r} is not set; the pre-upload scan cannot run without it",
+            f"set {key} to the operator-held path (never commit the file)",
+        )
+    path = Path(str(value)).expanduser()
+    if not path.is_file():
+        raise _refuse(f"run config key {key!r} names a file that does not exist")
+    return path
+
+
+def _text_files(folder: Path) -> list[tuple[str, str]]:
+    out = []
+    for path in sorted(p for p in folder.rglob("*") if p.is_file()):
+        rel = path.relative_to(folder).as_posix()
+        if rel == scan.SCAN_FILE:
+            continue
+        try:
+            out.append((rel, path.read_text(encoding="utf-8")))
+        except (UnicodeDecodeError, OSError):
+            continue  # weight binaries; hub.upload's own scan covers them
+    return out
+
+
+def _side_model_names(path: Path) -> list[str]:
+    names = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        name = line.strip()
+        if name and not name.startswith("#"):
+            names.append(name.lower())
+    return names
+
+
+def _side_model_hits(files: list[tuple[str, str]], names: list[str]) -> list[Hit]:
+    hits = []
+    for rel, text in files:
+        for number, line in enumerate(text.splitlines(), start=1):
+            low = line.lower()
+            if any(n in low for n in names):
+                hits.append((rel, number))
+    return hits
+
+
+def _probe_keys(path: Path) -> tuple[set[str], set[str]]:
+    """``(ids, state sha256s)`` of the Clef probe set (a JSON list/object or JSONL)."""
+    raw = path.read_text(encoding="utf-8")
+    try:
+        doc = json.loads(raw)
+        records = doc if isinstance(doc, list) else doc.get("records", [doc])
+    except ValueError:
+        records = [json.loads(ln) for ln in raw.splitlines() if ln.strip()]
+    ids: set[str] = set()
+    states: set[str] = set()
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        ids.update(str(rec[k]) for k in ("id", "record_id") if rec.get(k))
+        if isinstance(rec.get("state"), str) and rec["state"].strip():
+            states.add(_sha256_bytes(rec["state"].encode("utf-8")))
+    return ids, states
+
+
+def _line_is_probe(line: str, ids: set[str], states: set[str]) -> bool:
+    try:
+        rec = json.loads(line)
+    except ValueError:
+        return False
+    if not isinstance(rec, dict):
+        return False
+    if any(str(rec.get(k)) in ids for k in ("id", "record_id") if rec.get(k)):
+        return True
+    state = rec.get("state")
+    return isinstance(state, str) and _sha256_bytes(state.encode("utf-8")) in states
+
+
+def _probe_hits(files: list[tuple[str, str]], path: Path) -> list[Hit]:
+    ids, states = _probe_keys(path)
+    hits = []
+    for rel, text in files:
+        for number, line in enumerate(text.splitlines(), start=1):
+            if line.strip() and _line_is_probe(line, ids, states):
+                hits.append((rel, number))
+    return hits
+
+
+def _credential_hits(files: list[tuple[str, str]]) -> list[Hit]:
+    hits = []
+    for rel, text in files:
+        found = (*scan.scan_credentials(rel, text), *scan.scan_endpoints(rel, text))
+        hits.extend((rel, f.line) for f in found)
+        hits.extend((rel, number) for number, _ in scan.private_hosts(text))
+    return hits
+
+
+def _script_flags(folder: Path, files: list[tuple[str, str]]) -> bool:
+    """Whether scripts/scan-secrets.py exits non-zero on the bundle's text files (exit code
+    only: its output carries matched values and is discarded)."""
+    if not SECRETS_SCRIPT.is_file() or not files:
+        return False
+    argv = [sys.executable, str(SECRETS_SCRIPT), *(str(folder / rel) for rel, _ in files)]
+    done = subprocess.run(  # nosec B603 -- fixed argv, repo script, no shell
+        argv, capture_output=True, check=False, timeout=300
+    )
+    return done.returncode != 0
+
+
+def pre_upload_scan(bundles: Mapping[str, Any], config: Any) -> None:
+    """Refuse (file and line only) on a secret, hostname/private IP, side-model name or any
+    record of the Clef probe set. The probe set and side-model list are read from the paths
+    in run config (``distill_probe_set``, ``distill_side_model_list``); their content is
+    never printed or stored."""
+    probe_path = _config_path(config, PROBE_SET_KEY)
+    names = _side_model_names(_config_path(config, SIDE_MODEL_LIST_KEY))
+    lines: list[str] = []
+    for key in ("model", "dataset"):
+        folder = Path(bundles[key])
+        files = _text_files(folder)
+        found = {
+            "secret/host": _credential_hits(files),
+            "side-model name": _side_model_hits(files, names),
+            "probe-set record": _probe_hits(files, probe_path),
+        }
+        for kind, hits in found.items():
+            lines.extend(f"{kind}: {key}/{rel}:{n}" for rel, n in sorted(set(hits)))
+        if _script_flags(folder, files) and not found["secret/host"]:
+            lines.append(f"secret: {key}/ (scan-secrets.py hit; line unavailable)")
+    if lines:
+        raise _refuse(
+            "pre-upload scan refused the bundles (file:line only):\n  " + "\n  ".join(lines),
+            "remove the flagged lines and rebuild; nothing was sent",
+        )
 
 
 # --------------------------------------------------------------------- upload
@@ -416,6 +650,8 @@ def upload_bundles(
 
     Dry-run unless *apply*: nothing is sent. Repositories are created private, fetched back
     and compared by sha256; there is no public call."""
+    check_notice(Path(bundles["dataset"]))
+    pre_upload_scan(bundles, config)
     results = {}
     for key, repo, repo_type in (
         ("model", model_repo, "model"),

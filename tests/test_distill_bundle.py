@@ -327,12 +327,24 @@ def test_no_apache_or_mit_rows_refuses_the_dataset(tmp_path):
 # --------------------------------------------------------------------- upload (fake hub)
 
 
-def _upload(bundles, hub, *, apply, environ=None):
+def _scan_inputs(tmp_path: Path, probe_rows=(), names=("zz-side-model",)) -> dict:
+    """Operator-held scan inputs, outside the bundle; returns the config overrides."""
+    private = tmp_path / "private"
+    private.mkdir(exist_ok=True)
+    probe = private / "probe.jsonl"
+    _jsonl(probe, list(probe_rows) or [{"id": "probe-1", "state": "PROBE-STATE-TEXT"}])
+    side = private / "side.txt"
+    side.write_text("# private\n" + "\n".join(names) + "\n", encoding="utf-8")
+    return {B.PROBE_SET_KEY: str(probe), B.SIDE_MODEL_LIST_KEY: str(side)}
+
+
+def _upload(bundles, hub, *, apply, environ=None, scan_cfg=None, tmp_path=None):
+    cfg = scan_cfg if scan_cfg is not None else _scan_inputs(tmp_path or bundles["model"].parent)
     return B.upload_bundles(
         bundles,
         model_repo=REPO,
         dataset_repo=DATASET_REPO,
-        config=make_config(),
+        config=make_config(**cfg),
         apply=apply,
         hub_client=hub,
         environ=environ if environ is not None else {"HF_TOKEN": TOKEN},
@@ -383,3 +395,157 @@ def test_no_public_visibility_call_exists_in_the_source():
     src = Path(B.__file__).read_text()
     assert "private=False" not in src
     assert "make_public" not in src
+
+
+# --------------------------------------------------------------------- NOTICE (t16)
+
+CCBY = "Dataset X by Alice, CC BY 4.0, https://example.org/x"
+
+
+def _ccby_rows():
+    row = {**_row("t2", "q", "cc-by-4.0", "human_gold"), "attribution": CCBY}
+    return [_row("t1", "q", "mit"), row]
+
+
+def _manifest(tmp_path: Path, attribution=CCBY) -> Path:
+    path = tmp_path / "dataset" / "manifest.json"
+    table = {"s": {"licences": ["cc-by-4.0"], "allowed": True}}
+    if attribution:
+        table["s"]["attribution"] = attribution
+    path.write_text(json.dumps({"licences": table}), encoding="utf-8")
+    return path
+
+
+def test_notice_lists_every_manifest_attribution_in_both_bundles(tmp_path):
+    """AC1: NOTICE carries every attribution string, in the model and the dataset bundle."""
+    run, prereg_path, ds = make_run(tmp_path, rows=_ccby_rows())
+    _manifest(tmp_path, [CCBY, "Other by Bob, CC BY 4.0"])
+    out = tmp_path / "out"
+    B.build_bundles(run, out, prereg_path=prereg_path, dataset_dir=ds)
+    for side in ("model", "dataset"):
+        text = (out / side / "NOTICE").read_text()
+        assert CCBY in text
+        assert "Other by Bob, CC BY 4.0" in text
+
+
+def test_cc_by_record_without_attribution_is_left_out_of_the_dataset(tmp_path):
+    """AC1: a cc-by-4.0 record with no attribution never reaches the dataset bundle."""
+    rows = [_row("t1", "q", "mit"), _row("t2", "q", "cc-by-4.0")]
+    run, prereg_path, ds = make_run(tmp_path, rows=rows)
+    out = tmp_path / "out"
+    B.build_bundles(run, out, prereg_path=prereg_path, dataset_dir=ds)
+    text = (out / "dataset" / "train.jsonl").read_text()
+    assert "t2" not in text
+
+
+def test_cc_by_dataset_bundle_without_notice_is_refused_at_upload(tmp_path):
+    """AC1: removing NOTICE from a built cc-by dataset bundle makes upload refuse."""
+    run, prereg_path, ds = make_run(tmp_path, rows=_ccby_rows())
+    _manifest(tmp_path)
+    out = tmp_path / "out"
+    B.build_bundles(run, out, prereg_path=prereg_path, dataset_dir=ds)
+    (out / "dataset" / "NOTICE").unlink()
+    with pytest.raises(CliError, match="NOTICE"):
+        _upload(
+            {"model": out / "model", "dataset": out / "dataset"},
+            FakeHub(tmp_path / "r"),
+            apply=False,
+            tmp_path=tmp_path,
+        )
+
+
+# --------------------------------------------------------------------- pre-upload scans (t16)
+
+
+def _refusal(tmp_path, out, **kw) -> str:
+    bundles = {"model": out / "model", "dataset": out / "dataset"}
+    hub = FakeHub(tmp_path / "remote")
+    with pytest.raises(CliError) as err:
+        _upload(bundles, hub, apply=False, tmp_path=tmp_path, **kw)
+    assert hub.calls == []
+    return err.value.message
+
+
+def _append(path: Path, line: str) -> None:
+    path.write_text(path.read_text() + line + "\n", encoding="utf-8")
+
+
+def test_upload_refuses_a_side_model_name_and_prints_file_and_line_only(tmp_path):
+    """AC2: a side-model name from the operator list refuses; only file:line is printed."""
+    _, out, _ = build(tmp_path)
+    _append(out / "model" / "distill_provenance.json", "note ZZ-Side-Model here")
+    message = _refusal(tmp_path, out)
+    assert "model/distill_provenance.json:" in message
+    assert "zz-side-model" not in message.lower()
+
+
+def test_upload_refuses_a_private_ip(tmp_path):
+    """AC2: a hostname/private-IP hit refuses."""
+    _, out, _ = build(tmp_path)
+    _append(out / "dataset" / "dataset.json", "host 10.20.30.40")
+    message = _refusal(tmp_path, out)
+    assert "dataset/dataset.json:" in message
+    assert "10.20.30.40" not in message
+
+
+def test_upload_refuses_a_secret(tmp_path):
+    """AC2: a secret-shaped string refuses, without echoing it."""
+    _, out, _ = build(tmp_path)
+    secret = "AKIA" + "ABCDEFGHIJKLMNOP"
+    _append(out / "model" / "gate.json", secret)
+    message = _refusal(tmp_path, out)
+    assert "model/gate.json:" in message
+    assert secret not in message
+
+
+def test_upload_refuses_a_probe_set_record_by_id_or_state(tmp_path):
+    """AC2: any record of the Clef probe set in the bundle refuses (id or state match)."""
+    _, out, _ = build(tmp_path)
+    _append(out / "dataset" / "train.jsonl", json.dumps({"record_id": "probe-1"}))
+    message = _refusal(tmp_path, out)
+    assert "dataset/train.jsonl:" in message
+    assert "probe-1" not in message
+
+
+def test_upload_refuses_a_probe_state_under_another_id(tmp_path):
+    """AC2: a probe state text reused under a new record id still refuses."""
+    _, out, _ = build(tmp_path)
+    _append(
+        out / "dataset" / "train.jsonl", json.dumps({"record_id": "n", "state": "PROBE-STATE-TEXT"})
+    )
+    message = _refusal(tmp_path, out)
+    assert "probe-set record" in message
+    assert "PROBE-STATE-TEXT" not in message
+
+
+def test_upload_refuses_when_the_scan_inputs_are_not_configured(tmp_path):
+    """AC2: fail closed, no probe set or side-model list path means no upload."""
+    _, out, _ = build(tmp_path)
+    bundles = {"model": out / "model", "dataset": out / "dataset"}
+    with pytest.raises(CliError, match=B.PROBE_SET_KEY):
+        _upload(bundles, FakeHub(tmp_path / "r"), apply=False, scan_cfg={})
+
+
+def test_cc_by_rows_need_their_own_attribution_and_the_manifest_licence_table(tmp_path):
+    """Scope addition: cc-by-4.0 rows are admitted only with a non-blank attribution; NOTICE
+    is written from t7's licence_table whenever one is bundled."""
+    rows = [
+        _row("t1", "q", "mit"),
+        {**_row("t2", "q", "cc-by-4.0"), "attribution": "Row by Carol, CC BY 4.0"},
+        {**_row("t3", "q", "cc-by-4.0"), "attribution": "  "},
+        _row("t4", "q", "cc-by-4.0"),
+    ]
+    run, prereg_path, ds = make_run(tmp_path, rows=rows)
+    table = {"cc-by-4.0": {"count": 3, "attributions": [CCBY]}}
+    (ds / "manifest.json").write_text(json.dumps({"licence_table": table}), encoding="utf-8")
+    out = tmp_path / "out"
+    B.build_bundles(run, out, prereg_path=prereg_path, dataset_dir=ds)
+    kept = [
+        json.loads(x)["record_id"]
+        for x in (out / "dataset" / "train.jsonl").read_text().splitlines()
+    ]
+    assert kept == ["t1", "t2"]
+    for side in ("model", "dataset"):
+        text = (out / side / "NOTICE").read_text()
+        assert CCBY in text
+        assert "Row by Carol, CC BY 4.0" in text
