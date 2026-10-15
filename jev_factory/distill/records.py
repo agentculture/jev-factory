@@ -80,6 +80,18 @@ class DuplicateCriterion(RecordError):
     code = "duplicate_criterion"
 
 
+class MissingAttribution(RecordError):
+    code = "missing_attribution"
+
+
+class InvalidSystemOneBody(RecordError):
+    code = "invalid_systemone_body"
+
+
+#: Licences that oblige the redistributor to credit the source.
+ATTRIBUTION_LICENCES: frozenset[str] = frozenset({"cc-by-4.0"})
+
+
 Criteria = tuple[tuple[str, str], ...]
 
 
@@ -118,20 +130,19 @@ class Question:
     def names(self) -> tuple[str, ...]:
         return tuple(name for name, _ in self.criteria)
 
-    def validate(self, qid: str = "?") -> None:
+    def validate(self, qid: str = "?", rid: str = "?") -> None:
+        where = f"record {rid!r} question {qid!r}"
         if self.type not in QUESTION_TYPES:
-            raise UnknownQuestionType(
-                f"question {qid!r}: {self.type!r} not in {sorted(QUESTION_TYPES)}"
-            )
+            raise UnknownQuestionType(f"{where}: {self.type!r} not in {sorted(QUESTION_TYPES)}")
         names = self.names
         if len(set(names)) != len(names):
-            raise DuplicateCriterion(f"question {qid!r}: duplicate criteria in {list(names)}")
+            raise DuplicateCriterion(f"{where}: duplicate criteria in {list(names)}")
         if self.type == "score" and len(names) < 2:
-            raise TooFewLevels(f"question {qid!r}: score needs >= 2 levels, got {len(names)}")
+            raise TooFewLevels(f"{where}: score needs >= 2 levels, got {len(names)}")
         if self.type == "choice" and len(names) < 2:
-            raise TooFewOptions(f"question {qid!r}: choice needs >= 2 options, got {len(names)}")
+            raise TooFewOptions(f"{where}: choice needs >= 2 options, got {len(names)}")
         if self.type == "noul" and names != NOUL_OPTIONS:
-            raise TooFewOptions(f"question {qid!r}: noul needs options {list(NOUL_OPTIONS)}")
+            raise TooFewOptions(f"{where}: noul needs options {list(NOUL_OPTIONS)}")
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {"type": self.type, "criteria": [list(c) for c in self.criteria]}
@@ -236,6 +247,8 @@ class Record:
     hf_id: str | None = None
     #: Fold-grouping key (typed-decisions ``workflow``); falls back to identical state.
     group: str | None = None
+    #: Credit line for the source; required when the licence is cc-by-4.0.
+    attribution: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "questions", dict(self.questions))
@@ -252,14 +265,38 @@ class Record:
             raise UnknownGoldProvenance(
                 f"record {self.id!r}: {self.gold_provenance!r} not in {sorted(GOLD_PROVENANCES)}"
             )
+        if self.licence.strip().lower() in ATTRIBUTION_LICENCES and not (
+            isinstance(self.attribution, str) and self.attribution.strip()
+        ):
+            raise MissingAttribution(
+                f"record {self.id!r}: licence {self.licence!r} needs an attribution string"
+            )
+        self._check_systemone_body()
         for qid, question in self.questions.items():
-            question.validate(qid)
+            question.validate(qid, self.id)
             if qid not in self.gold:
                 raise MissingField(f"record {self.id!r}: no gold for question {qid!r}")
             self.gold[qid].check(qid, question, self.id)
         extra = sorted(set(self.gold) - set(self.questions))
         if extra:
             raise GoldOutsideOptions(f"record {self.id!r}: gold for unknown questions {extra}")
+
+    def _check_systemone_body(self) -> None:
+        """The record must render as a well-formed /v1/systemone body (``{state, questions}``)."""
+        where = f"record {self.id!r}"
+        if not isinstance(self.state, str):
+            raise InvalidSystemOneBody(f"{where}: state must be a string")
+        for qid, question in self.questions.items():
+            if not isinstance(qid, str) or not qid.strip():
+                raise InvalidSystemOneBody(
+                    f"{where}: question id {qid!r} is not a non-empty string"
+                )
+            if question.instructions is not None and not isinstance(question.instructions, str):
+                raise InvalidSystemOneBody(f"{where} question {qid!r}: instructions not a string")
+            if question.type == "noul":
+                continue
+            if any(not name.strip() for name in question.names):
+                raise InvalidSystemOneBody(f"{where} question {qid!r}: blank option name")
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -272,7 +309,7 @@ class Record:
             "licence": self.licence,
             "gold_provenance": self.gold_provenance,
         }
-        for name in ("hf_id", "group"):
+        for name in ("hf_id", "group", "attribution"):
             if getattr(self, name) is not None:
                 out[name] = getattr(self, name)
         return out
@@ -293,6 +330,7 @@ class Record:
             gold_provenance=str(data.get("gold_provenance", "")),
             hf_id=None if data.get("hf_id") is None else str(data["hf_id"]),
             group=None if data.get("group") is None else str(data["group"]),
+            attribution=None if data.get("attribution") is None else str(data["attribution"]),
         )
 
 
