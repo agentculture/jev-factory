@@ -2,7 +2,7 @@
   "plan_slug": "orin-nano-jetson-ops-decider",
   "schema_version": 2,
   "created": "2026-10-15T17:16:36Z",
-  "updated": "2026-10-15T18:18:27Z",
+  "updated": "2026-10-15T19:38:51Z",
   "deviations": [
     {
       "id": "d1",
@@ -53,6 +53,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "the draft-review page (t25) is redesigned with a light theme by default plus a selected dark theme and a toggle, a dataset overview (record strip by source and review status; breakdowns by status, evidence tag, question kind and split, clickable as filters) and validated colour palettes; the review site's CSP allows the Google Fonts origins",
+      "task_ref": "t25",
+      "reason": "operator asked for light mode and a frontend-design + dataviz experience that reflects the data",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
     }
   ],
   "evidence": [],

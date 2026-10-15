@@ -45,7 +45,8 @@ DRAFTS_PAGE = Path(__file__).with_name("drafts_page.html")
 _KEY_SLOT = "__JEV_REVIEW_KEY__"
 _CSP = (
     "default-src 'none'; script-src 'unsafe-inline' https://unpkg.com; "
-    "style-src 'unsafe-inline' https://unpkg.com; connect-src 'self'; img-src data:; "
+    "style-src 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; connect-src 'self'; img-src data:; "
     "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 )
 

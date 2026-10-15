@@ -3,71 +3,257 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>jev review - drafts</title>
+<title>Jetson-ops drafts review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  :root { color-scheme: light dark; --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6b6a64; --line:#d9d6cc;
-    --ok:#1a7f37; --bad:#b42318; --edit:#9a6700; --card:#fff; --ev:#eef3fb; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#161614; --fg:#ecebe6; --muted:#9b9a92;
-    --line:#3a3a35; --ok:#56d364; --bad:#ff7b72; --edit:#e3b341; --card:#1f1f1c; --ev:#1b2433; } }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, sans-serif; }
-  main { max-width: 1280px; margin: 0 auto; padding: 14px 18px 40px; }
-  h1 { font-size: 18px; margin: 0 0 2px; }
-  .muted { color: var(--muted); font-size: 13px; }
-  .top { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:8px 0; font-size:13px; }
-  .pill { border:1px solid var(--line); border-radius:999px; padding:1px 10px; }
-  .progress { height:7px; background:var(--line); border-radius:4px; overflow:hidden; margin-bottom:10px; }
-  .progress > div { height:100%; background:var(--ok); }
-  .cols { display:grid; grid-template-columns: minmax(0,3fr) minmax(0,2fr); gap:14px; align-items:start; }
-  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
-  .ev { background:var(--ev); }
-  pre.state { white-space:pre-wrap; word-break:break-word; max-height:62vh; overflow:auto; margin:8px 0 0;
-    font:16px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .quote { border-left:4px solid var(--muted); padding:2px 12px; margin:6px 0 12px; font-size:16px; white-space:pre-wrap; }
-  .q { border-top:1px solid var(--line); padding-top:10px; margin-top:10px; }
-  .opt { display:block; width:100%; text-align:left; border:1px solid transparent; background:none; color:var(--fg);
-    padding:5px 8px; border-radius:6px; font:inherit; }
-  .opt.gold { background: color-mix(in srgb, var(--ok) 20%, transparent); font-weight:600; }
-  .opt.changed { outline:2px solid var(--edit); }
-  .opt.editable { cursor:pointer; border-color:var(--line); }
-  .editing { box-shadow: 0 0 0 2px var(--edit); }
-  .status { font-weight:700; text-transform:uppercase; font-size:12px; }
-  .kept { color:var(--ok); } .dropped { color:var(--bad); } .edited { color:var(--edit); }
-  button, select { font:inherit; padding:4px 11px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; }
-  .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
-  #error { color:var(--bad); font-weight:600; white-space:pre-wrap; }
-  input[type=text] { font:inherit; padding:4px 8px; flex:1; min-width:180px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
-  kbd { border:1px solid var(--line); border-radius:3px; padding:0 4px; font-size:12px; }
-  .note { font-size:13px; color:var(--muted); }
+  /* Tokens. Light is the default; dark is its own selected set, not an inversion. */
+  :root {
+    color-scheme: light;
+    --page: #eef2f0;          /* cool mineral plane */
+    --surface: #fbfcfb;       /* cards and charts */
+    --sunk: #e4eae7;          /* wells: the state pane, track behind bars */
+    --ink: #10201b;
+    --ink-2: #44544e;
+    --ink-3: #6f7c77;
+    --hair: #d3dcd8;
+    --ring: rgba(16, 32, 27, 0.12);
+    --focus: #2a78d6;
+    /* evidence tags: categorical slots 1-3, validated all-pairs on this surface */
+    --tag-stated: #2a78d6;
+    --tag-traced: #eb6834;
+    --tag-general: #1baf7a;
+    /* review status: the reserved status palette, always with an icon and a word */
+    --st-unreviewed: #b9c3bf;
+    --st-kept: #0ca30c;
+    --st-edited: #fab219;
+    --st-dropped: #d03b3b;
+    --gold-wash: rgba(12, 163, 12, 0.12);
+    --edit-wash: rgba(250, 178, 25, 0.18);
+    --kind: #256abf;          /* single-hue magnitude for question kinds */
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0f1412; --surface: #161b19; --sunk: #1e2522; --ink: #e9eeec; --ink-2: #b9c4bf;
+      --ink-3: #87938e; --hair: #2c3532; --ring: rgba(255, 255, 255, 0.10); --focus: #3987e5;
+      --tag-stated: #3987e5; --tag-traced: #d95926; --tag-general: #199e70;
+      --st-unreviewed: #4a5550; --gold-wash: rgba(12, 163, 12, 0.18); --edit-wash: rgba(250, 178, 25, 0.16);
+      --kind: #5598e7;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0f1412; --surface: #161b19; --sunk: #1e2522; --ink: #e9eeec; --ink-2: #b9c4bf;
+    --ink-3: #87938e; --hair: #2c3532; --ring: rgba(255, 255, 255, 0.10); --focus: #3987e5;
+    --tag-stated: #3987e5; --tag-traced: #d95926; --tag-general: #199e70;
+    --st-unreviewed: #4a5550; --gold-wash: rgba(12, 163, 12, 0.18); --edit-wash: rgba(250, 178, 25, 0.16);
+    --kind: #5598e7;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 17px/1.55 var(--sans); }
+  button, select, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 18px 20px 48px; }
+
+  /* Header */
+  header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: -0.01em; }
+  .tally { color: var(--ink-2); font-size: 15px; }
+  .tally b { color: var(--ink); }
+  .theme { margin-left: auto; display: inline-flex; border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; background: var(--surface); }
+  .theme button { border: 0; background: none; padding: 5px 12px; font-size: 14px; cursor: pointer; color: var(--ink-2); }
+  .theme button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+  .files { color: var(--ink-3); font-size: 12.5px; margin-top: 6px; overflow-wrap: anywhere; display: grid; gap: 2px; }
+  .files span { font-family: var(--mono); }
+  #error { color: var(--st-dropped); font-weight: 700; white-space: pre-wrap; margin: 8px 0 0; }
+  #error:empty { display: none; }
+
+  /* Overview: the record strip and the breakdowns */
+  .overview { margin-top: 16px; background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 16px 18px 14px; }
+  .strip-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .strip-head h2, .bd h3 { margin: 0; font-size: 15px; font-weight: 700; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .strip { display: flex; flex-wrap: wrap; gap: 14px 18px; }
+  .group { min-width: 0; }
+  .group-name { font-size: 12.5px; color: var(--ink-2); margin-bottom: 4px; }
+  .cells { display: flex; flex-wrap: wrap; gap: 3px; max-width: 520px; }
+  .cell { width: 15px; height: 15px; border-radius: 4px; border: 0; padding: 0; cursor: pointer; background: var(--st-unreviewed); position: relative; }
+  .cell.test::after { content: ""; position: absolute; inset: 4.5px; border-radius: 50%; background: var(--surface); }
+  .cell.current { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+  .cell.dim { opacity: 0.22; }
+  .cell:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  .bds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--hair); }
+  @media (max-width: 1000px) { .bds { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .bds { grid-template-columns: 1fr; } }
+  .bd h3 { margin-bottom: 8px; }
+  .row { display: grid; grid-template-columns: 7.2em minmax(0, 1fr) 2.6em; align-items: center; gap: 8px; width: 100%;
+    border: 0; background: none; padding: 3px 4px; border-radius: 6px; cursor: pointer; text-align: left; font-size: 14px; }
+  .row:hover { background: var(--sunk); }
+  .row[aria-pressed="true"] { background: var(--sunk); box-shadow: inset 3px 0 0 var(--ink); }
+  .row .lbl { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .val { color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+  .track { height: 12px; display: flex; gap: 2px; }
+  .seg { height: 100%; border-radius: 0; }
+  .seg:first-child { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+  .seg:last-child { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+  .progress { height: 10px; display: flex; gap: 2px; margin-top: 4px; }
+
+  /* Filters */
+  .filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin: 18px 0 12px; font-size: 14px; color: var(--ink-2); }
+  .filters select { background: var(--surface); border: 1px solid var(--hair); border-radius: 8px; padding: 5px 10px; color: var(--ink); }
+  .filters .pos { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .clear { border: 1px solid var(--hair); background: none; border-radius: 8px; padding: 5px 10px; cursor: pointer; color: var(--ink-2); }
+
+  /* Workspace */
+  .work { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 16px; align-items: start; }
+  @media (max-width: 960px) { .work { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 18px 20px; }
+  .rec-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .rec-id { font-family: var(--mono); font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
+  .chip { font-size: 13px; border-radius: 999px; padding: 2px 10px; background: var(--sunk); color: var(--ink-2); }
+  .chip.test { background: var(--ink); color: var(--surface); }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; margin-left: auto; }
+  .status i { font-style: normal; width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px; color: #fff; }
+  .state { margin: 14px 0 6px; background: var(--sunk); border-radius: 10px; padding: 14px 16px; max-height: 52vh; overflow: auto;
+    font: 15px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .q { margin-top: 18px; }
+  .q-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .q-head strong { font-size: 16px; }
+  .q-kind { font-size: 13px; color: var(--ink-3); }
+  .q-edited { font-size: 13px; color: var(--ink-2); background: var(--edit-wash); border-radius: 6px; padding: 0 8px; }
+  .opts { margin-top: 6px; display: grid; gap: 4px; }
+  .opt { display: grid; grid-template-columns: 1.9em minmax(0, 1fr); gap: 8px; align-items: start; text-align: left; width: 100%;
+    border: 1px solid transparent; border-radius: 9px; background: none; padding: 7px 10px; cursor: default; }
+  .opt .mk { width: 1.5em; height: 1.5em; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px;
+    border: 1.5px solid var(--hair); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .opt .nm { font-weight: 700; }
+  .opt .ds { color: var(--ink-2); }
+  .opt.gold { background: var(--gold-wash); }
+  .opt.gold .mk { background: var(--st-kept); border-color: var(--st-kept); color: #fff; }
+  .opt.changed { background: var(--edit-wash); }
+  .opt.changed .mk { background: var(--st-edited); border-color: var(--st-edited); color: #10201b; }
+  .opt.drafted .mk { border-style: dashed; border-color: var(--ink-3); }
+  .was { margin-left: 8px; font-size: 12.5px; color: var(--ink-3); border: 1px dashed var(--ink-3); border-radius: 6px; padding: 0 6px; white-space: nowrap; }
+  .editing .opt { cursor: pointer; border-color: var(--hair); }
+  .editing .opt:hover { border-color: var(--ink-2); }
+  .editing { border-left: 3px solid var(--st-edited); padding-left: 12px; margin-left: -15px; }
+
+  .side { display: grid; gap: 16px; }
+  .ev-tag { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 700; }
+  .ev-tag .sw { width: 10px; height: 10px; }
+  blockquote { margin: 10px 0 12px; padding: 2px 0 2px 14px; border-left: 3px solid var(--hair); font-size: 16.5px; line-height: 1.6; overflow-wrap: anywhere; }
+  .why { color: var(--ink); margin: 0; }
+  blockquote code { font: 0.88em var(--mono); background: var(--sunk); border-radius: 4px; padding: 1px 4px; }
+  .group-path { margin-top: 12px; color: var(--ink-3); font-size: 13px; font-family: var(--mono); overflow-wrap: anywhere; }
+  .notes { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 14px; }
+  .notes li { color: var(--ink-2); }
+  .notes time { color: var(--ink-3); font-size: 12.5px; margin-right: 8px; }
+
+  .dock { display: grid; gap: 10px; }
+  .dock .btns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .act { border: 1px solid var(--hair); background: var(--surface); border-radius: 10px; padding: 10px 8px; cursor: pointer;
+    display: grid; justify-items: center; gap: 2px; font-weight: 700; }
+  .act kbd { font-weight: 400; }
+  .act.keep:hover { border-color: var(--st-kept); background: var(--gold-wash); }
+  .act.drop:hover { border-color: var(--st-dropped); background: rgba(208, 59, 59, 0.10); }
+  .act.edit:hover, .act.edit[aria-pressed="true"] { border-color: var(--st-edited); background: var(--edit-wash); }
+  .note-row { display: flex; gap: 8px; }
+  .note-row input { flex: 1; min-width: 0; border: 1px solid var(--hair); border-radius: 9px; padding: 8px 10px; background: var(--surface); }
+  .nav { display: flex; gap: 8px; }
+  .nav button { flex: 1; border: 1px solid var(--hair); background: none; border-radius: 9px; padding: 7px; cursor: pointer; color: var(--ink-2); }
+  kbd { font: 12px/1 var(--mono); border: 1px solid var(--hair); border-bottom-width: 2px; border-radius: 5px; padding: 2px 5px; color: var(--ink-2); background: var(--surface); }
+  .keys { margin-top: 18px; font-size: 13.5px; color: var(--ink-3); line-height: 2; }
+  .orphans { color: var(--ink-3); font-size: 13px; }
+  .empty { padding: 40px 20px; text-align: center; color: var(--ink-2); }
+
+  /* Tooltip */
+  #tip { position: fixed; pointer-events: none; z-index: 10; background: var(--ink); color: var(--surface); border-radius: 8px;
+    padding: 6px 10px; font-size: 13px; max-width: 320px; opacity: 0; transition: opacity 80ms; }
+  #tip b { display: block; font-size: 14px; }
+  #tip.on { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } .cell:hover { transform: none; } }
+  @media (forced-colors: active) { .cell, .seg, .sw { forced-color-adjust: none; } }
 </style>
 </head>
 <body>
-<main>
-  <h1>jev review - drafted records</h1>
-  <div class="muted" id="files"></div>
+<div class="wrap">
+  <header>
+    <h1>Jetson-ops drafts</h1>
+    <span class="tally" id="tally"></span>
+    <div class="theme" role="group" aria-label="Theme">
+      <button type="button" data-theme-set="auto">Auto</button>
+      <button type="button" data-theme-set="light">Light</button>
+      <button type="button" data-theme-set="dark">Dark</button>
+    </div>
+  </header>
   <div id="error" role="alert"></div>
-  <div class="top" id="counts"></div>
-  <div class="progress"><div id="progress" style="width:0"></div></div>
-  <div class="top">
-    <label>split <select id="f-split"></select></label>
-    <label>source <select id="f-source"></select></label>
-    <label>status <select id="f-status"></select></label>
-    <span class="muted" id="position"></span>
+
+  <section class="overview" aria-label="Dataset overview">
+    <div class="strip-head">
+      <h2>Every record, by source</h2>
+      <div class="legend" id="status-legend"></div>
+    </div>
+    <div class="strip" id="strip"></div>
+    <div class="progress" id="progress" aria-hidden="true"></div>
+    <div class="bds">
+      <div class="bd"><h3>Review status</h3><div id="bd-status"></div></div>
+      <div class="bd"><h3>How the gold is known</h3><div id="bd-tag"></div></div>
+      <div class="bd"><h3>Question kinds</h3><div id="bd-kind"></div></div>
+      <div class="bd"><h3>Split</h3><div id="bd-split"></div></div>
+    </div>
+  </section>
+
+  <div class="filters">
+    <label>Split <select id="f-split"></select></label>
+    <label>Source <select id="f-source"></select></label>
+    <label>Status <select id="f-status"></select></label>
+    <label>Evidence <select id="f-tag"></select></label>
+    <button type="button" class="clear" id="clear">Clear filters</button>
+    <span class="pos" id="position"></span>
   </div>
+
   <div id="view"></div>
-  <p class="muted">Keys: <kbd>k</kbd> keep, <kbd>d</kbd> drop, <kbd>e</kbd> edit gold (then <kbd>1</kbd>-<kbd>9</kbd> picks an
-    option; <kbd>e</kbd> again for the next question, <kbd>Esc</kbd> leaves), <kbd>n</kbd> note (<kbd>Enter</kbd> saves),
-    <kbd>j</kbd>/<kbd>&rarr;</kbd> next, <kbd>&larr;</kbd> previous, <kbd>u</kbd> next unreviewed.
-    Every decision is appended to the draft ledger at once; the drafted file is not changed.</p>
-</main>
+
+  <p class="keys">
+    <kbd>k</kbd> keep &nbsp; <kbd>d</kbd> drop &nbsp; <kbd>e</kbd> edit gold, then <kbd>1</kbd>–<kbd>9</kbd> picks an option
+    (<kbd>e</kbd> again moves to the next question, <kbd>Esc</kbd> stops) &nbsp; <kbd>n</kbd> write a note, <kbd>Enter</kbd> saves it &nbsp;
+    <kbd>j</kbd> or <kbd>&rarr;</kbd> next &nbsp; <kbd>&larr;</kbd> previous &nbsp; <kbd>u</kbd> next unreviewed.
+    Every decision is appended to the draft ledger straight away; the drafted file never changes.
+  </p>
+  <div class="files" id="files"></div>
+</div>
+<div id="tip" role="tooltip"></div>
 <script>
 "use strict";
 const KEY = "__JEV_REVIEW_KEY__";
 const STATUSES = ["unreviewed", "kept", "edited", "dropped"];
+const STATUS_ICON = { unreviewed: "○", kept: "✓", edited: "✎", dropped: "✕" };
+const TAGS = ["stated", "traced", "general", "untagged"];
+const TAG_WORD = { stated: "Stated in the source", traced: "Traced through a script", general: "General knowledge", untagged: "No tag" };
+const KINDS = ["choice", "noul", "score"];
 let state = null;
 let currentId = null;
 let editQ = -1; // index of the question being edited, -1 for none
 
+/* ---------- theme ---------- */
+function storedTheme() { try { return localStorage.getItem("jev-review-theme") || "auto"; } catch (e) { return "auto"; } }
+function applyTheme(mode) {
+  if (mode === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", mode);
+  for (const b of document.querySelectorAll("[data-theme-set]")) b.setAttribute("aria-pressed", String(b.dataset.themeSet === mode));
+  try { localStorage.setItem("jev-review-theme", mode); } catch (e) { /* private window: theme just isn't remembered */ }
+}
+for (const b of document.querySelectorAll("[data-theme-set]")) b.onclick = () => applyTheme(b.dataset.themeSet);
+applyTheme(storedTheme());
+
+/* ---------- helpers ---------- */
 async function api(path, body) {
   const init = { headers: { "X-Review-Key": KEY } };
   if (body) { init.method = "POST"; init.body = JSON.stringify(body); }
@@ -78,132 +264,270 @@ async function api(path, body) {
 }
 function el(tag, props, ...kids) {
   const node = document.createElement(tag);
-  Object.assign(node, props || {});
-  for (const k of kids) node.append(k);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === "style") node.style.cssText = v;
+    else if (k.startsWith("aria-") || k.startsWith("data-")) node.setAttribute(k, v);
+    else node[k] = v;
+  }
+  for (const k of kids) if (k !== null && k !== undefined) node.append(k);
   return node;
 }
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function showError(msg) { document.getElementById("error").textContent = msg || ""; }
-function filt(id) { return document.getElementById(id).value; }
+function filt(id) { const node = document.getElementById(id); return node ? node.value : ""; }
+function tagOf(item) {
+  const why = item.evidence && item.evidence.why ? item.evidence.why : "";
+  const m = /^\s*\[(stated|traced|general)\]/.exec(why);
+  return m ? m[1] : "untagged";
+}
+function whyText(item) { return (item.evidence && item.evidence.why || "").replace(/^\s*\[(stated|traced|general)\]\s*/, ""); }
+function shortSource(s) { return String(s || "").replace(/^jetson-ops\//, ""); }
+function kindsOf(item) { return Object.values(item.questions).map(q => q.type); }
 
-function visible() {
-  if (!state) return [];
-  const [sp, so, st] = [filt("f-split"), filt("f-source"), filt("f-status")];
-  return state.items.filter(i => (!sp || i.split === sp) && (!so || i.source === so) && (!st || i.status === st));
+/* ---------- tooltip ---------- */
+const tip = document.getElementById("tip");
+function tipOn(node, value, label) {
+  const show = ev => {
+    tip.replaceChildren(el("b", { textContent: value }), document.createTextNode(label));
+    const r = node.getBoundingClientRect();
+    const x = ev && ev.clientX ? ev.clientX : r.left + r.width / 2;
+    const y = ev && ev.clientY ? ev.clientY : r.top;
+    tip.style.left = Math.min(x + 12, window.innerWidth - 330) + "px";
+    tip.style.top = (y + 16) + "px";
+    tip.classList.add("on");
+  };
+  node.addEventListener("pointermove", show);
+  node.addEventListener("focus", () => show(null));
+  node.addEventListener("pointerleave", () => tip.classList.remove("on"));
+  node.addEventListener("blur", () => tip.classList.remove("on"));
 }
-function currentIndex(list) {
-  const i = list.findIndex(x => x.id === currentId);
-  return i < 0 ? 0 : i;
+
+/* ---------- filters ---------- */
+function matches(i, skip) {
+  return (skip === "split" || !filt("f-split") || i.split === filt("f-split")) &&
+    (skip === "source" || !filt("f-source") || i.source === filt("f-source")) &&
+    (skip === "status" || !filt("f-status") || i.status === filt("f-status")) &&
+    (skip === "tag" || !filt("f-tag") || tagOf(i) === filt("f-tag"));
 }
-function fillSelect(id, label, values) {
+function visible() { return state ? state.items.filter(i => matches(i)) : []; }
+function currentIndex(list) { const i = list.findIndex(x => x.id === currentId); return i < 0 ? 0 : i; }
+function fillSelect(id, label, values, words) {
   const sel = document.getElementById(id);
   const keep = sel.value;
-  sel.replaceChildren(el("option", { value: "", textContent: "all " + label }));
-  for (const v of values) sel.append(el("option", { value: v, textContent: v }));
+  sel.replaceChildren(el("option", { value: "", textContent: "All " + label }));
+  for (const v of values) sel.append(el("option", { value: v, textContent: words ? words[v] || v : v }));
   sel.value = values.includes(keep) ? keep : "";
+}
+function setFilter(id, value) {
+  const sel = document.getElementById(id);
+  sel.value = sel.value === value ? "" : value;
+  editQ = -1;
+  render();
 }
 
 async function load() {
   try {
     state = await api("/api/state");
+    const order = new Map(state.items.map((it, n) => [it.id, n]));
+    state.items.sort((a, b) => a.source === b.source ? order.get(a.id) - order.get(b.id) : (a.source < b.source ? -1 : 1));
     showError("");
     fillSelect("f-split", "splits", state.splits);
-    fillSelect("f-source", "sources", state.sources);
+    fillSelect("f-source", "sources", state.sources, Object.fromEntries(state.sources.map(s => [s, shortSource(s)])));
     fillSelect("f-status", "statuses", STATUSES);
+    fillSelect("f-tag", "evidence", TAGS, TAG_WORD);
     if (currentId === null) {
       const first = state.items.find(i => i.status === "unreviewed") || state.items[0];
       currentId = first ? first.id : null;
     }
   } catch (err) {
     state = null;
-    showError("Cannot read the drafts, evidence or ledger (nothing was written): " + err.message);
+    showError("Cannot read the drafts, evidence or ledger, so nothing was written. " + err.message);
   }
   render();
 }
 
-function goldLabel(g) { return g && g.label !== undefined && g.label !== null ? g.label : "(no label)"; }
+/* ---------- overview ---------- */
+function statusColor(s) { return cssVar("--st-" + s); }
+function renderLegend() {
+  const lg = document.getElementById("status-legend");
+  lg.replaceChildren(...STATUSES.map(s => el("span", {}, el("i", { className: "sw", style: "background:" + statusColor(s) }), STATUS_ICON[s] + " " + s)),
+    el("span", {}, el("i", { className: "sw", style: "background:" + cssVar("--st-unreviewed") + ";box-shadow: inset 0 0 0 4px " + cssVar("--st-unreviewed") + ", inset 0 0 0 7px " + cssVar("--surface") }), "dot = test record"));
+}
+function renderStrip() {
+  const strip = document.getElementById("strip");
+  strip.replaceChildren();
+  const groups = new Map();
+  for (const it of state.items) { if (!groups.has(it.source)) groups.set(it.source, []); groups.get(it.source).push(it); }
+  for (const [src, items] of [...groups].sort()) {
+    const cells = el("div", { className: "cells" });
+    for (const it of items) {
+      const c = el("button", { type: "button", className: "cell" + (it.split === "test" ? " test" : "") + (it.id === currentId ? " current" : "") + (matches(it) ? "" : " dim"),
+        style: "background:" + statusColor(it.status), "aria-label": it.id + ", " + it.split + ", " + it.status });
+      c.onclick = () => { currentId = it.id; editQ = -1; if (!matches(it)) { for (const f of ["f-split", "f-source", "f-status", "f-tag"]) document.getElementById(f).value = ""; } render(); };
+      tipOn(c, it.id, it.split + " record, " + it.status + ", " + Object.keys(it.questions).length + " question(s)");
+      cells.append(c);
+    }
+    strip.append(el("div", { className: "group" }, el("div", { className: "group-name", textContent: shortSource(src) + "  (" + items.length + ")" }), cells));
+  }
+  const prog = document.getElementById("progress");
+  const total = state.items.length;
+  prog.replaceChildren(...STATUSES.filter(s => s !== "unreviewed" && state.counts[s]).map(s =>
+    el("div", { className: "seg", style: "flex:" + state.counts[s] + ";background:" + statusColor(s) })),
+    el("div", { className: "seg", style: "flex:" + (state.counts.unreviewed || 0) + ";background:" + cssVar("--sunk") }));
+  if (!total) prog.replaceChildren();
+}
+/* one horizontal bar per category; segments = review status, so every breakdown also shows progress */
+function bars(hostId, cats, words, keyOf, filterId, colorOf) {
+  const host = document.getElementById(hostId);
+  host.replaceChildren();
+  const pool = state.items.filter(i => matches(i, filterId.slice(2)));
+  const rows = cats.map(c => ({ c, items: pool.filter(i => keyOf(i).includes(c)) })).filter(r => r.items.length || filt(filterId) === r.c);
+  const max = Math.max(1, ...rows.map(r => r.items.length));
+  for (const r of rows) {
+    const track = el("div", { className: "track" });
+    if (colorOf) {
+      track.append(el("div", { className: "seg", style: "width:" + (100 * r.items.length / max) + "%;background:" + colorOf(r.c) }));
+    } else {
+      for (const s of STATUSES) {
+        const n = r.items.filter(i => i.status === s).length;
+        if (n) track.append(el("div", { className: "seg", style: "width:" + (100 * n / max) + "%;background:" + statusColor(s) }));
+      }
+    }
+    const row = el("button", { type: "button", className: "row", "aria-pressed": String(filt(filterId) === r.c) },
+      el("span", { className: "lbl", textContent: words ? words[r.c] || r.c : r.c }), track,
+      el("span", { className: "val", textContent: String(r.items.length) }));
+    const parts = STATUSES.map(s => [s, r.items.filter(i => i.status === s).length]).filter(p => p[1]).map(p => p[1] + " " + p[0]).join(", ");
+    tipOn(row, r.items.length + " record" + (r.items.length === 1 ? "" : "s"), (words ? words[r.c] || r.c : r.c) + (parts ? ": " + parts : ""));
+    row.onclick = () => setFilter(filterId, r.c);
+    host.append(row);
+  }
+}
+function questionKinds(i) { return kindsOf(i); }
+function renderBreakdowns() {
+  bars("bd-status", STATUSES, Object.fromEntries(STATUSES.map(s => [s, STATUS_ICON[s] + " " + s])), i => [i.status], "f-status", s => statusColor(s));
+  bars("bd-tag", TAGS, { stated: "stated", traced: "traced", general: "general", untagged: "no tag" }, i => [tagOf(i)], "f-tag", t => cssVar("--tag-" + t) || cssVar("--st-unreviewed"));
+  bars("bd-kind", KINDS, null, questionKinds, "f-kind", null);
+  bars("bd-split", state.splits, null, i => [i.split], "f-split", null);
+  // question kinds are not a page filter; their rows just explain the mix
+  for (const b of document.querySelectorAll("#bd-kind .row")) { b.onclick = null; b.style.cursor = "default"; b.removeAttribute("aria-pressed"); }
+}
 
+/* ---------- record ---------- */
+function goldLabel(g) { return g && g.label !== undefined && g.label !== null ? g.label : (g && g.probability_true !== undefined ? (g.probability_true >= 0.5 ? "true" : "false") : "(no label)"); }
+function optionWord(q, name) {
+  if (q.type === "score") return "level " + name;
+  return name;
+}
 function questionBlock(item, qid, n) {
   const q = item.questions[qid];
   const now = goldLabel(item.gold[qid]);
   const was = goldLabel(item.original_gold[qid]);
   const editing = editQ === n;
   const box = el("div", { className: "q" + (editing ? " editing" : "") });
-  box.append(el("div", {}, el("strong", { textContent: qid }),
-    el("span", { className: "muted", textContent: "  (" + q.type + ")" + (now !== was ? "  edited from " + was : "") })));
-  if (q.instructions) box.append(el("div", { className: "muted", textContent: q.instructions }));
+  box.append(el("div", { className: "q-head" }, el("strong", { textContent: qid }),
+    el("span", { className: "q-kind", textContent: q.type === "noul" ? "true or false" : q.type === "score" ? "ordered score" : "choice" }),
+    now !== was ? el("span", { className: "q-edited", textContent: "edited from " + was }) : null));
+  if (q.instructions) box.append(el("div", { className: "q-kind", textContent: q.instructions }));
+  const opts = el("div", { className: "opts" });
   q.criteria.forEach(([name, text], k) => {
     const isGold = name === now;
-    const label = (isGold ? "→ " : "   ") + (editing ? (k + 1) + ". " : "") + name + (text ? ": " + text : "");
-    const opt = el("button", { className: "opt" + (isGold ? " gold" : "") + (isGold && now !== was ? " changed" : "") + (editing ? " editable" : ""),
-      textContent: label });
+    const wasGold = now !== was && name === was;
+    const cls = "opt" + (isGold ? (now !== was ? " changed" : " gold") : "") + (wasGold ? " drafted" : "");
+    const mark = el("span", { className: "mk", textContent: isGold ? (now !== was ? "✎" : "✓") : String(k + 1) });
+    const body = el("span", {}, el("span", { className: "nm", textContent: optionWord(q, name) }), text ? el("span", { className: "ds", textContent: "  " + text }) : null,
+      wasGold ? el("span", { className: "was", textContent: "drafted gold" }) : null);
+    const opt = el("button", { type: "button", className: cls, "aria-label": (isGold ? "gold: " : "option " + (k + 1) + ": ") + name }, mark, body);
     opt.onclick = () => { if (editing) setGold(item, qid, name); };
-    box.append(opt);
+    opts.append(opt);
   });
+  box.append(opts);
   return box;
 }
-
-function evidenceCard(item) {
-  const card = el("div", { className: "card ev" });
-  card.append(el("strong", { textContent: "Evidence" }));
+function inlineMd(text) {
+  const frag = document.createDocumentFragment();
+  const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) frag.append(document.createTextNode(text.slice(last, m.index)));
+    const tok = m[0];
+    frag.append(tok.startsWith("**") ? el("strong", { textContent: tok.slice(2, -2) }) : el("code", { textContent: tok.slice(1, -1) }));
+    last = m.index + tok.length;
+  }
+  frag.append(document.createTextNode(text.slice(last)));
+  return frag;
+}
+function evidencePanel(item) {
+  const tag = tagOf(item);
+  const panel = el("section", { className: "panel", "aria-label": "Evidence" });
+  panel.append(el("div", { className: "ev-tag" }, el("i", { className: "sw", style: "background:" + (cssVar("--tag-" + tag) || cssVar("--st-unreviewed")) }), TAG_WORD[tag]));
   if (!item.evidence) {
-    card.append(el("p", { className: "muted", textContent: "No evidence line for this record." }));
+    panel.append(el("p", { className: "why", textContent: "No evidence line for this record. Check the gold against the state alone, or drop it." }));
   } else {
-    card.append(el("div", { className: "quote", textContent: item.evidence.quote }));
-    card.append(el("strong", { textContent: "Why" }));
-    card.append(el("p", { textContent: item.evidence.why }));
+    panel.append(el("blockquote", {}, inlineMd(item.evidence.quote)));
+    panel.append(el("p", { className: "why", textContent: whyText(item) }));
   }
-  card.append(el("div", { className: "note", textContent: "source group: " + (item.group || (item.evidence && item.evidence.group) || "(none)") }));
+  panel.append(el("div", { className: "group-path", textContent: item.group || (item.evidence && item.evidence.group) || "no source group" }));
   if (item.notes.length) {
-    card.append(el("strong", { textContent: "Notes" }));
-    for (const n of item.notes) card.append(el("div", { className: "note", textContent: n.at + "  " + n.note }));
+    const ul = el("ul", { className: "notes" });
+    for (const n of item.notes) ul.append(el("li", {}, el("time", { textContent: n.at }), n.note));
+    panel.append(ul);
   }
-  return card;
+  return panel;
+}
+function dock(item) {
+  const panel = el("section", { className: "panel dock", "aria-label": "Decision" });
+  const note = el("input", { type: "text", placeholder: "Add a note, Enter saves it", id: "note" });
+  note.onkeydown = ev => { if (ev.key === "Enter") saveNote(item); else if (ev.key === "Escape") note.blur(); };
+  panel.append(
+    el("div", { className: "btns" },
+      el("button", { type: "button", className: "act keep", onclick: () => decide(item, "keep", {}, true) }, "Keep", el("kbd", { textContent: "k" })),
+      el("button", { type: "button", className: "act drop", onclick: () => decide(item, "drop", {}, true) }, "Drop", el("kbd", { textContent: "d" })),
+      el("button", { type: "button", className: "act edit", "aria-pressed": String(editQ >= 0), onclick: () => toggleEdit(item) }, "Edit gold", el("kbd", { textContent: "e" }))),
+    el("div", { className: "note-row" }, note),
+    el("div", { className: "nav" },
+      el("button", { type: "button", onclick: () => move(-1), textContent: "Previous" }),
+      el("button", { type: "button", onclick: () => nextUnreviewed(), textContent: "Next unreviewed" }),
+      el("button", { type: "button", onclick: () => move(1), textContent: "Next" })));
+  return panel;
 }
 
 function render() {
   const view = document.getElementById("view");
   view.replaceChildren();
-  const counts = document.getElementById("counts");
-  counts.replaceChildren();
   if (!state) return;
-  document.getElementById("files").textContent = state.records_file + "  |  evidence " + (state.evidence_file || "none") + "  |  ledger " + state.ledger_file;
   const total = state.items.length;
-  for (const k of STATUSES) counts.append(el("span", { className: "pill", textContent: k + " " + (state.counts[k] || 0) }));
   const done = total - (state.counts.unreviewed || 0);
-  document.getElementById("progress").style.width = total ? (100 * done / total) + "%" : "0";
+  document.getElementById("tally").replaceChildren(el("b", { textContent: String(done) }), " of ", el("b", { textContent: String(total) }), " reviewed");
+  document.getElementById("files").replaceChildren(
+    el("div", {}, "Drafts ", el("span", { textContent: state.records_file })),
+    el("div", {}, "Evidence ", el("span", { textContent: state.evidence_file || "none" })),
+    el("div", {}, "Ledger ", el("span", { textContent: state.ledger_file })));
+  renderLegend();
+  renderStrip();
+  renderBreakdowns();
   const list = visible();
   if (!list.length) {
     document.getElementById("position").textContent = "";
-    view.append(el("p", { textContent: total ? "No record matches the filters." : "No records in the file." }));
+    view.append(el("div", { className: "panel empty", textContent: total ? "No record matches these filters. Clear a filter to see more." : "The drafts file has no records yet." }));
     return;
   }
   const idx = currentIndex(list);
   const item = list[idx];
-  currentId = item.id;
-  document.getElementById("position").textContent = "showing " + (idx + 1) + " of " + list.length + " (" + total + " in file; " + done + " reviewed)";
-  const left = el("div", {});
-  const card = el("div", { className: "card" });
-  card.append(el("div", {},
-    el("strong", { textContent: item.id }),
-    el("span", { className: "muted", textContent: "  split " + item.split + "  |  source " + item.source + "  |  gold " + item.gold_provenance + "  |  " }),
-    el("span", { className: "status " + item.status, textContent: item.status })));
-  card.append(el("pre", { className: "state", textContent: item.state }));
-  Object.keys(item.questions).forEach((qid, n) => card.append(questionBlock(item, qid, n)));
-  const note = el("input", { type: "text", placeholder: "note (n; Enter saves a note on its own)", id: "note" });
-  note.onkeydown = ev => { if (ev.key === "Enter") { saveNote(item); } else if (ev.key === "Escape") { note.blur(); } };
-  card.append(el("div", { className: "actions" },
-    el("button", { textContent: "Keep (k)", onclick: () => decide(item, "keep", {}, true) }),
-    el("button", { textContent: "Drop (d)", onclick: () => decide(item, "drop", {}, true) }),
-    el("button", { textContent: "Edit gold (e)", onclick: () => toggleEdit(item) }),
-    note,
-    el("button", { textContent: "Prev", onclick: () => move(-1) }),
-    el("button", { textContent: "Next", onclick: () => move(1) })));
-  left.append(card);
-  const cols = el("div", { className: "cols" }, left, evidenceCard(item));
-  view.append(cols);
-  if (state.orphans.length) view.append(el("p", { className: "muted", textContent: "Ledger entries matching no current record: " + state.orphans.join(", ") }));
+  if (item.id !== currentId) { currentId = item.id; renderStrip(); }
+  document.getElementById("position").textContent = "Record " + (idx + 1) + " of " + list.length + (list.length !== total ? " shown" : "");
+  const main = el("section", { className: "panel", "aria-label": "Record" });
+  main.append(el("div", { className: "rec-head" },
+    el("span", { className: "rec-id", textContent: item.id }),
+    el("span", { className: "chip" + (item.split === "test" ? " test" : ""), textContent: item.split }),
+    el("span", { className: "chip", textContent: shortSource(item.source) }),
+    el("span", { className: "status" }, el("i", { style: "background:" + statusColor(item.status) + (item.status === "edited" ? ";color:#10201b" : ""), textContent: STATUS_ICON[item.status] }), item.status)));
+  main.append(el("div", { className: "state", textContent: item.state }));
+  Object.keys(item.questions).forEach((qid, n) => main.append(questionBlock(item, qid, n)));
+  view.append(el("div", { className: "work" }, main, el("div", { className: "side" }, dock(item), evidencePanel(item))));
+  if (state.orphans.length) view.append(el("p", { className: "orphans", textContent: "Ledger entries that match no current record: " + state.orphans.join(", ") }));
 }
 
+/* ---------- actions ---------- */
 function move(step) {
   const list = visible();
   if (!list.length) return;
@@ -228,7 +552,6 @@ function toggleEdit(item) {
   editQ = editQ + 1 >= n ? -1 : editQ + 1;
   render();
 }
-
 async function send(item, action, extra) {
   const noteBox = document.getElementById("note");
   const body = Object.assign({ record_id: item.id, record_sha256: item.sha256, action }, extra);
@@ -254,7 +577,7 @@ async function setGold(item, qid, label) {
 async function saveNote(item) {
   const text = document.getElementById("note").value.trim();
   if (!text) return;
-  if (await send(item, "note", { note: text })) { await load(); }
+  if (await send(item, "note", { note: text })) await load();
 }
 
 document.addEventListener("keydown", ev => {
@@ -264,8 +587,7 @@ document.addEventListener("keydown", ev => {
   const item = list[currentIndex(list)];
   const qids = Object.keys(item.questions);
   if (editQ >= 0 && /^[1-9]$/.test(ev.key)) {
-    const q = item.questions[qids[editQ]];
-    const pick = q.criteria[Number(ev.key) - 1];
+    const pick = item.questions[qids[editQ]].criteria[Number(ev.key) - 1];
     if (pick) setGold(item, qids[editQ], pick[0]);
   } else if (ev.key === "Escape") { editQ = -1; render(); }
   else if (ev.key === "k") decide(item, "keep", {}, true);
@@ -276,7 +598,10 @@ document.addEventListener("keydown", ev => {
   else if (ev.key === "ArrowLeft") move(-1);
   else if (ev.key === "u") nextUnreviewed();
 });
-for (const id of ["f-split", "f-source", "f-status"]) document.getElementById(id).onchange = () => { editQ = -1; render(); };
+for (const id of ["f-split", "f-source", "f-status", "f-tag"]) document.getElementById(id).onchange = () => { editQ = -1; render(); };
+document.getElementById("clear").onclick = () => { for (const id of ["f-split", "f-source", "f-status", "f-tag"]) document.getElementById(id).value = ""; render(); };
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (state) render(); });
+for (const b of document.querySelectorAll("[data-theme-set]")) b.addEventListener("click", () => { if (state) render(); });
 load();
 </script>
 </body>
