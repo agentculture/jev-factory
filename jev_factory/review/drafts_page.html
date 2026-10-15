@@ -178,6 +178,35 @@
   .nav button { flex: 1; border: 1px solid var(--hair); background: none; border-radius: 9px; padding: 7px; cursor: pointer; color: var(--ink-2); }
   kbd { font: 12px/1 var(--mono); border: 1px solid var(--hair); border-bottom-width: 2px; border-radius: 5px; padding: 2px 5px; color: var(--ink-2); background: var(--surface); }
   .keys { margin-top: 18px; font-size: 13.5px; color: var(--ink-3); line-height: 2; }
+
+  /* structured state: fields, output, ask */
+  .fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; }
+  .fields dt { color: var(--ink-3); font-size: 14px; padding-top: 1px; }
+  .fields dd { margin: 0; color: var(--ink); }
+  .state .ask { margin-top: 12px; padding: 10px 12px; border-radius: 4px; background: var(--surface);
+    border: 1px solid var(--hair); border-left: 3px solid var(--focus); font-weight: 700; }
+  .state .ask span { display: block; font-weight: 400; font-size: 13px; color: var(--ink-3); }
+
+  /* momentum: what is left, the session, the pace */
+  .momentum { display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: baseline; margin-top: 12px; font-size: 15px; color: var(--ink-2); }
+  .momentum .left { font-size: 20px; color: var(--ink); font-weight: 700; }
+  .momentum b { color: var(--ink); }
+  .group-name .done { color: var(--st-kept); font-weight: 700; margin-left: 6px; }
+  .act.primary { background: var(--focus); border-color: var(--focus); color: #fff; }
+  .nav button.primary { background: var(--focus); border-color: var(--focus); color: #fff; font-weight: 700; }
+
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 16px); opacity: 0; z-index: 20;
+    background: var(--ink); color: var(--surface); padding: 12px 18px; border-radius: 6px; font-size: 15px;
+    transition: opacity 200ms, transform 200ms; max-width: min(92vw, 520px); text-align: center; }
+  #toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+  .finish { text-align: left; padding: 26px 28px; border-left: 4px solid var(--st-kept); }
+  .finish h2 { margin: 0 0 6px; font-size: 22px; }
+  .finish p { margin: 6px 0; max-width: 70ch; }
+  .finish .sum { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 14px 0; font-size: 16px; }
+  .finish code { font: 0.875em var(--mono); overflow-wrap: anywhere; }
+  @keyframes ripple { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+  .celebrate .cell { animation: ripple 520ms ease-out both; }
   .orphans { color: var(--ink-3); font-size: 13px; }
   .empty { padding: 40px 20px; text-align: center; color: var(--ink-2); }
 
@@ -210,6 +239,7 @@
     </div>
     <div class="strip" id="strip"></div>
     <div class="progress" id="progress" aria-hidden="true"></div>
+    <div class="momentum" id="momentum" aria-live="polite"></div>
     <div class="bds">
       <div class="bd"><h3>Review status</h3><div id="bd-status"></div></div>
       <div class="bd"><h3>How the gold is known</h3><div id="bd-tag"></div></div>
@@ -238,6 +268,7 @@
   <div class="files" id="files"></div>
 </div>
 <div id="tip" role="tooltip"></div>
+<div id="toast" role="status"></div>
 <script>
 "use strict";
 const KEY = "__JEV_REVIEW_KEY__";
@@ -336,6 +367,7 @@ function setFilter(id, value) {
 async function load() {
   try {
     state = await api("/api/state");
+    useLedger(state.ledger_file);
     const order = new Map(state.items.map((it, n) => [it.id, n]));
     state.items.sort((a, b) => a.source === b.source ? order.get(a.id) - order.get(b.id) : (a.source < b.source ? -1 : 1));
     showError("");
@@ -375,7 +407,9 @@ function renderStrip() {
       tipOn(c, it.id, it.split + " record, " + it.status + ", " + Object.keys(it.questions).length + " question(s)");
       cells.append(c);
     }
-    strip.append(el("div", { className: "group" }, el("div", { className: "group-name", textContent: shortSource(src) + "  (" + items.length + ")" }), cells));
+    const allDone = items.every(i => i.status !== "unreviewed");
+    strip.append(el("div", { className: "group" }, el("div", { className: "group-name" }, shortSource(src) + "  (" + items.length + ")",
+      allDone ? el("span", { className: "done", textContent: "✓ done" }) : null), cells));
   }
   const prog = document.getElementById("progress");
   const total = state.items.length;
@@ -472,7 +506,34 @@ function looksLikeOutput(line) {
   const words = t.split(/\s+/).length;
   return sym >= 4 && sym / words >= 0.5;                               // dense key=value / log text
 }
+const OUTPUT_FIELD = /^Output:\s*(.*)$/;
+const FIELD = /^([A-Z][A-Za-z /-]{1,24}):\s+(.+)$/;
+function structured(text) {
+  const lines = String(text).split("\n");
+  return lines.length > 1 && /^Board:/.test(lines[0].trim()) && lines.some(l => /^Ask:/.test(l.trim()));
+}
+function renderStructured(text) {
+  const frag = document.createDocumentFragment();
+  const dl = el("dl", { className: "fields" });
+  let out = null, ask = null;
+  for (const raw of String(text).split("\n")) {
+    const line = raw.replace(/\s+$/, "");
+    const t = line.trim();
+    if (out !== null && !/^Ask:/.test(t)) { if (t || out.length) out.push(line); continue; }
+    if (/^Ask:/.test(t)) { ask = t.replace(/^Ask:\s*/, ""); out = out === null ? null : out; continue; }
+    const o = OUTPUT_FIELD.exec(t);
+    if (o) { out = o[1] ? [o[1]] : []; continue; }
+    const f = FIELD.exec(t);
+    if (f) dl.append(el("dt", { textContent: f[1] }), el("dd", {}, inlineMd(f[2])));
+    else if (t) dl.append(el("dt", { textContent: "" }), el("dd", {}, inlineMd(t)));
+  }
+  frag.append(dl);
+  if (out && out.join("").trim()) frag.append(el("span", { className: "cmd", style: "margin-top:10px", textContent: out.join("\n").replace(/\n+$/, "") }));
+  if (ask) frag.append(el("div", { className: "ask" }, el("span", { textContent: "The ask" }), inlineMd(ask)));
+  return frag;
+}
 function renderState(text) {
+  if (structured(text)) return renderStructured(text);
   const frag = document.createDocumentFragment();
   let para = [], out = [];
   const flushPara = () => { if (para.length) { frag.append(el("p", {}, inlineMd(para.join(" ")))); para = []; } };
@@ -515,7 +576,7 @@ function dock(item) {
     el("div", { className: "note-row" }, note),
     el("div", { className: "nav" },
       el("button", { type: "button", onclick: () => move(-1), textContent: "Previous" }),
-      el("button", { type: "button", onclick: () => nextUnreviewed(), textContent: "Next unreviewed" }),
+      el("button", { type: "button", className: "primary", onclick: () => nextUnreviewed(), textContent: "Next unreviewed (u)" }),
       el("button", { type: "button", onclick: () => move(1), textContent: "Next" })));
   return panel;
 }
@@ -534,6 +595,10 @@ function render() {
   renderLegend();
   renderStrip();
   renderBreakdowns();
+  renderMomentum();
+  if (total && !state.counts.unreviewed && !filt("f-status") && !filt("f-split") && !filt("f-source") && !filt("f-tag")) {
+    view.append(finishPanel());
+  }
   const list = visible();
   if (!list.length) {
     document.getElementById("position").textContent = "";
@@ -554,6 +619,96 @@ function render() {
   Object.keys(item.questions).forEach((qid, n) => main.append(questionBlock(item, qid, n)));
   view.append(el("div", { className: "work" }, main, el("div", { className: "side" }, dock(item), evidencePanel(item))));
   if (state.orphans.length) view.append(el("p", { className: "orphans", textContent: "Ledger entries that match no current record: " + state.orphans.join(", ") }));
+}
+
+/* ---------- momentum ---------- */
+function sessionStore(key, fallback) {
+  try { const v = sessionStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; }
+}
+function sessionSave(key, value) { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* not remembered */ } }
+let storeNs = "";                       // one session record per ledger file
+let decisionTimes = [];
+let milestonesShown = [];
+let celebrated = false;
+function useLedger(ledger) {
+  if (storeNs === ledger) return;
+  storeNs = ledger;
+  decisionTimes = sessionStore(storeNs + ":times", []);
+  milestonesShown = sessionStore(storeNs + ":milestones", []);
+  celebrated = sessionStore(storeNs + ":celebrated", false);
+}
+function toast(text) {
+  const t = document.getElementById("toast");
+  t.textContent = text;
+  t.classList.add("on");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("on"), 3600);
+}
+function minutes(sec) {
+  if (sec < 60) return "under a minute";
+  const m = Math.round(sec / 60);
+  return m === 1 ? "about 1 minute" : "about " + m + " minutes";
+}
+function pace() {
+  if (decisionTimes.length < 3) return null;
+  const gaps = [];
+  for (let i = 1; i < decisionTimes.length; i++) {
+    const g = (decisionTimes[i] - decisionTimes[i - 1]) / 1000;
+    if (g > 1 && g < 600) gaps.push(g);          // ignore breaks and double taps
+  }
+  if (gaps.length < 2) return null;
+  gaps.sort((a, b) => a - b);
+  return gaps[Math.floor(gaps.length / 2)];
+}
+function renderMomentum() {
+  const box = document.getElementById("momentum");
+  const total = state.items.length;
+  const left = state.counts.unreviewed || 0;
+  const done = total - left;
+  const parts = [];
+  if (!total) { box.replaceChildren(); return; }
+  if (left === 0) parts.push(el("span", { className: "left", textContent: "All " + total + " reviewed" }));
+  else parts.push(el("span", { className: "left", textContent: left + (left === 1 ? " record left" : " records left") }));
+  if (decisionTimes.length) parts.push(el("span", {}, "This session ", el("b", { textContent: String(decisionTimes.length) }), " decided"));
+  const p = pace();
+  if (left && p) parts.push(el("span", {}, minutes(left * p) + " to go at your pace"));
+  else if (left && done === 0) parts.push(el("span", { textContent: "Start with any record; every decision saves on its own." }));
+  box.replaceChildren(...parts);
+}
+function milestone(before, after, total) {
+  if (!total) return;
+  const marks = [[0.25, "A quarter done. Nice rhythm."], [0.5, "Halfway there."], [0.75, "Three quarters done. The end is in sight."]];
+  for (const [f, words] of marks) {
+    const at = Math.ceil(total * f);
+    if (before < at && after >= at && !milestonesShown.includes(f)) {
+      milestonesShown.push(f);
+      sessionSave(storeNs + ":milestones", milestonesShown);
+      toast(words + " " + after + " of " + total + " reviewed.");
+    }
+  }
+}
+function finishPanel() {
+  const c = state.counts;
+  const panel = el("section", { className: "panel finish", "aria-label": "Review complete" },
+    el("h2", { textContent: "Pilot review complete" }),
+    el("p", { textContent: "Every record has a decision. Your choices are in the draft ledger, and the drafted file is unchanged." }),
+    el("div", { className: "sum" },
+      el("span", {}, STATUS_ICON.kept + " ", el("b", { textContent: String(c.kept || 0) }), " kept"),
+      el("span", {}, STATUS_ICON.edited + " ", el("b", { textContent: String(c.edited || 0) }), " edited"),
+      el("span", {}, STATUS_ICON.dropped + " ", el("b", { textContent: String(c.dropped || 0) }), " dropped")),
+    el("p", {}, "Next: tell Claude the pilot is reviewed. Your notes and edits go into the drafting brief before the full draft. Ledger: ", el("code", { textContent: state.ledger_file })),
+    el("p", { textContent: "You can still revisit any record from the strip; a later decision replaces an earlier one." }));
+  return panel;
+}
+function celebrate() {
+  if (celebrated) return;
+  celebrated = true;
+  sessionSave(storeNs + ":celebrated", true);
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const cells = [...document.querySelectorAll(".cell")];
+  cells.forEach((c, i) => { c.style.animationDelay = (i * 18) + "ms"; });
+  document.getElementById("strip").classList.add("celebrate");
+  setTimeout(() => document.getElementById("strip").classList.remove("celebrate"), 520 + cells.length * 18);
 }
 
 /* ---------- actions ---------- */
@@ -589,13 +744,19 @@ async function send(item, action, extra) {
   return true;
 }
 async function decide(item, action, extra, advance) {
+  const before = state ? state.items.length - (state.counts.unreviewed || 0) : 0;
   if (!(await send(item, action, extra))) return;
+  decisionTimes.push(Date.now());
+  sessionSave(storeNs + ":times", decisionTimes.slice(-200));
   editQ = -1;
   await load();
+  const after = state ? state.items.length - (state.counts.unreviewed || 0) : 0;
+  milestone(before, after, state ? state.items.length : 0);
+  if (state && state.items.length && !state.counts.unreviewed && before < after) celebrate();
   if (advance) {
-    const after = visible();
-    const i = after.findIndex(x => x.id === item.id);
-    const target = after.slice(i + 1).find(x => x.status === "unreviewed") || after[i + 1] || after[i];
+    const shown = visible();
+    const i = shown.findIndex(x => x.id === item.id);
+    const target = shown.slice(i + 1).find(x => x.status === "unreviewed") || shown.find(x => x.status === "unreviewed") || shown[i + 1] || shown[i];
     if (target) { currentId = target.id; render(); }
   }
 }
