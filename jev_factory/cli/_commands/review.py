@@ -254,10 +254,120 @@ def _serve_corrections(path: Path, review_file: Path, port: int, json_mode: bool
     return 0
 
 
+def _gold_decisions(args: argparse.Namespace) -> list[tuple[str, str, tuple[str, str] | None]]:
+    """``(record id, action, edit)`` from ``--decide ID=ACTION`` and ``--edit ID:QID=LABEL``."""
+    out: list[tuple[str, str, tuple[str, str] | None]] = []
+    for item in args.decide or []:
+        rid, sep, action = item.rpartition("=")
+        if not sep or not rid:
+            raise CliError(EXIT_USER_ERROR, f"bad --decide {item!r}", "use ID=approve|reject")
+        if action == "edit":
+            raise CliError(
+                EXIT_USER_ERROR, f"bad --decide {item!r}", "edit with --edit ID:QID=LABEL"
+            )
+        out.append((rid, action, None))
+    for item in args.edit or []:
+        target, sep, label = item.rpartition("=")
+        rid, colon, qid = target.rpartition(":")
+        if not (sep and colon and rid and qid and label):
+            raise CliError(EXIT_USER_ERROR, f"bad --edit {item!r}", "use ID:QID=LABEL")
+        out.append((rid, "edit", (qid, label)))
+    return out
+
+
+def _gold_entries(records: list[Any], decisions: list[Any], args: argparse.Namespace) -> tuple:
+    """Ledger entries for the decisions, and the records after the edits among them."""
+    from jev_factory.review import gold
+
+    working = {r.id: r for r in records}
+    entries = []
+    for rid, action, edit in decisions:
+        if rid not in working:
+            raise CliError(EXIT_USER_ERROR, f"no test record {rid!r}", "check the record id")
+        try:
+            entry, after = gold.make_entry(
+                working[rid], action, reviewer=args.reviewer, note=args.note or "", edit=edit
+            )
+        except ValueError as exc:
+            raise CliError(EXIT_USER_ERROR, str(exc), "fix the decision") from None
+        working[rid] = after
+        entries.append(entry)
+    return entries, working
+
+
+def _gold_mode(args: argparse.Namespace, json_mode: bool) -> int:
+    """Review drafted human-gold test records; ``--apply`` appends to the gold ledger."""
+    from jev_factory.review import gold
+
+    if args.serve:
+        raise CliError(EXIT_USER_ERROR, "--gold has no --serve", "decide with --decide / --edit")
+    path = Path(args.gold)
+    if not path.is_file():
+        raise CliError(EXIT_ENV_ERROR, f"gold records file not found: {path}", "check the path")
+    ledger_file = Path(args.review_file) if args.review_file else gold.ledger_path(path)
+    try:
+        drafted = gold.read_drafted(path)
+        ledger = gold.read_ledger(ledger_file)
+    except ValueError as exc:
+        raise CliError(EXIT_USER_ERROR, str(exc), "fix or restore the file") from None
+    test = [r for r in drafted if r.split == gold.TEST_SPLIT]
+    entries, working = _gold_entries(test, _gold_decisions(args), args)
+    edited = any(e["action"] == "edit" for e in entries)
+    if args.apply:
+        for entry in entries:
+            gold.append_entry(ledger_file, entry)
+        if edited:
+            gold.write_drafted(path, [working.get(r.id, r) for r in drafted])
+    shown = [working[r.id] for r in test]
+    after_plan = gold.plan([*ledger, *entries], shown)
+    latest = {(e["record_id"], e["record_sha256"]): e["action"] for e in [*ledger, *entries]}
+    rows = [
+        {
+            "id": r.id,
+            "status": gold.status_of(r, latest),
+            "source": r.source,
+            "gold": {q: g.to_json() for q, g in r.gold.items()},
+        }
+        for r in shown
+    ]
+    result = {
+        "records": str(path),
+        "ledger": str(ledger_file),
+        "test_records": len(test),
+        "skipped_non_test": len(drafted) - len(test),
+        "counts": after_plan.counts,
+        "orphans": after_plan.orphans,
+        "decisions": len(entries),
+        "applied": bool(args.apply and entries),
+        "rows": rows,
+    }
+    emit_result(
+        result if json_mode else _render_gold(result, rows, args.apply), json_mode=json_mode
+    )
+    return 0
+
+
+def _render_gold(result: dict[str, Any], rows: list[dict[str, Any]], applied: bool) -> str:
+    lines = [f"records: {result['records']}", f"ledger: {result['ledger']}"]
+    lines.append(f"{result['test_records']} test record(s), {result['skipped_non_test']} other")
+    lines.append("status: " + ", ".join(f"{n} {k}" for k, n in result["counts"].items()))
+    for row in rows:
+        gold_text = "; ".join(f"{q}={g.get('label')}" for q, g in row["gold"].items())
+        lines.append(f"  {row['id']} [{row['status']}] {gold_text} ({row['source']})")
+    lines.extend(f"orphan ledger entry: {o}" for o in result["orphans"])
+    verb = "recorded" if applied else "would record"
+    lines.append(f"{verb} {result['decisions']} decision(s)")
+    if result["decisions"] and not applied:
+        lines.append("dry run: nothing was written; pass --apply to record the decisions")
+    return "\n".join(lines)
+
+
 def cmd_review(args: argparse.Namespace) -> int:
     json_mode = bool(args.json)
     if args.serve and args.apply:
         raise CliError(EXIT_USER_ERROR, "--serve and --apply are separate steps", "pick one")
+    if args.gold:
+        return _gold_mode(args, json_mode)
     if args.corrections:
         return _corrections_mode(args, json_mode)
     if not args.domain:
@@ -307,6 +417,20 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="Review a corrections JSONL instead of a seed: decisions are staged by --serve and "
         "recorded in <stem>.review.jsonl by --apply.",
     )
+    p.add_argument(
+        "--gold",
+        metavar="FILE",
+        help="Review drafted human-gold test records (JSONL): list them with proposed gold; "
+        "--decide/--edit with --apply append to <stem>.gold-ledger.jsonl.",
+    )
+    p.add_argument(
+        "--decide", action="append", metavar="ID=ACTION", help="With --gold: approve or reject."
+    )
+    p.add_argument(
+        "--edit", action="append", metavar="ID:QID=LABEL", help="With --gold: correct the gold."
+    )
+    p.add_argument("--reviewer", help="With --gold: who decides (default operator).")
+    p.add_argument("--note", help="With --gold: a note stored with each decision.")
     p.add_argument(
         "--review-file",
         dest="review_file",

@@ -237,7 +237,9 @@ Rejecting removes the entry. An edit replaces the entry. A proposal adds a
 new entry, whose source defaults to `operator-review-<date>`.
 
 `--corrections FILE` reviews distillery corrections instead of a domain seed;
-see `jev-factory explain review corrections`.
+see `jev-factory explain review corrections`. `--gold FILE` records the
+operator's approval of drafted human-gold test records; see
+`jev-factory explain review gold`.
 
 ## Usage
 
@@ -277,6 +279,39 @@ error (exit 1).
     jev-factory review --corrections <file> --serve
     jev-factory review --corrections <file> --serve --port 0 --json
     jev-factory review --corrections <file> --apply
+"""
+
+_REVIEW_GOLD = """\
+# jev-factory review --gold <file>
+
+Operator approval of drafted human-gold test records (JSONL of distill records
+whose gold the agent only proposed). A record counts as human gold only when the
+operator approved that exact record. The ledger, `<file stem>.gold-ledger.jsonl`
+beside the records unless `--review-file` names another, is append-only: one line
+per decision with the record id, the record's sha256, the action, the reviewer and
+an ISO time. The final stage reads it through `approved_ids`: an id is approved only
+when the latest entry for its current sha256 is an approve. A reject or an edit is not
+an approval, an edited record has a new sha256 so its earlier approval no longer
+matches, and a malformed ledger is an error (fails closed).
+
+- Default (dry run): lists the test records with their proposed gold and status
+  (proposed, approved, rejected, edited) and what the given decisions would record.
+  Records of other splits are skipped. Nothing is written.
+- `--decide ID=approve|reject`: a decision for one record (repeat the flag).
+- `--edit ID:QID=LABEL`: correct the gold label of a question; `--apply` rewrites the
+  records file with the edit and appends an edit entry. The edited record needs a
+  fresh approve.
+- `--reviewer NAME`, `--note TEXT`: stored with each decision.
+- `--apply`: appends the decisions to the ledger.
+
+`--gold` has no `--serve`. A missing file is an environment error (exit 2); an
+unreadable file, a corrupted ledger or an unknown id is a user error (exit 1).
+
+## Usage
+
+    jev-factory review --gold <file>
+    jev-factory review --gold <file> --decide <id>=approve --apply
+    jev-factory review --gold <file> --edit <id>:<qid>=<label> --apply
 """
 
 _DECIDE = """\
@@ -431,6 +466,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("review",): _REVIEW,
     ("distill",): _DISTILL,
     ("review", "corrections"): _REVIEW_CORRECTIONS,
+    ("review", "gold"): _REVIEW_GOLD,
     ("domain",): _DOMAIN,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
