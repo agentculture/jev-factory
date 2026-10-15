@@ -518,7 +518,7 @@ def test_served_measurer_records_a_non_bundle_artifact_as_unavailable(tmp_path):
 def test_default_builders_register_bf16_and_the_torchao_formats():
     assert set(Q.default_builders("a" * 40)) == {"bf16"}  # no student env: not buildable
     builders = Q.default_builders("a" * 40, python="py", decider_repo="/sd")
-    assert set(builders) == {"bf16", "torch_int8_wo", "torch_int4_wo"}
+    assert set(builders) == {"bf16", "torch_int8_wo", "torch_int4_wo", *Q.PRUNED_FORMATS}
     assert set(Q.UNSUPPORTED) == set(Q.FORMATS)
     for fmt in ("torch_int8_wo", "torch_int4_wo"):
         assert "fp32 pointer head" in Q.FORMATS[fmt]
@@ -543,7 +543,10 @@ def _ckpt(root: Path) -> Path:
     return root
 
 
-def _write_artifact(out: Path, bits: int, source=None, scheme=None) -> None:
+KEPT = [0, 1, 2, 5, 9]
+
+
+def _write_artifact(out: Path, bits: int, source=None, scheme=None, kept_ids=None) -> None:
     from jev_factory.backbones.pointer import layout as player
     from jev_factory.backbones.pointer import quantized as qz
 
@@ -563,6 +566,7 @@ def _write_artifact(out: Path, bits: int, source=None, scheme=None) -> None:
         base_model="Qwen/x",
         base_model_revision="a" * 40,
         scheme=scheme,
+        kept_ids=kept_ids,
     )
 
 
@@ -595,6 +599,7 @@ class Runner:
                 int(argv[7]),
                 qz.source_record(Path(argv[4])),
                 scheme=_argv_scheme(argv),
+                kept_ids=KEPT if "--prompts" in argv else None,
             )
         return subprocess.CompletedProcess(argv, self.rc, stdout="", stderr=self.stderr)
 
@@ -942,3 +947,260 @@ def test_a_built_artifact_with_another_scheme_is_not_reused(tmp_path):
     with pytest.raises(Q.FormatUnavailable, match="not empty"):
         second["torch_int4_wo"]("torch_int4_wo", ckpt, tmp_path / "q4")
     assert len(runner.calls) == 1
+
+
+# --------------------------------------------------------------------- pruned vocabulary (c38/h9)
+
+PRUNED4 = "torch_int4_wo_pruned_vocab"
+PRUNED8 = "torch_int8_wo_pruned_vocab"
+
+
+def _trainer_rows(n=3):
+    rows = []
+    for i in range(n):
+        rec = _rec(100 + i)
+        for qid, q in sorted(rec.questions.items()):
+            rows.append(
+                {
+                    "record_id": rec.id,
+                    "question_id": qid,
+                    "kind": q.type,
+                    "state": rec.state,
+                    "instructions": "",
+                    "options": [list(c) for c in q.criteria],
+                }
+            )
+    return "".join(json.dumps(r) + "\n" for r in rows)
+
+
+class PrunedBuilder:
+    """Writes a verified pruned artifact (fake weights) and records the prompt set it got."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, fmt, checkpoint, out_dir, prompts=None):
+        self.calls.append((fmt, Path(checkpoint), prompts))
+        _write_artifact(out_dir, Q.PRUNED_FORMATS[fmt], kept_ids=KEPT)
+        return out_dir
+
+
+class RefusingMeasurer(FakeMeasurer):
+    """As FakeMeasurer, but *fmt*'s server refuses the first *n* selection records as OOV."""
+
+    def __init__(self, fmt, n, **kw):
+        super().__init__(**kw)
+        self.fmt, self.n = fmt, n
+
+    def __call__(self, fmt, artifact, fold_records):
+        out = super().__call__(fmt, artifact, fold_records)
+        if fmt == self.fmt:
+            for row in out["predictions"]["selection"][: self.n]:
+                row["error"] = "request failed: HTTP Error 422: out_of_vocabulary"
+                for q in row["questions"].values():
+                    q["error"] = row["error"]
+        return out
+
+
+def _comparison_run(tmp_path, *, measurer=None, train_rows=None, **kw):
+    builders = FakeBuilders(formats=("bf16", "torch_int8_wo", "torch_int4_wo"))
+    pruned = PrunedBuilder()
+    builders[PRUNED4] = pruned
+    builders[PRUNED8] = pruned
+    path, run_dir, _ckpt_dir = setup(tmp_path)
+    train_set = run_dir / "distill" / "assemble" / "train_set.jsonl"
+    if train_rows is None:
+        train_set.write_text(_trainer_rows())
+    else:
+        train_set.unlink()
+    profile = {**PROFILE, PRUNED4: (0.95, 100.0, 0.01), PRUNED8: (0.95, 100.0, 0.01)}
+    out = Q.run_quant(
+        prereg_path=path,
+        run_dir=run_dir,
+        folds=folds(),
+        trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path / "strands-decider"),
+        apply=True,
+        hooks=Q.QuantHooks(
+            builders=builders,
+            measurer=measurer or FakeMeasurer(profile=profile),
+            trainer=FakeTrainer(run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE),
+        ),
+        bootstrap=Bootstrap(resamples=50),
+        formats=("torch_int8_wo", "torch_int4_wo"),
+        **kw,
+    )
+    return out, run_dir, pruned
+
+
+def test_the_pruned_build_is_reported_beside_the_full_build_and_never_shipped(tmp_path):
+    """h9/c38: quant.py reports the pruned build beside the full-vocabulary one (weight bytes,
+    selection accuracy, OOV refusal count) and never selects it, even when it measures
+    better on every axis."""
+    profile = {**PROFILE, PRUNED4: (0.95, 100.0, 0.01), PRUNED8: (0.95, 100.0, 0.01)}
+    measurer = RefusingMeasurer(PRUNED4, 2, profile=profile)
+    out, run_dir, pruned = _comparison_run(tmp_path, measurer=measurer)
+    assert out["chosen_format"] == "torch_int4_wo"  # the full-vocabulary build ships
+    report = out["pruned_vocabulary_comparison"]
+    assert report["shipped"] is False
+    assert report["comparison_only"] is True
+    assert report["shipped_format"] == "torch_int4_wo"
+    side = report["pruned"]
+    assert side["format"] == PRUNED4  # same block bits as the shipped full build
+    assert side["available"] is True
+    assert side["weight_bytes"] == sum(
+        (run_dir / Q.QUANT_REL / Q.COMPARISON_DIR / PRUNED4 / n).stat().st_size
+        for n in ("torso_quantized.pt", "head.safetensors")
+    )
+    assert side["selection_accuracy"] is not None
+    assert side["oov_refusals"] == 2
+    full = report["full_vocabulary"]
+    assert full["format"] == "torch_int4_wo"
+    assert full["weight_bytes"] == 64
+    assert full["oov_refusals"] == 0
+    assert full["selection_accuracy"] == out["deployed_selection_accuracy"]
+    meas = _read(run_dir, Q.MEASUREMENTS_FILE)
+    entry = meas["pruned_vocabulary_comparison"]["measurement"]
+    assert entry["oov_refusals"]["by_fold"] == {"fit": 0, "selection": 2}
+    assert entry["pruned_vocabulary"]["kept_ids_count"] == len(KEPT)
+    assert PRUNED4 not in meas["formats"]
+    decision = _read(run_dir, Q.DECISION_FILE)
+    assert decision["format"] == "torch_int4_wo"
+    assert set(decision["never_candidates"]) == set(Q.PRUNED_FORMATS)
+    assert all(PRUNED4 not in t["survivors"] for t in decision["trail"])
+    manifest = _read(run_dir, Q.MANIFEST_FILE)
+    assert manifest["chosen_format"] == "torch_int4_wo"
+    assert manifest["pruned_vocabulary_comparison"]["pruned"] == side
+    assert [c[0] for c in pruned.calls] == [PRUNED4]
+
+
+def test_the_prompt_set_holds_train_fit_and_selection_prompts_only(tmp_path):
+    """h9: the kept ids come from the run's train/fit/selection prompts, never test/held-out."""
+    out, run_dir, pruned = _comparison_run(tmp_path)
+    prompts = pruned.calls[0][2]
+    rows = [json.loads(line) for line in Path(prompts).read_text().splitlines()]
+    assert {r["side"] for r in rows} == {"train", "fit", "selection"}
+    record = out["pruned_vocabulary_comparison"]["prompt_set"]
+    assert record["counts"] == {"train": 3, "fit": 20, "selection": 20}
+    train = next(r["body"] for r in rows if r["side"] == "train")
+    assert train["questions"]["c"] == {
+        "type": "choice",
+        "criteria": {"fix": "fix it", "wait": "wait"},
+    }
+    assert train["questions"]["s"]["criteria"] == ["low", "mid", "high"]
+    assert train["questions"]["n"]["criteria"] is None
+
+
+def test_without_a_training_set_the_comparison_is_unavailable_not_a_failure(tmp_path):
+    out, _run_dir, pruned = _comparison_run(tmp_path, train_rows=False)
+    side = out["pruned_vocabulary_comparison"]["pruned"]
+    assert side["available"] is False
+    assert "does not exist" in side["reason"]
+    assert pruned.calls == []
+    assert out["chosen_format"] == "torch_int4_wo"
+
+
+def test_a_pruned_format_is_never_a_candidate(tmp_path):
+    """c38: naming a pruned build as a candidate format is refused, before and at the choice."""
+    path, run_dir, _ = setup(tmp_path)
+    args = dict(
+        prereg_path=path,
+        run_dir=run_dir,
+        folds=folds(),
+        trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path / "sd"),
+        formats=(PRUNED4,),
+    )
+    with pytest.raises(CliError, match="never candidates"):
+        Q.run_quant(**args)
+    measured = {PRUNED4: {"format": PRUNED4, "available": True}}
+    with pytest.raises(CliError, match="never candidates"):
+        Q.choose_format(measured, ece_max=0.1, formats=(PRUNED4,))
+
+
+def test_the_dry_run_lists_the_comparison_builds_as_comparison_only(tmp_path):
+    builders = FakeBuilders()
+    builders[PRUNED4] = PrunedBuilder()
+    plan, run_dir, _ = run(tmp_path, apply=False, builders=builders)
+    assert plan["comparison"] == [
+        {"format": PRUNED4, "description": Q.COMPARISON_FORMATS[PRUNED4], "comparison_only": True}
+    ]
+    assert PRUNED4 not in [f["format"] for f in plan["formats"]]
+    assert not any(outputs(run_dir).values())
+
+
+def test_the_torchao_builder_builds_the_pruned_comparison_with_the_prompt_set(tmp_path):
+    """h9: the default builder passes the prompt set to the pruned build and verifies it."""
+    from jev_factory.backbones.pointer import quantized as qz
+
+    runner = Runner()
+    builders = Q.default_builders(
+        "a" * 40,
+        python="py",
+        decider_repo="/sd",
+        runner=runner,
+        guard=lambda s: None,
+        memory_max="90G",
+    )
+    ckpt = _ckpt(tmp_path / "ckpt")
+    prompts = tmp_path / "prompts.jsonl"
+    prompts.write_text(json.dumps({"side": "fit", "body": {"id": "r", "questions": {}}}) + "\n")
+    art = builders[PRUNED4](PRUNED4, ckpt, tmp_path / "p4", prompts)
+    argv = runner.calls[0]
+    assert argv[argv.index("--prompts") + 1] == str(prompts)
+    manifest = qz.read_artifact(art)["manifest"]
+    assert manifest["format"] == PRUNED4
+    assert manifest["pruned_vocabulary"]["kept_ids_sha256"] == qz.kept_ids_sha256(KEPT)
+    with pytest.raises(Q.FormatUnavailable, match="needs a prompt set"):
+        builders[PRUNED4](PRUNED4, ckpt, tmp_path / "p4b")
+
+
+def test_oov_refusals_count_the_servers_out_of_vocabulary_answers(tmp_path):
+    """h9: a 422 out_of_vocabulary from the wrapper is counted, through the shared client."""
+    import threading
+
+    from jev_factory.backbones.pointer import quantized as qz
+    from jev_factory.backbones.pointer import serve as pserve
+    from jev_factory.distill import benchmark as bench
+
+    def evaluate(body):
+        def call():
+            raise qz.OutOfVocabulary([248000])
+
+        return qz.refuse_out_of_vocabulary(call)
+
+    srv = qz.make_server("127.0.0.1", 0, evaluate=evaluate, health=lambda: {"status": "ok"})
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}"
+        target = bench.Target(name="p", base_url=url, model="p")
+        recs = [r for r in folds()["selection"] if r.id in ("r21", "r22")]
+        out = bench.benchmark_model(
+            target,
+            {"fit": [], "selection": recs},
+            memory_probe=None,
+            client=pserve.PointerClient(url, model="p"),
+        )
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    preds = {"selection": out["predictions"]}
+    assert Q.oov_refusals({"predictions": preds}) == {"by_fold": {"selection": 2}, "total": 2}
+
+
+def test_a_pruned_artifact_is_reused_only_for_the_same_prompt_set(tmp_path):
+    from jev_factory.backbones.pointer import layout as player
+    from jev_factory.backbones.pointer import quantized as qz
+
+    ckpt = _ckpt(tmp_path / "ckpt")
+    out = tmp_path / "p4"
+    prompts = tmp_path / "prompts.jsonl"
+    prompts.write_text(json.dumps({"side": "fit", "body": {"questions": {}}}) + "\n")
+    _write_artifact(out, 4, qz.source_record(ckpt), kept_ids=KEPT)
+    manifest = json.loads((out / qz.MANIFEST_FILE).read_text())
+    scheme = qz.QuantScheme(block_bits=4)
+    assert Q._reusable(out, ckpt, PRUNED4, scheme, prompts) is False  # no prompt set recorded
+    manifest["vocabulary"] = {"prompt_set": {"sha256": player.sha256_file(prompts)}}
+    (out / qz.MANIFEST_FILE).write_text(json.dumps(manifest))
+    assert Q._reusable(out, ckpt, PRUNED4, scheme, prompts) is True
+    prompts.write_text(json.dumps({"side": "train", "body": {"questions": {}}}) + "\n")
+    assert Q._reusable(out, ckpt, PRUNED4, scheme, prompts) is False

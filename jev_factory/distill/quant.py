@@ -53,6 +53,16 @@ pre-registration (:func:`jev_factory.distill.prereg.require_locked`).
    ``quant_manifest.json`` carries the chosen format, the heal count, the quant-vs-bf16
    delta and the sha256 of every output.
 
+5. **Pruned-vocabulary comparison (decision c38, h9).** When a builder for a
+   :data:`PRUNED_FORMATS` name is registered (:func:`default_builders` registers both), the
+   run's train, fit and selection prompts are written to ``prompt_set.jsonl`` (never test
+   or held-out) and the pruned build at the bits of the full-vocabulary torchao build it is
+   compared with is built from the winner and measured the same way. Its weight bytes,
+   selection-fold accuracy and ``out_of_vocabulary`` refusal count are reported beside the
+   full-vocabulary build's in ``measurements.json`` and ``quant_manifest.json``
+   (``pruned_vocabulary_comparison``). It is never a candidate: it is not in
+   :data:`FORMATS`, the rule never sees it, and a choice naming it is refused.
+
 The margin and round count have one owner (:mod:`jev_factory.decide.rules`); the
 pre-registered ``bars.quant`` must agree with them or the stage refuses. Dry-run by default;
 ``apply`` builds, serves and trains. Stdlib only; servers are localhost only.
@@ -111,6 +121,19 @@ FORMATS: dict[str, str] = {
 }
 #: The torchao weight-only formats (deviation d3) -> their weight bits.
 TORCH_FORMATS: dict[str, int] = {fmt: bits for bits, fmt in qz.FORMAT_OF_BITS.items()}
+#: The pruned-vocabulary comparison builds (c38) -> their weight bits. Never candidates.
+PRUNED_FORMATS: dict[str, int] = {fmt: bits for bits, fmt in qz.PRUNED_FORMAT_OF_BITS.items()}
+COMPARISON_FORMATS: dict[str, str] = {
+    fmt: f"{FORMATS[qz.FORMAT_OF_BITS[bits]]}, embedding pruned to the ids the run's "
+    "train/fit/selection prompts use (comparison only, never shipped)"
+    for fmt, bits in PRUNED_FORMATS.items()
+}
+PROMPT_SET_FILE = "prompt_set.jsonl"
+COMPARISON_DIR = "comparison"
+COMPARISON_NOTE = (
+    "c38: the pruned-vocabulary build is measured beside the full-vocabulary build and "
+    "reported only; the full-vocabulary quant stays the shipped build"
+)
 
 _SERVE_PATH = (
     "strands-decider serve @ 8b6faa5 (StrandsDeciderModel.load) loads the torso from the "
@@ -298,14 +321,21 @@ def _gpu_guard(stage: str) -> Any:
     return gpu.assert_gpu_free(stage)
 
 
-def _reusable(out_dir: Path, checkpoint: Path, fmt: str, scheme: qz.QuantScheme) -> bool:
-    """An artifact already built in *out_dir* for this exact checkpoint, format and scheme."""
+def _reusable(
+    out_dir: Path, checkpoint: Path, fmt: str, scheme: qz.QuantScheme, prompts: Path | None = None
+) -> bool:
+    """An artifact already built in *out_dir* for this exact checkpoint, format and scheme
+    (and, for a pruned build, from the same prompt set)."""
     if not (out_dir / qz.MANIFEST_FILE).is_file():
         return False
     try:
         manifest = qz.read_artifact(out_dir)["manifest"]
     except CliError:
         return False
+    if prompts is not None:
+        built_from = ((manifest.get("vocabulary") or {}).get("prompt_set") or {}).get("sha256")
+        if built_from != player.sha256_file(Path(prompts)):
+            return False
     return (
         manifest["format"] == fmt
         and manifest["scheme"] == scheme.record()
@@ -341,32 +371,42 @@ def torch_wo_builder(
     not an unavailable format), since the box would otherwise be unprotected.
     """
 
-    def build(fmt: str, checkpoint: Path, out_dir: Path) -> Path:
-        if fmt not in TORCH_FORMATS:
-            raise FormatUnavailable(f"the torchao builder builds {list(TORCH_FORMATS)}, not {fmt}")
+    limits = {
+        "runner": runner,
+        "timeout": timeout,
+        "memory_max": memory_max,
+        "memory_floor": memory_floor,
+        "allow_foreign": allow_foreign,
+    }
+
+    def build(fmt: str, checkpoint: Path, out_dir: Path, prompts: Path | None = None) -> Path:
+        bits = TORCH_FORMATS.get(fmt) or PRUNED_FORMATS.get(fmt)
+        if bits is None:
+            raise FormatUnavailable(
+                f"the torchao builder builds {[*TORCH_FORMATS, *PRUNED_FORMATS]}, not {fmt}"
+            )
+        if (fmt in PRUNED_FORMATS) != (prompts is not None):
+            raise FormatUnavailable(f"{fmt}: a pruned build needs a prompt set, a full one none")
         out_dir = Path(out_dir)
-        fmt_scheme = replace(scheme or qz.QuantScheme(), block_bits=TORCH_FORMATS[fmt])
-        if _reusable(out_dir, Path(checkpoint), fmt, fmt_scheme):
+        fmt_scheme = replace(scheme or qz.QuantScheme(), block_bits=bits)
+        if _reusable(out_dir, Path(checkpoint), fmt, fmt_scheme, prompts):
             return out_dir
         if not memory_max:
             raise _refuse("a GPU quantize build needs a memory cap", "pass memory_max with apply")
         (guard or _gpu_guard)("quantize")
+        common = {
+            "apply": True,
+            "python": python,
+            "decider_repo": decider_repo,
+            "base_revision": base_revision,
+            "device": device,
+            **limits,
+        }
         try:
-            qz.build_weight_only(
-                checkpoint,
-                out_dir,
-                fmt_scheme,
-                apply=True,
-                python=python,
-                decider_repo=decider_repo,
-                base_revision=base_revision,
-                device=device,
-                runner=runner,
-                timeout=timeout,
-                memory_max=memory_max,
-                memory_floor=memory_floor,
-                allow_foreign=allow_foreign,
-            )
+            if prompts is None:
+                qz.build_weight_only(checkpoint, out_dir, fmt_scheme, **common)
+            else:
+                qz.build_pruned_vocabulary(checkpoint, out_dir, fmt_scheme, prompts, **common)
         except CliError as exc:
             raise FormatUnavailable(f"torchao build failed for {fmt}: {exc.message}") from exc
         except (OSError, subprocess.SubprocessError) as exc:
@@ -396,6 +436,8 @@ def default_builders(
 
     Without *python* and *decider_repo* the torchao formats are not registered and are
     recorded unavailable with :data:`UNSUPPORTED`'s reason; the other four formats always are.
+    With them, the pruned-vocabulary comparison builds (:data:`PRUNED_FORMATS`) are
+    registered too; they are measured and reported, never candidates.
     """
     builders: dict[str, Builder] = {BF16: bf16_builder(base_revision)}
     if python and decider_repo:
@@ -412,7 +454,7 @@ def default_builders(
             allow_foreign=allow_foreign,
             scheme=scheme,
         )
-        builders.update(dict.fromkeys(TORCH_FORMATS, torch_build))
+        builders.update(dict.fromkeys((*TORCH_FORMATS, *PRUNED_FORMATS), torch_build))
     return builders
 
 
@@ -541,7 +583,20 @@ def _measure_format(
         measured = measurer(fmt, artifact, {f: list(fold_records[f]) for f in dtrain.FOLDS})
     except FormatUnavailable as exc:
         return _unavailable(fmt, exc.reason, size=size)
-    return {**assess(fmt, artifact, fold_records, measured, **kw), "size": size}
+    return {
+        **assess(fmt, artifact, fold_records, measured, **kw),
+        "size": size,
+        "oov_refusals": oov_refusals(measured),
+    }
+
+
+def oov_refusals(measured: Mapping[str, Any]) -> dict[str, Any]:
+    """How many records the server refused as ``out_of_vocabulary``, per fold and in total."""
+    by_fold = {
+        fold: sum(1 for row in rows or () if qz.OOV_ERROR in str(row.get("error") or ""))
+        for fold, rows in (measured.get("predictions") or {}).items()
+    }
+    return {"by_fold": by_fold, "total": sum(by_fold.values())}
 
 
 def _measure_all(
@@ -575,6 +630,162 @@ def _measure_all(
     return out
 
 
+# --------------------------------------------------------------------- pruned comparison (c38)
+
+
+def _wire_criteria(kind: str, options: Sequence[Sequence[str]]) -> Any:
+    """Criteria as :func:`jev_factory.distill.benchmark.wire_record` sends them."""
+    if kind == "choice":
+        return {name: desc for name, desc in options}
+    if kind == "score":
+        return [desc for _name, desc in options]
+    return None
+
+
+def _train_bodies(train_file: Path) -> list[dict[str, Any]]:
+    """The train side's ``/v1/systemone`` bodies, rebuilt from the frozen trainer rows."""
+    bodies: dict[str, dict[str, Any]] = {}
+    for line, text in enumerate(Path(train_file).read_text(encoding="utf-8").splitlines(), 1):
+        if not text.strip():
+            continue
+        row = json.loads(text)
+        try:
+            rid, qid, kind, options = (
+                row["record_id"],
+                row["question_id"],
+                row["kind"],
+                row["options"],
+            )
+            body = bodies.setdefault(rid, {"id": rid, "state": row["state"], "questions": {}})
+        except (KeyError, TypeError) as exc:
+            raise FormatUnavailable(f"{train_file} row {line} is not a trainer row: {exc}") from exc
+        item: dict[str, Any] = {"type": kind, "criteria": _wire_criteria(kind, options)}
+        if row.get("instructions"):
+            item["instructions"] = row["instructions"]
+        body["questions"][qid] = item
+    return [bodies[rid] for rid in sorted(bodies)]
+
+
+def write_prompt_set(
+    path: Path, train_file: Path, fold_records: Mapping[str, Sequence[Record]]
+) -> dict[str, Any]:
+    """Write the train, fit and selection prompts (never test or held-out); return its record."""
+    if not Path(train_file).is_file():
+        raise FormatUnavailable(f"the frozen training set {train_file} does not exist")
+    try:
+        rows = [{"side": "train", "body": b} for b in _train_bodies(train_file)]
+    except ValueError as exc:
+        raise FormatUnavailable(f"{train_file} is not valid JSONL: {exc}") from exc
+    for fold in dtrain.FOLDS:
+        rows += [{"side": fold, "body": bench.wire_record(r)} for r in fold_records[fold]]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = "".join(json.dumps(r, sort_keys=True, ensure_ascii=False) + "\n" for r in rows)
+    path.write_text(text, encoding="utf-8")
+    try:
+        return qz.prompt_set_record(path)
+    except CliError as exc:
+        raise FormatUnavailable(f"the prompt set is unusable: {exc.message}") from exc
+
+
+def _reference_full(measured: Mapping[str, Mapping[str, Any]], chosen: str) -> str | None:
+    """The full-vocabulary torchao build the pruned one is compared with."""
+    if chosen in TORCH_FORMATS:
+        return chosen
+    return next((f for f in TORCH_FORMATS if measured.get(f, {}).get("available")), None)
+
+
+def _pruned_artifact(builder: Builder, fmt: str, checkpoint: Path, out: Path, prompts: Path):
+    artifact = Path(builder(fmt, checkpoint, out, prompts))  # type: ignore[call-arg]
+    try:
+        manifest = qz.read_artifact(artifact)["manifest"]
+    except CliError as exc:
+        raise FormatUnavailable(f"{artifact} failed verification: {exc.message}") from exc
+    if not qz.is_pruned(manifest) or manifest["format"] != fmt:
+        raise FormatUnavailable(f"{artifact} is not a {fmt} pruned-vocabulary build")
+    return artifact, manifest
+
+
+def _measure_pruned(
+    fmt: str,
+    checkpoint: Path,
+    out_dir: Path,
+    builders: Mapping[str, Builder],
+    measurer: Measurer,
+    fold_records: Mapping[str, Sequence[Record]],
+    train_file: Path,
+    **kw: Any,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Build and measure the pruned comparison; return its measurement and prompt set."""
+    if fmt not in builders:
+        return _unavailable(fmt, f"no builder registered for {fmt}"), None
+    prompt_set = size = None
+    try:
+        prompt_set = write_prompt_set(out_dir / PROMPT_SET_FILE, train_file, fold_records)
+        artifact, manifest = _pruned_artifact(
+            builders[fmt], fmt, checkpoint, out_dir / fmt, Path(prompt_set["path"])
+        )
+        size = size_record(artifact)
+        measured = measurer(fmt, artifact, {f: list(fold_records[f]) for f in dtrain.FOLDS})
+    except FormatUnavailable as exc:
+        return _unavailable(fmt, exc.reason, size=size), prompt_set
+    entry = {
+        **assess(fmt, artifact, fold_records, measured, **kw),
+        "size": size,
+        "oov_refusals": oov_refusals(measured),
+        "pruned_vocabulary": manifest["pruned_vocabulary"],
+    }
+    return entry, prompt_set
+
+
+def _side_by_side(m: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if m is None:
+        return None
+    return {
+        "format": m["format"],
+        "available": m["available"],
+        "reason": m.get("reason"),
+        "weight_bytes": (m.get("size") or {}).get("weight_bytes"),
+        "selection_accuracy": m.get("accuracy"),
+        "oov_refusals": (m.get("oov_refusals") or {}).get("total"),
+    }
+
+
+def compare_pruned(
+    measured: Mapping[str, Mapping[str, Any]],
+    chosen: str,
+    *,
+    checkpoint: Path,
+    out_dir: Path,
+    builders: Mapping[str, Builder],
+    measurer: Measurer,
+    fold_records: Mapping[str, Sequence[Record]],
+    train_file: Path,
+    **kw: Any,
+) -> dict[str, Any] | None:
+    """The c38 comparison: the pruned build beside its full-vocabulary build; ``None`` when
+    no pruned builder is registered. Reported only; it never changes *chosen*."""
+    registered = [f for f in PRUNED_FORMATS if f in builders]
+    if not registered:
+        return None
+    reference = _reference_full(measured, chosen)
+    fmt = qz.format_name(TORCH_FORMATS[reference], pruned=True) if reference else registered[0]
+    entry, prompt_set = _measure_pruned(
+        fmt, checkpoint, out_dir, builders, measurer, fold_records, train_file, **kw
+    )
+    return {
+        "decision": COMPARISON_NOTE,
+        "comparison_only": True,
+        "shipped": False,
+        "shipped_format": chosen,
+        "checkpoint": str(checkpoint),
+        "fold": "selection",
+        "prompt_set": prompt_set,
+        "pruned": _side_by_side(entry),
+        "full_vocabulary": _side_by_side(measured.get(reference) if reference else None),
+        "measurement": entry,
+    }
+
+
 # --------------------------------------------------------------------- the choice
 
 
@@ -588,10 +799,19 @@ def _footprint(m: Mapping[str, Any], order: Sequence[str]) -> tuple[float, float
     )
 
 
+def _refuse_comparison_candidates(formats: Sequence[str]) -> None:
+    if comparison := [f for f in formats if f in COMPARISON_FORMATS]:
+        raise _refuse(
+            f"{comparison} are pruned-vocabulary comparison builds; they are never candidates",
+            COMPARISON_NOTE,
+        )
+
+
 def choose_format(
     measured: Mapping[str, Mapping[str, Any]], *, ece_max: float, formats: Sequence[str]
 ) -> dict[str, Any]:
     """Apply :data:`FORMAT_RULE`; return the chosen format, the trail and whether to heal."""
+    _refuse_comparison_candidates(formats)
     alive = [measured[f] for f in formats]
     trail = []
 
@@ -732,6 +952,12 @@ def _dry_run(
             }
             for f in formats
         ],
+        "comparison": [
+            {"format": f, "description": COMPARISON_FORMATS[f], "comparison_only": True}
+            for f in PRUNED_FORMATS
+            if f in builders
+        ],
+        "comparison_note": COMPARISON_NOTE,
         "heal_plan": heal_plan,
     }
 
@@ -816,6 +1042,7 @@ def run_quant(
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
     bars = quant_bars(reg)
     threshold = dtrain._threshold(reg)
+    _refuse_comparison_candidates(formats)
     unknown = [f for f in formats if f not in FORMATS]
     if unknown:
         raise _refuse(f"unknown deployed format(s): {unknown}; candidates are {list(FORMATS)}")
@@ -889,6 +1116,17 @@ def run_quant(
             heal_log,
             {"event": "heal_result", "format": fmt, "drop_points": again["drop_points"]},
         )
+    comparison = compare_pruned(
+        measured,
+        choice["format"],
+        checkpoint=winner["checkpoint"],
+        out_dir=out_dir / COMPARISON_DIR,
+        builders=builders,
+        measurer=measurer,
+        fold_records=fold_records,
+        train_file=train_file,
+        **kw,
+    )
     return _finish(
         base=base,
         out_dir=out_dir,
@@ -898,6 +1136,7 @@ def run_quant(
         heal_record=heal_record,
         heal_log=heal_log,
         deployed_checkpoint=deployed_checkpoint,
+        comparison=comparison,
     )
 
 
@@ -911,8 +1150,10 @@ def _finish(
     heal_record: Mapping[str, Any] | None,
     heal_log: Path,
     deployed_checkpoint: Path,
+    comparison: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     fmt = choice["format"]
+    _refuse_comparison_candidates([fmt])
     final = (healed or measured)[fmt]
     final_bf16 = (healed or measured)[BF16]
     measurements_path = out_dir / MEASUREMENTS_FILE
@@ -923,6 +1164,7 @@ def _finish(
             "fold": "selection",
             "formats": measured,
             "healed": healed,
+            "pruned_vocabulary_comparison": comparison,
         },
     )
     cited = _cited(measured, measurements_path)
@@ -939,6 +1181,7 @@ def _finish(
         "cited": cited,
         "prereg_sha256": base["prereg_sha256"],
         "rule_owner": "jev_factory.decide.rules (HEAL_MARGIN_POINTS, HEAL_ROUNDS)",
+        "never_candidates": {f: COMPARISON_NOTE for f in COMPARISON_FORMATS},
     }
     decision_path = out_dir / DECISION_FILE
     _write_json(decision_path, decision)
@@ -971,6 +1214,11 @@ def _finish(
         "bf16_selection_accuracy": final_bf16["accuracy"],
         "deployed_selection_accuracy": final["accuracy"],
         "deployed_selection_ece": final["ece"],
+        "pruned_vocabulary_comparison": (
+            None
+            if comparison is None
+            else {k: comparison[k] for k in comparison if k != "measurement"}
+        ),
         "outputs": _outputs([measurements_path, decision_path, calibration_path, heal_log]),
     }
     _write_json(out_dir / MANIFEST_FILE, manifest)
