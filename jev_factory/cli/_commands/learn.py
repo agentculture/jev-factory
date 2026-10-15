@@ -32,6 +32,8 @@ Commands
   jev-factory decide <run>       Apply the pre-registered rule; append a record.
   jev-factory ask <request>      Propose one jev verb from a bundle (--bundle);
                                  executes nothing.
+  jev-factory distill <stage>    One stage of a teacher -> student distill run
+                                 (dry-run by default; --apply, --detach).
   jev-factory whoami             Identity from culture.yaml.
   jev-factory learn              This self-teaching prompt.
   jev-factory explain <path>...  Markdown docs for any noun/verb path.
@@ -91,6 +93,10 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["status"], "summary": "Stage manifests, staleness and job progress."},
             {"path": ["decide"], "summary": "Apply the pre-registered rule; record it."},
             {"path": ["ask"], "summary": "Propose one jev verb from a bundle; executes nothing."},
+            {
+                "path": ["distill", "<stage>"],
+                "summary": "One distill stage, teacher to student (dry-run by default).",
+            },
             {"path": ["whoami"], "summary": "Identity probe from culture.yaml."},
             {"path": ["learn"], "summary": "Self-teaching prompt."},
             {"path": ["explain"], "summary": "Markdown docs by path."},

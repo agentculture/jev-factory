@@ -9,6 +9,10 @@ beside the seed unless ``--review-file`` says otherwise):
   where each decision is appended to the review file;
 * ``--apply``: write the planned seed. It refuses when a decision conflicts
   with the seed as it stands now or the result does not validate.
+
+``--corrections FILE`` switches to a corrections review (distillery t14): the same three
+modes over a corrections JSONL, whose review file is the record. Only approved and edited
+corrections are trainable (:mod:`jev_factory.review.corrections`).
 """
 
 from __future__ import annotations
@@ -150,10 +154,118 @@ def _serve(domain: Domain, review_file: Path, port: int, json_mode: bool) -> int
     return 0
 
 
+def _corrections_mode(args: argparse.Namespace, json_mode: bool) -> int:
+    """Review distillery corrections: ``--serve`` stages decisions, ``--apply`` records them."""
+    from jev_factory.review import corrections as cr
+
+    path = Path(args.corrections)
+    if not path.is_file():
+        raise CliError(EXIT_ENV_ERROR, f"corrections file not found: {path}", "check the path")
+    review_file = Path(args.review_file) if args.review_file else cr.review_path(path)
+    draft = cr.draft_path(path)
+    if args.serve:
+        return _serve_corrections(path, review_file, args.port, json_mode)
+    corrections, recorded, staged = _read_corrections_review(path, review_file, draft)
+    by_key = cr.current(corrections)
+    new = _unrecorded(staged, cr.latest(recorded))
+    stale = [r["key"] for r in new if r["key"] not in by_key or cr.is_stale(by_key[r["key"]], r)]
+    plan = cr.plan(corrections, [*recorded, *new])
+    result = {
+        "corrections": str(path),
+        "review_file": str(review_file),
+        "counts": plan.counts,
+        "staged": len(new),
+        "stale": stale,
+        "conflicts": plan.conflicts,
+        "applied": False,
+        "recorded": 0,
+    }
+    if args.apply:
+        if stale:
+            raise CliError(
+                EXIT_USER_ERROR,
+                f"refusing to record: {len(stale)} staged decision(s) are stale; first: {stale[0]}",
+                "re-decide those corrections in the review site, then retry",
+            )
+        for record in new:
+            cr.append_record(review_file, record)
+        draft.unlink(missing_ok=True)
+        result.update(applied=bool(new), recorded=len(new))
+    lines = [
+        f"corrections: {path}",
+        f"review file: {review_file}",
+        "decisions: " + ", ".join(f"{n} {k}" for k, n in plan.counts.items()),
+        f"{'recorded' if args.apply else 'would record'} {len(new)} staged decision(s)",
+    ]
+    lines.extend(f"stale: {k}" for k in stale)
+    if new and not args.apply:
+        lines.append("dry run: nothing was written; pass --apply to record the decisions")
+    emit_result(result if json_mode else "\n".join(lines), json_mode=json_mode)
+    return 0
+
+
+def _read_corrections_review(path: Path, review_file: Path, draft: Path) -> tuple[Any, Any, Any]:
+    """The corrections, the recorded decisions and the latest staged decision per key."""
+    from jev_factory.distill.corrections import read_corrections
+    from jev_factory.review import corrections as cr
+
+    try:
+        corrections = read_corrections(path)
+        recorded = cr.read_records(review_file)
+        staged = list(cr.latest(cr.read_records(draft)).values())
+    except ValueError as exc:  # CorrectionError and CorrectionReviewError are ValueErrors
+        raise CliError(EXIT_USER_ERROR, str(exc), "fix or restore the file") from None
+    return corrections, recorded, staged
+
+
+def _unrecorded(staged: list[Any], last: Any) -> list[Any]:
+    """The staged decisions whose action or edit differs from the last recorded one."""
+    return [
+        r
+        for r in staged
+        if (last.get(r["key"]) or {}).get("action") != r["action"]
+        or (last.get(r["key"]) or {}).get("after") != r.get("after")
+    ]
+
+
+def _serve_corrections(path: Path, review_file: Path, port: int, json_mode: bool) -> int:
+    from jev_factory.review import server
+
+    app = server.CorrectionsApp(path, review_file)
+    try:
+        httpd = server.make_server(app, port)
+    except OSError as exc:
+        raise CliError(
+            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", "pass a free --port"
+        ) from None
+    url = server.local_url(httpd.server_address[1])
+    emit_result(
+        {"url": url, "draft": str(app.draft_file)} if json_mode else url, json_mode=json_mode
+    )
+    sys.stdout.flush()
+    emit_diagnostic(f"serving the corrections review at {url} (Ctrl-C to stop)")
+    emit_diagnostic(f"decisions are staged in {app.draft_file}; record them with --apply")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        emit_diagnostic("stopped")
+    finally:
+        httpd.server_close()
+    return 0
+
+
 def cmd_review(args: argparse.Namespace) -> int:
     json_mode = bool(args.json)
     if args.serve and args.apply:
         raise CliError(EXIT_USER_ERROR, "--serve and --apply are separate steps", "pick one")
+    if args.corrections:
+        return _corrections_mode(args, json_mode)
+    if not args.domain:
+        raise CliError(
+            EXIT_USER_ERROR,
+            "a domain (or --corrections FILE) is required",
+            "pass a domain, or --corrections <corrections.jsonl>",
+        )
     domain = _domain(args.domain)
     seed = Path(domain.seed_corpus)  # type: ignore[arg-type]
     review_file = Path(args.review_file) if args.review_file else core.review_path(seed)
@@ -184,7 +296,17 @@ def register(sub: argparse._SubParsersAction) -> None:
         "review",
         help="Review a domain's seed corpus: dry-run plan, --serve the site, --apply to write.",
     )
-    p.add_argument("domain", help="Domain: a dotted module exposing DOMAIN, or a JSON file.")
+    p.add_argument(
+        "domain",
+        nargs="?",
+        help="Domain: a dotted module exposing DOMAIN, or a JSON file (not with --corrections).",
+    )
+    p.add_argument(
+        "--corrections",
+        metavar="FILE",
+        help="Review a corrections JSONL instead of a seed: decisions are staged by --serve and "
+        "recorded in <stem>.review.jsonl by --apply.",
+    )
     p.add_argument(
         "--review-file",
         dest="review_file",

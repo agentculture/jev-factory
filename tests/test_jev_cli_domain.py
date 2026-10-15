@@ -101,7 +101,7 @@ def test_annotated_argument_must_exist_and_required_positional_must_be_annotated
 def test_verbs_are_read_only_except_the_write_verbs_and_all_have_descriptions() -> None:
     domain = generate_domain()
     stages = [n for n in domain.names() if n.startswith("jev.run.")]
-    writes = {"jev.init", "jev.decide", "jev.review", *stages}
+    writes = {"jev.init", "jev.decide", "jev.review", "jev.distill", *stages}
     assert stages
     assert all(domain.is_mutating(n) for n in writes)
     assert all(domain.read_only(n) for n in domain.names() if n not in writes)
@@ -155,3 +155,17 @@ def test_surface_hash_is_domain_hash_and_tracks_the_surface() -> None:
 def test_domain_round_trips_through_dict() -> None:
     domain = generate_domain()
     assert Domain.from_dict(domain.to_dict()).surface_sha256() == domain.surface_sha256()
+
+
+def test_distill_is_one_mutating_operation_with_a_grounded_stage() -> None:
+    from jev_factory.distill.pipeline import stage_names
+
+    domain = generate_domain()
+    assert domain.is_mutating("jev.distill")
+    assert not any(n.startswith("jev.distill.") for n in domain.names())
+    snap = world()
+    assert snap["distill_stages"] == stage_names()
+    assert domain.ground("jev.distill", {"stage": "Teacher-Label"}, world=snap) == Grounded(
+        {"stage": "teacher-label"}
+    )
+    assert isinstance(domain.ground("jev.distill", {"stage": "seal"}, world=snap), GroundDecline)

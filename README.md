@@ -70,8 +70,10 @@ These honesty rules are enforced in code, not exposed as knobs:
 - Publishing is private-first. Going public is always a human decision.
 
 The CLI is `jev init <domain>`, `jev run <stage>`, `jev status <run>`,
-`jev decide <run>`, `jev ask <request>` and `jev review <domain>` (a local
-site where an operator reviews a domain's seed entries). Training dependencies stay out of
+`jev decide <run>`, `jev ask <request>`, `jev review <domain>` (a local
+site where an operator reviews a domain's seed entries) and
+`jev distill <stage>` (the Clef-to-Strands-Decider distillery, see
+`docs/distill.md`; Strands Decider is not the Layer-3 decider). Training dependencies stay out of
 the base install, behind the `train` extra or an external venv.
 
 ## Who uses it

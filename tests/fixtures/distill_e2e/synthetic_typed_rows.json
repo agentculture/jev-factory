@@ -1,0 +1,23 @@
+{
+ "note": "Synthetic typed-decisions rows in the HF string-encoded schema; the e2e clones them with fresh ids, workflows and state.",
+ "rows": [
+  {
+   "gold": "{\"escalate\": {\"confidence\": 0.8, \"label\": \"false\", \"noul\": 0.2, \"probabilities\": {\"false\": 0.8, \"true\": 0.2}, \"type\": \"noul\"}, \"route\": {\"confidence\": 0.8, \"label\": \"billing\", \"probabilities\": {\"billing\": 0.8, \"security\": 0.1, \"support\": 0.1}, \"type\": \"choice\"}, \"severity\": {\"confidence\": 0.7, \"label\": \"0\", \"probabilities\": {\"0\": 0.7, \"1\": 0.15, \"2\": 0.15}, \"score\": 0.0, \"type\": \"score\"}}",
+   "id": "ticket_triage_template_0",
+   "n_questions": "3",
+   "questions": "{\"escalate\": {\"criteria\": {\"false\": \"No engineer is needed.\", \"true\": \"An engineer should look.\"}, \"instructions\": \"This ticket needs an engineer.\", \"type\": \"noul\"}, \"route\": {\"criteria\": {\"billing\": \"Payment or invoice problems.\", \"security\": \"Account compromise or abuse.\", \"support\": \"General product help.\"}, \"instructions\": \"Where should this ticket go?\", \"type\": \"choice\"}, \"severity\": {\"criteria\": [\"Cosmetic.\", \"Degraded.\", \"Blocking.\"], \"instructions\": \"How severe is the ticket?\", \"type\": \"score\"}}",
+   "split": "train",
+   "state": "{\"history\": {\"open_days\": 1, \"replies\": 0}, \"ticket\": {\"channel\": \"email\", \"subject\": \"Template ticket 0\"}}",
+   "workflow": "ticket_triage"
+  },
+  {
+   "gold": "{\"escalate\": {\"confidence\": 0.9, \"label\": \"true\", \"noul\": 0.9, \"probabilities\": {\"false\": 0.1, \"true\": 0.9}, \"type\": \"noul\"}, \"route\": {\"confidence\": 0.8, \"label\": \"security\", \"probabilities\": {\"billing\": 0.1, \"security\": 0.8, \"support\": 0.1}, \"type\": \"choice\"}, \"severity\": {\"confidence\": 0.7, \"label\": \"2\", \"probabilities\": {\"0\": 0.15, \"1\": 0.15, \"2\": 0.7}, \"score\": 2.0, \"type\": \"score\"}}",
+   "id": "ticket_triage_template_1",
+   "n_questions": "3",
+   "questions": "{\"escalate\": {\"criteria\": {\"false\": \"No engineer is needed.\", \"true\": \"An engineer should look.\"}, \"instructions\": \"This ticket needs an engineer.\", \"type\": \"noul\"}, \"route\": {\"criteria\": {\"billing\": \"Payment or invoice problems.\", \"security\": \"Account compromise or abuse.\", \"support\": \"General product help.\"}, \"instructions\": \"Where should this ticket go?\", \"type\": \"choice\"}, \"severity\": {\"criteria\": [\"Cosmetic.\", \"Degraded.\", \"Blocking.\"], \"instructions\": \"How severe is the ticket?\", \"type\": \"score\"}}",
+   "split": "train",
+   "state": "{\"history\": {\"open_days\": 2, \"replies\": 1}, \"ticket\": {\"channel\": \"email\", \"subject\": \"Template ticket 1\"}}",
+   "workflow": "ticket_triage"
+  }
+ ]
+}

@@ -35,6 +35,7 @@ from jev_factory.factory.pipeline import stage_names
 #: Ground kind names the jev-CLI domain declares (see generate.py).
 EXPLAIN_PATH = "explain_path"
 STAGE = "stage"
+DISTILL_STAGE = "distill_stage"
 
 #: Every operation name starts with this.
 PREFIX = "jev."
@@ -100,5 +101,11 @@ _FACTORY: dict[str, Annotation] = {
     # and writes the seed with --apply, so it is mutating.
     verb_name(("review",)): Annotation(read_only=False, args=(ArgSpec(name="domain", kind="str"),)),
     **{verb_name(("run", stage)): Annotation(read_only=False) for stage in stage_names()},
+    # ``distill <stage>`` has --apply, so it is mutating (dry-run by default). The stage is a
+    # positional, not a subcommand, so the distillery adds one candidate, not fourteen.
+    # The stage grounds deterministically against the distill stage list.
+    verb_name(("distill",)): Annotation(
+        read_only=False, args=(ArgSpec(name="stage", kind="str", ground=DISTILL_STAGE),)
+    ),
 }
 ANNOTATIONS = {**ANNOTATIONS, **_FACTORY}

@@ -29,8 +29,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlunsplit
 
+from jev_factory.distill.corrections import read_corrections
 from jev_factory.domain.model import Domain
 from jev_factory.review import core
+from jev_factory.review import corrections as corr_review
 
 HOST = "127.0.0.1"
 AUTH_HEADER = "X-Review-Key"
@@ -118,6 +120,70 @@ class ReviewApp:
         return {"recorded": True, "action": record["action"]}
 
 
+class CorrectionsApp:
+    """The corrections-mode review (``jev review --corrections``), independent of HTTP.
+
+    Decisions are staged in the draft file, never in the record: ``jev review
+    --corrections --apply`` moves them to the corrections review file. The page shows the
+    draft laid over the record, so the operator sees what applying would make current.
+    """
+
+    def __init__(self, corrections: Path, review_file: Path | None = None) -> None:
+        self.corrections = corrections
+        self.review_file = review_file or corr_review.review_path(corrections)
+        self.draft_file = corr_review.draft_path(corrections)
+        self.token = secrets.token_hex(16)
+        self.page = page(self.token)
+        self._lock = threading.Lock()
+
+    def state(self) -> dict[str, Any]:
+        corrections = read_corrections(self.corrections)
+        recorded = corr_review.latest(corr_review.read_records(self.review_file))
+        staged = corr_review.latest(corr_review.read_records(self.draft_file))
+        items = []
+        for key, correction in corr_review.current(corrections).items():
+            record = staged.get(key) or recorded.get(key)
+            if record is not None and corr_review.is_stale(correction, record):
+                record = None
+            items.append(
+                {
+                    "key": key,
+                    "correction": correction.to_json(),
+                    "status": corr_review.status_of(record),
+                    "staged": key in staged,
+                    "decision": _public_correction(record),
+                }
+            )
+        overlay = list(corr_review.latest([*recorded.values(), *staged.values()]).values())
+        return {
+            "mode": "corrections",
+            "corrections_file": str(self.corrections),
+            "review_file": str(self.review_file),
+            "items": items,
+            "staged": len(staged),
+            "counts": corr_review.plan(corrections, overlay).counts,
+        }
+
+    def check(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        try:
+            corr_review.make_record(read_corrections(self.corrections), payload)
+        except corr_review.CorrectionReviewError as exc:
+            return {"problems": [str(exc)]}
+        return {"problems": []}
+
+    def decide(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            record = corr_review.make_record(read_corrections(self.corrections), payload)
+            corr_review.append_record(self.draft_file, record)
+        return {"recorded": True, "staged": True, "action": record["action"]}
+
+
+def _public_correction(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if record is None:
+        return None
+    return {k: record.get(k) for k in ("at", "action", "after", "note", "reviewer")}
+
+
 def _public(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
     if record is None:
         return None
@@ -132,7 +198,7 @@ class _ReviewHandler(BaseHTTPRequestHandler):
     """The review site's request handler; :func:`make_handler` binds it to one app."""
 
     server_version = "jev-review"
-    review_app: ReviewApp
+    review_app: ReviewApp | CorrectionsApp
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 (stdlib name)
         """Quiet: the review site logs nothing per request."""
@@ -208,7 +274,7 @@ class _ReviewHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 
 
-def make_handler(app: ReviewApp) -> type[BaseHTTPRequestHandler]:
+def make_handler(app: ReviewApp | CorrectionsApp) -> type[BaseHTTPRequestHandler]:
     class Handler(_ReviewHandler):
         review_app = app
 
@@ -220,6 +286,6 @@ def local_url(port: int) -> str:
     return urlunsplit(("http", f"{HOST}:{port}", "/", "", ""))
 
 
-def make_server(app: ReviewApp, port: int) -> ThreadingHTTPServer:
+def make_server(app: ReviewApp | CorrectionsApp, port: int) -> ThreadingHTTPServer:
     """A server for *app* on the loopback interface (*port* 0 picks a free one)."""
     return ThreadingHTTPServer((HOST, port), make_handler(app))

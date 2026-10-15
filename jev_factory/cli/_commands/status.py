@@ -10,6 +10,9 @@ it prints a timestamped update every ``--every`` (default 30 minutes) -- each jo
 items done/total, its rate and ETA, and what changed since the last update -- and
 stops with a final update once nothing is running. With ``--json`` each update is
 one JSON line.
+
+A run that has distill stages (``<work>/distill``, :mod:`jev_factory.distill.pipeline`) also
+shows them, from ``<work>/distill/manifests/``, with their detached jobs (``jobs/distill/``).
 """
 
 from __future__ import annotations
@@ -24,8 +27,9 @@ from typing import Any, Callable
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.cli._output import emit_result
 from jev_factory.decide import records
+from jev_factory.distill import pipeline as distill
 from jev_factory.factory import detach, pipeline
-from jev_factory.factory.stages import COMPLETE, read_manifest, staleness
+from jev_factory.factory.stages import COMPLETE, Registry, read_manifest, staleness
 
 #: Stages whose in-process jobs live under a differently named jobs/ entry.
 _JOB_ALIASES = {"teachers-pilot": "pilot"}
@@ -62,21 +66,45 @@ def collect(workdir: Path) -> dict[str, Any]:
             f"{workdir} is not a run directory",
             "pass the run's work directory (jev init creates it with --apply)",
         )
-    recorded = {
-        n: (read_manifest(workdir, n) or {}).get("knobs", {}) for n in pipeline.stage_names()
-    }
     jobs = [
         {"job": label, **detach.job_status(jobdir, name)}
         for label, jobdir, name in _job_names(workdir / pipeline.JOBS_DIR)
     ]
+    stages = _stage_entries(workdir, pipeline.REGISTRY, lambda n: _stage_jobs(n, jobs))
+    distill_dir = distill.stage_dir(workdir)
+    distill_stages = (
+        _stage_entries(
+            distill_dir,
+            distill.REGISTRY,
+            lambda n: [j for j in jobs if j["job"] == f"{distill.DISTILL_DIR}/{n}"],
+        )
+        if distill_dir.is_dir()
+        else []
+    )
+    decisions = workdir / pipeline.DECISIONS_FILE
+    return {
+        "work": str(workdir),
+        "stages": stages,
+        "distill_stages": distill_stages,
+        "jobs": jobs,
+        "decisions": len(records.load(decisions)) if decisions.is_file() else 0,
+    }
+
+
+def _stage_entries(
+    workdir: Path, registry: Registry, jobs_of: Callable[[str], list[dict[str, Any]]]
+) -> list[dict[str, Any]]:
+    """One status row per stage of *registry*, manifests read from *workdir*."""
+    names = registry.names()
+    recorded = {n: (read_manifest(workdir, n) or {}).get("knobs", {}) for n in names}
     stages = []
-    for name in pipeline.stage_names():
+    for name in names:
         man = read_manifest(workdir, name)
-        mine = _stage_jobs(name, jobs)
+        mine = jobs_of(name)
         entry: dict[str, Any] = {
             "stage": name,
             "status": man.get("status") if man else "not-run",
-            "stale": staleness(workdir, name, recorded, registry=pipeline.REGISTRY),
+            "stale": staleness(workdir, name, recorded, registry=registry),
             "finished": man.get("finished") if man else None,
             "rc": man.get("rc") if man else None,
             "jobs": mine,
@@ -86,13 +114,15 @@ def collect(workdir: Path) -> dict[str, Any]:
         if any(j["state"] == "running" for j in mine):
             entry["status"] = "running"
         stages.append(entry)
-    decisions = workdir / pipeline.DECISIONS_FILE
-    return {
-        "work": str(workdir),
-        "stages": stages,
-        "jobs": jobs,
-        "decisions": len(records.load(decisions)) if decisions.is_file() else 0,
-    }
+    return stages
+
+
+def _all_stages(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """The build's stages, then the distill stages as ``distill/<stage>``."""
+    prefix = distill.DISTILL_DIR + "/"
+    return list(doc["stages"]) + [
+        {**s, "stage": prefix + s["stage"]} for s in doc.get("distill_stages") or ()
+    ]
 
 
 #: The standard update interval for long-running work (operator decision d15).
@@ -137,18 +167,18 @@ def _progress(job: dict[str, Any]) -> str:
 def running(doc: dict[str, Any]) -> bool:
     """Whether any stage or job of the run is still running."""
     return any(j["state"] == "running" for j in doc["jobs"]) or any(
-        s["status"] == "running" for s in doc["stages"]
+        s["status"] == "running" for s in _all_stages(doc)
     )
 
 
 def _changes(doc: dict[str, Any], previous: dict[str, Any] | None) -> list[str]:
     if previous is None:
         return []
-    before_stage = {s["stage"]: s["status"] for s in previous["stages"]}
+    before_stage = {s["stage"]: s["status"] for s in _all_stages(previous)}
     before_job = {j["job"]: j for j in previous["jobs"]}
     changes = [
         f"{s['stage']}: {before_stage.get(s['stage'], 'not-run')} -> {s['status']}"
-        for s in doc["stages"]
+        for s in _all_stages(doc)
         if before_stage.get(s["stage"], "not-run") != s["status"]
     ]
     for job in doc["jobs"]:
@@ -180,7 +210,7 @@ def update(doc: dict[str, Any], previous: dict[str, Any] | None, now: float) -> 
             }
             for job in doc["jobs"]
         ],
-        "stages": {s["stage"]: s["status"] for s in doc["stages"] if s["status"] != "not-run"},
+        "stages": {s["stage"]: s["status"] for s in _all_stages(doc) if s["status"] != "not-run"},
         "changes": _changes(doc, previous),
     }
 
@@ -250,7 +280,10 @@ def _stage_line(s: dict[str, Any]) -> str:
 def render(doc: dict[str, Any]) -> str:
     lines = [f"run: {doc['work']}", ""]
     lines += [_stage_line(s) for s in doc["stages"]]
-    staged = {j["job"] for s in doc["stages"] for j in s["jobs"]}
+    if doc.get("distill_stages"):
+        lines += ["", "distill stages:"]
+        lines += [_stage_line(s) for s in doc["distill_stages"]]
+    staged = {j["job"] for s in _all_stages(doc) for j in s["jobs"]}
     others = [j for j in doc["jobs"] if j["job"] not in staged]
     if others:
         lines += ["", "jobs:"]

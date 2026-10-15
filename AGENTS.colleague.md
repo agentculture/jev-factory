@@ -63,6 +63,30 @@ Do not assume a script there is domain-generic: `gate.py`, `metrics.py`,
 `calibration_fit.py`, `sweep_gate.py`, `train_scorer.py`, `scan_bundle.py`
 and `leakage_check.py` are nvsh-coupled and must be rewired on import.
 
+## The distillery
+
+`jev distill <stage>` is a second build path: it distils the teacher
+**Clef 27B** into the student **Strands Decider 2B**. Read `docs/distill.md`
+and `jev_factory/distill/pipeline.py` before a delegated task touches
+`jev_factory/distill/`.
+
+**Strands Decider is not jev-factory's Layer-3 decider.** It is an external
+model name; do not mix it up with the jev-like decider whose candidates are
+`jev decide` verdicts.
+
+- 14 stages, in order: `preregister`, `dataset`, `contamination`,
+  `teacher-label`, `audit`, `corrections-draft`, `assemble`, `benchmark`,
+  `train`, `quantize`, `gate`, `final`, `bundle`, `upload`. The stage is a
+  positional argument. Dry-run unless `--apply`.
+- Records are `/v1/systemone` bodies plus gold; read only the per-option
+  probabilities, never the vendor `confidence`.
+- Train, fit, selection, sealed held-out and test are separate sides; the
+  teacher labels train only; test and held-out are measured once.
+- Corrections need operator review before training. Tests must run CPU-only
+  with stdlib fakes: no GPU, network or model downloads.
+- Serving is lobes' `decider` role; training is here. No distill run has
+  happened yet, so no student bundle exists.
+
 Keep these invariants, whatever the task says:
 
 - The runtime package keeps `dependencies = []`, so ML dependencies go

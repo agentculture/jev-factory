@@ -451,3 +451,13 @@ def test_the_state_offers_the_sources_of_proposals_too(site):
     assert _call(port, "POST", "/api/decision", body, token=app.token)[0] == 200
     state = json.loads(_call(port, "GET", "/api/state", token=app.token)[2])
     assert any(s.startswith(core.OPERATOR_SOURCE_PREFIX) for s in state["sources"])
+
+
+def test_review_corrections_has_a_catalog_entry(capsys):
+    assert cli_main(["explain", "review", "corrections"]) == 0
+    out = capsys.readouterr().out
+    assert "--corrections" in out
+    for word in ("--serve", "--apply", "dry run"):
+        assert word in out
+    assert cli_main(["explain", "review"]) == 0
+    assert "--corrections" in capsys.readouterr().out

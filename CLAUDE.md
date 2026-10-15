@@ -64,6 +64,60 @@ Names: the **command is `jev`**
 published; the bare `jev` name on PyPI belongs to someone else). Argparse's
 `prog` string says `jev-factory`, but no `jev-factory` binary is installed.
 
+## The distillery (`jev distill`): Clef 27B to Strands Decider 2B
+
+> **Strands Decider is NOT jev-factory's Layer-3 decider.** "Strands Decider"
+> is an external model name. The Layer-3 decider (the jev-like model whose
+> candidates are `jev decide` verdicts) is a different thing, and the
+> distillery neither builds nor trains it. The distillery is not an
+> acceptance gate for the jev-tool model either.
+
+A second, separate build path lives in `jev_factory/distill/` (brief: GitHub
+issue 18; spec and plan under `docs/specs` and `docs/plans`, operator-facing
+write-up in `docs/distill.md`). It distils Cloudflare **Clef 27B** (teacher) into
+**Strands Decider 2B** (student: a pointer-scorer on `Qwen/Qwen3.5-2B-Base`,
+LoRA plus a `head.safetensors`). Facts to keep straight:
+
+- **Verb and stages.** `jev distill <stage>` takes the stage as a positional
+  argument, so the jev-CLI domain gains one `jev.distill` operation (deviation
+  d5), not fourteen. Its own registry (`jev_factory/distill/pipeline.py`) holds
+  14 stages in order: `preregister`, `dataset`, `contamination`,
+  `teacher-label`, `audit`, `corrections-draft`, `assemble`, `benchmark`,
+  `train`, `quantize`, `gate`, `final`, `bundle`, `upload`. It is separate from
+  `jev run`'s 23 stages; both write manifests that `jev status` reads. Every
+  stage is dry-run by default.
+- **Wire and records.** Records are `/v1/systemone` bodies plus gold
+  (`distill/records.py`, `distill/systemone.py`); question types are `choice`,
+  `noul` and `score`. Only per-option probabilities are read; the vendor
+  `confidence` field is never a probability or a gate input.
+- **Sides (deviation d2).** train / fit / selection / sealed held-out / test.
+  Only train may become a training target. The teacher labels train only.
+  Test and held-out are measured once, in `final`.
+- **Teacher trust.** `audit` scores Clef against human gold per source and
+  flags `teacher_weak`; model-generated gold never flags the teacher.
+  Corrections are drafted as `proposed` and train only after an operator
+  records approval with `jev review --corrections FILE`. Precedence per
+  `(record, question)`: correction, human gold, alternative teacher, Clef.
+- **Student formats (deviation d3).** `strands-decider serve` has no int8 or
+  int4 path, so `quantize` builds torchao weight-only int8 and int4 artifacts
+  (`backbones/pointer/quantized.py`); a failed build is recorded unavailable.
+- **Gate (deviation d4).** A per-question-kind answer-or-abstain gate
+  (`floor`, `margin`, `max_entropy`) fitted on the fit fold only
+  (`distill/gate.py`).
+- **Headline rule.** The c42 bars are computed on human-gold records from
+  clean (non-overlapping) sources on the test side only. typed-decisions
+  agreement is a secondary table and is never gated.
+- **Lobes split.** Serving is in lobes-cli (`orin-decision-models`: the
+  `decider` role, Clef W4A16 on the Orin, the 2B in bf16 on any box); training
+  is here. The two consumers are the operator running `jev distill` and
+  lobes' `decider` role over `/v1/systemone`.
+- **State.** The code is built and fixture-tested. No distill run has
+  happened (the operator run, t26, is pending), so no distilled student,
+  bundle or report exists; never claim one as shipped.
+- **Environments.** The teacher, student runtime and trainer each need their
+  own pinned venv or image (their transformers versions conflict). The base
+  import pulls in none of them, and `dependencies = []` stays.
+
 ## What "jev-like" means (from nvsh; don't redefine it silently)
 
 This is the OpenJev-style **scorer**, nvsh's *Track B*. nvsh's Track A
