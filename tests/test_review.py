@@ -434,7 +434,7 @@ def test_serve_flushes_the_url_before_it_blocks(cli_toy, monkeypatch):
         def server_close(self):
             pass
 
-    monkeypatch.setattr(server, "make_server", lambda app, port: Httpd())
+    monkeypatch.setattr(server, "make_server", lambda app, port, **_kw: Httpd())
     monkeypatch.setattr(sys, "stdout", Out())
     assert cli_main(["review", "toy", "--serve", "--json"]) == 0
     assert json.loads(sys.stdout.getvalue())["url"] == "http://127.0.0.1:4321/"

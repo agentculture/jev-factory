@@ -127,13 +127,15 @@ def _render(result: dict[str, Any], *, applied: bool) -> str:
     return "\n".join(lines)
 
 
-def _serve(domain: Domain, review_file: Path, port: int, json_mode: bool) -> int:
+def _serve(
+    domain: Domain, review_file: Path, port: int, json_mode: bool, allow_hosts: tuple[str, ...] = ()
+) -> int:
     from jev_factory.review import server
 
     seed = Path(domain.seed_corpus)  # type: ignore[arg-type]
     app = server.ReviewApp(domain, seed, review_file)
     try:
-        httpd = server.make_server(app, port)
+        httpd = server.make_server(app, port, allow_hosts=allow_hosts)
     except OSError as exc:
         raise CliError(
             EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", "pass a free --port"
@@ -164,7 +166,9 @@ def _corrections_mode(args: argparse.Namespace, json_mode: bool) -> int:
     review_file = Path(args.review_file) if args.review_file else cr.review_path(path)
     draft = cr.draft_path(path)
     if args.serve:
-        return _serve_corrections(path, review_file, args.port, json_mode)
+        return _serve_corrections(
+            path, review_file, args.port, json_mode, tuple(args.allow_host or ())
+        )
     corrections, recorded, staged = _read_corrections_review(path, review_file, draft)
     by_key = cr.current(corrections)
     new = _unrecorded(staged, cr.latest(recorded))
@@ -228,12 +232,14 @@ def _unrecorded(staged: list[Any], last: Any) -> list[Any]:
     ]
 
 
-def _serve_corrections(path: Path, review_file: Path, port: int, json_mode: bool) -> int:
+def _serve_corrections(
+    path: Path, review_file: Path, port: int, json_mode: bool, allow_hosts: tuple[str, ...] = ()
+) -> int:
     from jev_factory.review import server
 
     app = server.CorrectionsApp(path, review_file)
     try:
-        httpd = server.make_server(app, port)
+        httpd = server.make_server(app, port, allow_hosts=allow_hosts)
     except OSError as exc:
         raise CliError(
             EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", "pass a free --port"
@@ -254,12 +260,14 @@ def _serve_corrections(path: Path, review_file: Path, port: int, json_mode: bool
     return 0
 
 
-def _serve_gold(path: Path, ledger_file: Path, port: int, json_mode: bool) -> int:
+def _serve_gold(
+    path: Path, ledger_file: Path, port: int, json_mode: bool, allow_hosts: tuple[str, ...] = ()
+) -> int:
     from jev_factory.review import server
 
     app = server.GoldApp(path, ledger_file)
     try:
-        httpd = server.make_server(app, port)
+        httpd = server.make_server(app, port, allow_hosts=allow_hosts)
     except OSError as exc:
         raise CliError(
             EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", "pass a free --port"
@@ -328,7 +336,7 @@ def _gold_mode(args: argparse.Namespace, json_mode: bool) -> int:
         raise CliError(EXIT_ENV_ERROR, f"gold records file not found: {path}", "check the path")
     ledger_file = Path(args.review_file) if args.review_file else gold.ledger_path(path)
     if args.serve:
-        return _serve_gold(path, ledger_file, args.port, json_mode)
+        return _serve_gold(path, ledger_file, args.port, json_mode, tuple(args.allow_host or ()))
     try:
         drafted = gold.read_drafted(path)
         ledger = gold.read_ledger(ledger_file)
@@ -386,11 +394,11 @@ def _render_gold(result: dict[str, Any], rows: list[dict[str, Any]], applied: bo
     return "\n".join(lines)
 
 
-def _serve_drafts(app: Any, port: int, json_mode: bool) -> int:
+def _serve_drafts(app: Any, port: int, json_mode: bool, allow_hosts: tuple[str, ...] = ()) -> int:
     from jev_factory.review import server
 
     try:
-        httpd = server.make_server(app, port)
+        httpd = server.make_server(app, port, allow_hosts=allow_hosts)
     except OSError as exc:
         raise CliError(
             EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", "pass a free --port"
@@ -444,7 +452,7 @@ def _drafts_mode(args: argparse.Namespace, json_mode: bool) -> int:
         from jev_factory.review import server
 
         app = server.DraftsApp(path, evidence, ledger_file)
-        return _serve_drafts(app, args.port, json_mode)
+        return _serve_drafts(app, args.port, json_mode, tuple(args.allow_host or ()))
     try:
         records = gold.read_drafted(path)
         ledger = drafts.read_ledger(ledger_file)
@@ -509,7 +517,7 @@ def cmd_review(args: argparse.Namespace) -> int:
     seed = Path(domain.seed_corpus)  # type: ignore[arg-type]
     review_file = Path(args.review_file) if args.review_file else core.review_path(seed)
     if args.serve:
-        return _serve(domain, review_file, args.port, json_mode)
+        return _serve(domain, review_file, args.port, json_mode, tuple(args.allow_host or ()))
     raw, records = _load(domain, review_file)
     plan = core.plan_changes(raw, records, domain)
     result = _plan_result(domain, seed, review_file, plan)
@@ -590,6 +598,13 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--serve", action="store_true", help="Serve the local review site.")
     p.add_argument(
         "--port", type=int, default=DEFAULT_PORT, help=f"Port for --serve (default {DEFAULT_PORT})."
+    )
+    p.add_argument(
+        "--allow-host",
+        action="append",
+        metavar="NAME",
+        help="With --serve: also accept this exact Host name (e.g. the tailnet name that "
+        "'tailscale serve' forwards); the site still listens on 127.0.0.1 only. Repeatable.",
     )
     p.add_argument(
         "--apply", action="store_true", help="Write the reviewed seed (default: dry run)."

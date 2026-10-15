@@ -2,7 +2,7 @@
   "plan_slug": "orin-nano-jetson-ops-decider",
   "schema_version": 2,
   "created": "2026-10-15T17:16:36Z",
-  "updated": "2026-10-15T19:38:51Z",
+  "updated": "2026-10-15T19:58:32Z",
   "deviations": [
     {
       "id": "d1",
@@ -64,6 +64,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "jev review --serve gains --allow-host NAME so a tailnet proxy (tailscale serve) can reach the review site; the socket still binds 127.0.0.1 and the token is still required",
+      "task_ref": "t25",
+      "reason": "operator wants the review site on the tailnet",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 6
     }
   ],
   "evidence": [],

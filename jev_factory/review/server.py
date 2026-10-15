@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 import secrets
 import threading
 from collections.abc import Mapping
@@ -424,9 +425,15 @@ class _ReviewHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 (stdlib name)
         """Quiet: the review site logs nothing per request."""
 
+    allow_hosts: tuple[str, ...] = ()
+
     def _host_ok(self) -> bool:
         port = self.server.server_address[1]
-        return self.headers.get("Host", "") in (f"{HOST}:{port}", f"localhost:{port}")
+        host = self.headers.get("Host", "")
+        if host in (f"{HOST}:{port}", f"localhost:{port}"):
+            return True
+        # an exact extra name (a tailnet proxy such as `tailscale serve`), with or without a port
+        return bool(self.allow_hosts) and host.rsplit(":", 1)[0] in self.allow_hosts
 
     def _send(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -497,9 +504,13 @@ class _ReviewHandler(BaseHTTPRequestHandler):
 
 def make_handler(
     app: ReviewApp | CorrectionsApp | GoldApp | DraftsApp,
+    allow_hosts: tuple[str, ...] = (),
 ) -> type[BaseHTTPRequestHandler]:
+    names = check_allow_hosts(allow_hosts)
+
     class Handler(_ReviewHandler):
         review_app = app
+        allow_hosts = names
 
     return Handler
 
@@ -509,8 +520,28 @@ def local_url(port: int) -> str:
     return urlunsplit(("http", f"{HOST}:{port}", "/", "", ""))
 
 
+_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_HOSTNAME = re.compile(rf"^(?=.{{1,253}}$){_LABEL}(?:\.{_LABEL})*$")
+
+
+def check_allow_hosts(names: tuple[str, ...]) -> tuple[str, ...]:
+    """Exact extra Host names; wildcards, ports, IPs-with-schemes and blanks are refused."""
+    out = []
+    for name in names:
+        bare = name.strip().rstrip(".")
+        if not _HOSTNAME.match(bare):
+            raise ValueError(f"--allow-host {name!r} is not a plain host name")
+        out.append(bare)
+    return tuple(out)
+
+
 def make_server(
-    app: ReviewApp | CorrectionsApp | GoldApp | DraftsApp, port: int
+    app: ReviewApp | CorrectionsApp | GoldApp | DraftsApp,
+    port: int,
+    allow_hosts: tuple[str, ...] = (),
 ) -> ThreadingHTTPServer:
-    """A server for *app* on the loopback interface (*port* 0 picks a free one)."""
-    return ThreadingHTTPServer((HOST, port), make_handler(app))
+    """A server for *app* on the loopback interface (*port* 0 picks a free one).
+
+    *allow_hosts* adds exact Host names (a tailnet proxy's name); the socket stays on loopback.
+    """
+    return ThreadingHTTPServer((HOST, port), make_handler(app, allow_hosts))
