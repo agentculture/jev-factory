@@ -137,7 +137,7 @@ def test_headline_is_human_gold_from_clean_sources_and_overlap_is_reported_apart
     rep = _build(clean + overlap + evaluated, preds)
     assert rep["sources"][OVERLAP]["status"] == "overlapping"
     assert rep["sources"][OVERLAP]["checked_as"] == "jev-bench:banking77"
-    assert rep["sources"][EVAL_ONLY]["status"] == "v21-evaluated"
+    assert rep["sources"][EVAL_ONLY]["status"] == "stock-evaluated"
     assert rep["sources"][CLEAN]["headline"] is True
     pools = rep["sides"]["test"]["pools"]
     assert pools[R.HEADLINE]["items"] == 40

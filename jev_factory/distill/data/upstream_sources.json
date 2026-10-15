@@ -1,747 +1,907 @@
 {
-  "note": "Name-level manifest of upstream sources, built 2026-10-14. v21 entries: the 29 ids of cardData.datasets (url, HF API) with roles from strands-labs/strands-decider data/sources.md (card). Roles: v21-training (trained on), v21-eval-only (held out or evaluated, never trained on), clef-decision-index-eval. Clef's training data is unreleased; its Decision Index entries cite the leaderboard.",
-  "sources": [
-    {
-      "name": "ccdv/arxiv-classification",
-      "aliases": [
-        "arxiv_class"
-      ],
-      "role": "v21-eval-only",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "registered held-out probe, not in current recipe",
-      "dataset_url": "https://huggingface.co/datasets/ccdv/arxiv-classification"
-    },
-    {
-      "name": "clinc/clinc_oos",
-      "aliases": [
-        "clinc150",
-        "clinc_oos",
-        "clinc-oos"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/clinc/clinc_oos"
-    },
-    {
-      "name": "community-datasets/yahoo_answers_topics",
-      "aliases": [
-        "yahoo_topics"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/community-datasets/yahoo_answers_topics"
-    },
-    {
-      "name": "dair-ai/emotion",
-      "aliases": [
-        "emotion"
-      ],
-      "role": "v21-eval-only",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "held out: calibration and evaluation",
-      "dataset_url": "https://huggingface.co/datasets/dair-ai/emotion"
-    },
-    {
-      "name": "fancyzhx/ag_news",
-      "aliases": [
-        "ag_news",
-        "agnews"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/fancyzhx/ag_news"
-    },
-    {
-      "name": "fancyzhx/dbpedia_14",
-      "aliases": [
-        "dbpedia"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/fancyzhx/dbpedia_14"
-    },
-    {
-      "name": "google-research-datasets/paws",
-      "aliases": [
-        "paws"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/google-research-datasets/paws"
-    },
-    {
-      "name": "google/boolq",
-      "aliases": [
-        "boolq"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/google/boolq"
-    },
-    {
-      "name": "google/civil_comments",
-      "aliases": [
-        "civil_comments",
-        "toxicity"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/google/civil_comments"
-    },
-    {
-      "name": "legacy-datasets/banking77",
-      "aliases": [
-        "banking77",
-        "PolyAI/banking77"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/legacy-datasets/banking77"
-    },
-    {
-      "name": "mteb/banking77",
-      "aliases": [
-        "mteb/banking77"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/datasets/mteb/banking77",
-      "card": "https://huggingface.co/datasets/mteb/banking77",
-      "detail": "MTEB mirror of the same PolyAI banking77 data v21 trained on (legacy-datasets/banking77); the jev-bench meta.hf_id is this mirror",
-      "dataset_url": "https://huggingface.co/datasets/mteb/banking77"
-    },
-    {
-      "name": "mteb/amazon_massive_intent",
-      "aliases": [
-        "massive",
-        "massive_intent",
-        "amazon_massive_intent"
-      ],
-      "role": "v21-eval-only",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "held out: calibration and evaluation",
-      "dataset_url": "https://huggingface.co/datasets/mteb/amazon_massive_intent"
-    },
-    {
-      "name": "nyu-mll/glue",
-      "aliases": [
-        "glue",
-        "mnli",
-        "wnli"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "mnli and wnli train; rte, qnli, cola are held-out probes",
-      "dataset_url": "https://huggingface.co/datasets/nyu-mll/glue"
-    },
-    {
-      "name": "osyvokon/pavlick-formality-scores",
-      "aliases": [
-        "formality"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/osyvokon/pavlick-formality-scores"
-    },
-    {
-      "name": "papluca/language-identification",
-      "aliases": [
-        "lang_id"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/papluca/language-identification"
-    },
-    {
-      "name": "qiaojin/PubMedQA",
-      "aliases": [
-        "pubmed_qa",
-        "pubmedqa"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/qiaojin/PubMedQA"
-    },
-    {
-      "name": "raquiba/Sarcasm_News_Headline",
-      "aliases": [
-        "sarcasm"
-      ],
-      "role": "v21-eval-only",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "held out: calibration and evaluation",
-      "dataset_url": "https://huggingface.co/datasets/raquiba/Sarcasm_News_Headline"
-    },
-    {
-      "name": "sealuzh/app_reviews",
-      "aliases": [
-        "app_reviews"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/sealuzh/app_reviews"
-    },
-    {
-      "name": "SetFit/20_newsgroups",
-      "aliases": [
-        "newsgroups"
-      ],
-      "role": "v21-eval-only",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "registered held-out probe, not in current recipe",
-      "dataset_url": "https://huggingface.co/datasets/SetFit/20_newsgroups"
-    },
-    {
-      "name": "SetFit/sst5",
-      "aliases": [
-        "sst5",
-        "sst5_sentiment"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/SetFit/sst5"
-    },
-    {
-      "name": "SetFit/subj",
-      "aliases": [
-        "subjectivity"
-      ],
-      "role": "v21-eval-only",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "registered held-out probe, not in current recipe",
-      "dataset_url": "https://huggingface.co/datasets/SetFit/subj"
-    },
-    {
-      "name": "SetFit/TREC-QC",
-      "aliases": [
-        "trec_qc"
-      ],
-      "role": "v21-eval-only",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "registered held-out probe, not in current recipe",
-      "dataset_url": "https://huggingface.co/datasets/SetFit/TREC-QC"
-    },
-    {
-      "name": "tals/vitaminc",
-      "aliases": [
-        "vitaminc"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/tals/vitaminc"
-    },
-    {
-      "name": "tasksource/ruletaker",
-      "aliases": [
-        "ruletaker"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "depths 0-2 train; depths 3, 5 and NatLang held out of training",
-      "dataset_url": "https://huggingface.co/datasets/tasksource/ruletaker"
-    },
-    {
-      "name": "ucberkeley-dlab/measuring-hate-speech",
-      "aliases": [
-        "measuring_hate_speech",
-        "hate_severity"
-      ],
-      "role": "v21-eval-only",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "held out: calibration and evaluation",
-      "dataset_url": "https://huggingface.co/datasets/ucberkeley-dlab/measuring-hate-speech"
-    },
-    {
-      "name": "ucirvine/sms_spam",
-      "aliases": [
-        "sms_spam",
-        "spam"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/ucirvine/sms_spam"
-    },
-    {
-      "name": "Yelp/yelp_review_full",
-      "aliases": [
-        "yelp5",
-        "yelp_stars"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "short-task, train",
-      "dataset_url": "https://huggingface.co/datasets/Yelp/yelp_review_full"
-    },
-    {
-      "name": "nvidia/HelpSteer2",
-      "aliases": [
-        "helpsteer2",
-        "helpsteer2_helpfulness",
-        "helpsteer2_verbosity",
-        "adequacy_hs2"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "train and evaluation",
-      "dataset_url": "https://huggingface.co/datasets/nvidia/HelpSteer2"
-    },
-    {
-      "name": "tasksource/Boardgame-QA",
-      "aliases": [
-        "boardgameqa",
-        "boardgame"
-      ],
-      "role": "v21-training",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "train and evaluation",
-      "dataset_url": "https://huggingface.co/datasets/tasksource/Boardgame-QA"
-    },
-    {
-      "name": "hotpotqa/hotpot_qa",
-      "aliases": [
-        "hotpotqa",
-        "hotpot_qa"
-      ],
-      "role": "v21-eval-only",
-      "source_url": "https://huggingface.co/api/models/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "evaluation only",
-      "dataset_url": "https://huggingface.co/datasets/hotpotqa/hotpot_qa"
-    },
-    {
-      "name": "ContractNLI (release zip)",
-      "aliases": [
-        "contractnli"
-      ],
-      "role": "v21-training",
-      "source_url": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "train and evaluation; not on the Hub"
-    },
-    {
-      "name": "MuSiQue v1.0 (release zip)",
-      "aliases": [
-        "musique"
-      ],
-      "role": "v21-training",
-      "source_url": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "card": "https://raw.githubusercontent.com/strands-labs/strands-decider/main/data/sources.md",
-      "detail": "train and evaluation; not on the Hub"
-    },
-    {
-      "name": "JevBench public",
-      "aliases": [
-        "jevbench",
-        "jev-bench",
-        "Praveenrajus/jev-bench"
-      ],
-      "role": "v21-eval-only",
-      "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
-      "detail": "external benchmark v21 was evaluated on"
-    },
-    {
-      "name": "NaturalBench",
-      "aliases": [],
-      "role": "v21-eval-only",
-      "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
-      "detail": "image eval"
-    },
-    {
-      "name": "POPE adversarial",
-      "aliases": [
-        "pope"
-      ],
-      "role": "v21-eval-only",
-      "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
-      "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21",
-      "detail": "image eval"
-    },
-    {
-      "name": "BFCL",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "ToolRet",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "API-Bank",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "BANKING77",
-      "aliases": [
-        "banking77",
-        "PolyAI/banking77",
-        "legacy-datasets/banking77"
-      ],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "CLINC150+OOS",
-      "aliases": [
-        "clinc150",
-        "clinc_oos",
-        "clinc-oos",
-        "clinc/clinc_oos"
-      ],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "RouterBench",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "Home appliance simulator",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "SGD/SGD-X",
-      "aliases": [
-        "sgd",
-        "sgd-x",
-        "sgdx"
-      ],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "ContractNLI",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "ANLI",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "BPoMP",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "Humicroedit",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "POP909-CL",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "cfcolor",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "MMLU",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "GPQA Diamond",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "ARC-Easy",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "ARC-Challenge",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "WinoGrande",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "HellaSwag",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "GSM8K",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "ChessBench",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "MuSR",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "SATA-Bench",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "BRIGHT",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "Amazon ESCI",
-      "aliases": [
-        "esci"
-      ],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "ACOS",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "FinEntity",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "VAST",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "NLI4CT",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "CRUXEval",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "CLadder",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "ForecastBench",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "Habermas Machine",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "PhishNChips",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "MMLU-Pro",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "BBH",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "RAGTruth",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "HoVer",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "When2Call MCQ",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    },
-    {
-      "name": "New Yorker",
-      "aliases": [],
-      "role": "clef-decision-index-eval",
-      "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
-      "card": "https://huggingface.co/Cloudflare/clef",
-      "detail": "Clef training data is unreleased; only the eval suite is known"
-    }
-  ]
+ "note": "Name-level manifest of upstream sources, rebuilt 2026-10-15 for strands-decider-2B-qwen3.5-v1-2610 at revision 216d1ccb46a9e9b036eb9187b248db98480f77d4: the 48 ids of the card's datasets list (README.md) with roles from training/sources.md. Roles: training (trained on, or listed without a held-out role: fail closed), stock-evaluated (held out or evaluated, never trained on; model-neutral), clef-decision-index-eval. Clef's training data is unreleased; its Decision Index entries cite the leaderboard.",
+ "sources": [
+  {
+   "name": "ccdv/arxiv-classification",
+   "aliases": [
+    "arxiv_class"
+   ],
+   "role": "stock-evaluated",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "registered held-out probe, not in the recipe",
+   "dataset_url": "https://huggingface.co/datasets/ccdv/arxiv-classification"
+  },
+  {
+   "name": "clinc/clinc_oos",
+   "aliases": [
+    "clinc150",
+    "clinc_oos",
+    "clinc-oos"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "short-task, train (sources.md short-task table)",
+   "dataset_url": "https://huggingface.co/datasets/clinc/clinc_oos"
+  },
+  {
+   "name": "dair-ai/emotion",
+   "aliases": [
+    "emotion"
+   ],
+   "role": "stock-evaluated",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "held out: calibration and evaluation",
+   "dataset_url": "https://huggingface.co/datasets/dair-ai/emotion"
+  },
+  {
+   "name": "fancyzhx/dbpedia_14",
+   "aliases": [
+    "dbpedia"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "short-task, train (sources.md short-task table)",
+   "dataset_url": "https://huggingface.co/datasets/fancyzhx/dbpedia_14"
+  },
+  {
+   "name": "google-research-datasets/paws",
+   "aliases": [
+    "paws"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "short-task, train (sources.md short-task table)",
+   "dataset_url": "https://huggingface.co/datasets/google-research-datasets/paws"
+  },
+  {
+   "name": "google/boolq",
+   "aliases": [
+    "boolq"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "short-task, train (sources.md short-task table)",
+   "dataset_url": "https://huggingface.co/datasets/google/boolq"
+  },
+  {
+   "name": "google/civil_comments",
+   "aliases": [
+    "civil_comments",
+    "toxicity"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "short-task, train (sources.md short-task table)",
+   "dataset_url": "https://huggingface.co/datasets/google/civil_comments"
+  },
+  {
+   "name": "legacy-datasets/banking77",
+   "aliases": [
+    "banking77",
+    "PolyAI/banking77",
+    "mteb/banking77"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "short-task, train (sources.md short-task table)",
+   "dataset_url": "https://huggingface.co/datasets/legacy-datasets/banking77"
+  },
+  {
+   "name": "mteb/amazon_massive_intent",
+   "aliases": [
+    "massive",
+    "massive_intent",
+    "amazon_massive_intent"
+   ],
+   "role": "stock-evaluated",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "held out: calibration and evaluation",
+   "dataset_url": "https://huggingface.co/datasets/mteb/amazon_massive_intent"
+  },
+  {
+   "name": "nyu-mll/glue",
+   "aliases": [
+    "glue",
+    "mnli",
+    "wnli",
+    "rte",
+    "qnli",
+    "cola"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "mnli and wnli train; rte, qnli, cola are held-out probes. Mixed, so training",
+   "dataset_url": "https://huggingface.co/datasets/nyu-mll/glue"
+  },
+  {
+   "name": "osyvokon/pavlick-formality-scores",
+   "aliases": [
+    "formality"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "short-task, train (sources.md short-task table)",
+   "dataset_url": "https://huggingface.co/datasets/osyvokon/pavlick-formality-scores"
+  },
+  {
+   "name": "qiaojin/PubMedQA",
+   "aliases": [
+    "pubmed_qa",
+    "pubmedqa"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "short-task, train (sources.md short-task table)",
+   "dataset_url": "https://huggingface.co/datasets/qiaojin/PubMedQA"
+  },
+  {
+   "name": "raquiba/Sarcasm_News_Headline",
+   "aliases": [
+    "sarcasm"
+   ],
+   "role": "stock-evaluated",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "held out: calibration and evaluation",
+   "dataset_url": "https://huggingface.co/datasets/raquiba/Sarcasm_News_Headline"
+  },
+  {
+   "name": "sealuzh/app_reviews",
+   "aliases": [
+    "app_reviews"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "short-task, train (sources.md short-task table)",
+   "dataset_url": "https://huggingface.co/datasets/sealuzh/app_reviews"
+  },
+  {
+   "name": "SetFit/20_newsgroups",
+   "aliases": [
+    "newsgroups"
+   ],
+   "role": "stock-evaluated",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "registered held-out probe, not in the recipe",
+   "dataset_url": "https://huggingface.co/datasets/SetFit/20_newsgroups"
+  },
+  {
+   "name": "SetFit/sst5",
+   "aliases": [
+    "sst5",
+    "sst5_sentiment"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "short-task, train (sources.md short-task table)",
+   "dataset_url": "https://huggingface.co/datasets/SetFit/sst5"
+  },
+  {
+   "name": "SetFit/subj",
+   "aliases": [
+    "subjectivity"
+   ],
+   "role": "stock-evaluated",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "registered held-out probe, not in the recipe",
+   "dataset_url": "https://huggingface.co/datasets/SetFit/subj"
+  },
+  {
+   "name": "SetFit/TREC-QC",
+   "aliases": [
+    "trec_qc"
+   ],
+   "role": "stock-evaluated",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "registered held-out probe, not in the recipe",
+   "dataset_url": "https://huggingface.co/datasets/SetFit/TREC-QC"
+  },
+  {
+   "name": "tals/vitaminc",
+   "aliases": [
+    "vitaminc"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "short-task, train (sources.md short-task table)",
+   "dataset_url": "https://huggingface.co/datasets/tals/vitaminc"
+  },
+  {
+   "name": "tasksource/ruletaker",
+   "aliases": [
+    "ruletaker"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "depths 0-2 train; depths 3, 5 and NatLang held out of training. Mixed, so training",
+   "dataset_url": "https://huggingface.co/datasets/tasksource/ruletaker"
+  },
+  {
+   "name": "ucberkeley-dlab/measuring-hate-speech",
+   "aliases": [
+    "measuring_hate_speech",
+    "hate_severity"
+   ],
+   "role": "stock-evaluated",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "held out: calibration and evaluation",
+   "dataset_url": "https://huggingface.co/datasets/ucberkeley-dlab/measuring-hate-speech"
+  },
+  {
+   "name": "ucirvine/sms_spam",
+   "aliases": [
+    "sms_spam",
+    "spam"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "short-task, train (sources.md short-task table)",
+   "dataset_url": "https://huggingface.co/datasets/ucirvine/sms_spam"
+  },
+  {
+   "name": "nvidia/HelpSteer2",
+   "aliases": [
+    "helpsteer2",
+    "helpsteer2_helpfulness",
+    "helpsteer2_verbosity",
+    "adequacy_hs2"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "train and evaluation",
+   "dataset_url": "https://huggingface.co/datasets/nvidia/HelpSteer2"
+  },
+  {
+   "name": "tasksource/Boardgame-QA",
+   "aliases": [
+    "boardgameqa",
+    "boardgame"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "train and evaluation",
+   "dataset_url": "https://huggingface.co/datasets/tasksource/Boardgame-QA"
+  },
+  {
+   "name": "hotpotqa/hotpot_qa",
+   "aliases": [
+    "hotpotqa",
+    "hotpot_qa"
+   ],
+   "role": "stock-evaluated",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "evaluation only",
+   "dataset_url": "https://huggingface.co/datasets/hotpotqa/hotpot_qa"
+  },
+  {
+   "name": "tasksource/tasksource-jev-typed-decisions",
+   "aliases": [
+    "LocalLLaMA/typed-decisions",
+    "typed-decisions",
+    "typed_decisions"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "v25 data round, train (full config, 127 sources, 3,000 rows each). Upstream of LocalLLaMA/typed-decisions for this check (module docstring)",
+   "dataset_url": "https://huggingface.co/datasets/tasksource/tasksource-jev-typed-decisions"
+  },
+  {
+   "name": "tasksource/procedural-typed-decisions",
+   "aliases": [
+    "procedural-typed-decisions"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/tasksource/procedural-typed-decisions"
+  },
+  {
+   "name": "BEE-spoke-data/consumer-finance-complaints",
+   "aliases": [
+    "consumer-finance-complaints"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/BEE-spoke-data/consumer-finance-complaints"
+  },
+  {
+   "name": "glaiveai/glaive-function-calling-v2",
+   "aliases": [
+    "glaive-function-calling-v2"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/glaiveai/glaive-function-calling-v2"
+  },
+  {
+   "name": "NousResearch/hermes-function-calling-v1",
+   "aliases": [
+    "hermes-function-calling-v1"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1"
+  },
+  {
+   "name": "theatticusproject/cuad-qa",
+   "aliases": [
+    "cuad"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/theatticusproject/cuad-qa"
+  },
+  {
+   "name": "theatticusproject/maud",
+   "aliases": [
+    "maud"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/theatticusproject/maud"
+  },
+  {
+   "name": "coastalcph/lex_glue",
+   "aliases": [
+    "lex_glue",
+    "lexglue",
+    "casehold",
+    "ledgar"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/coastalcph/lex_glue"
+  },
+  {
+   "name": "Anthropic/hh-rlhf",
+   "aliases": [
+    "hh-rlhf"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/Anthropic/hh-rlhf"
+  },
+  {
+   "name": "nvidia/HelpSteer3",
+   "aliases": [
+    "helpsteer3"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/nvidia/HelpSteer3"
+  },
+  {
+   "name": "nvidia/HelpSteer",
+   "aliases": [
+    "helpsteer"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/nvidia/HelpSteer"
+  },
+  {
+   "name": "OpenAssistant/oasst2",
+   "aliases": [
+    "oasst2"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/OpenAssistant/oasst2"
+  },
+  {
+   "name": "osunlp/Mind2Web",
+   "aliases": [
+    "mind2web"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/osunlp/Mind2Web"
+  },
+  {
+   "name": "tasksource/doc-nli",
+   "aliases": [
+    "docnli",
+    "doc-nli"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/tasksource/doc-nli"
+  },
+  {
+   "name": "rajpurkar/squad_v2",
+   "aliases": [
+    "squad_v2",
+    "squad2"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/rajpurkar/squad_v2"
+  },
+  {
+   "name": "stanfordnlp/snli",
+   "aliases": [
+    "snli"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/stanfordnlp/snli"
+  },
+  {
+   "name": "pietrolesci/nli_fever",
+   "aliases": [
+    "nli_fever",
+    "fever-nli"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/pietrolesci/nli_fever"
+  },
+  {
+   "name": "openlifescienceai/medmcqa",
+   "aliases": [
+    "medmcqa"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/openlifescienceai/medmcqa"
+  },
+  {
+   "name": "deepmind/aqua_rat",
+   "aliases": [
+    "aqua_rat",
+    "aqua-rat"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/deepmind/aqua_rat"
+  },
+  {
+   "name": "tasksource/sharc",
+   "aliases": [
+    "sharc"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/tasksource/sharc"
+  },
+  {
+   "name": "Zhengping/UNLI",
+   "aliases": [
+    "unli"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/Zhengping/UNLI"
+  },
+  {
+   "name": "bigcode/commitpackft",
+   "aliases": [
+    "commitpackft"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/bigcode/commitpackft"
+  },
+  {
+   "name": "deepmind/code_contests",
+   "aliases": [
+    "code_contests",
+    "codecontests"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/README.md",
+   "card": "https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4/training/sources.md",
+   "detail": "listed on the 2610 card; sources.md lists it as a calibration, scale or code-build source. Not confirmed held out, so training (fail closed)",
+   "dataset_url": "https://huggingface.co/datasets/deepmind/code_contests"
+  },
+  {
+   "name": "BFCL",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "ToolRet",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "API-Bank",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "BANKING77",
+   "aliases": [
+    "banking77",
+    "PolyAI/banking77",
+    "legacy-datasets/banking77"
+   ],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "CLINC150+OOS",
+   "aliases": [
+    "clinc150",
+    "clinc_oos",
+    "clinc-oos",
+    "clinc/clinc_oos"
+   ],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "RouterBench",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "Home appliance simulator",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "SGD/SGD-X",
+   "aliases": [
+    "sgd",
+    "sgd-x",
+    "sgdx"
+   ],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "ContractNLI",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "ANLI",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "BPoMP",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "Humicroedit",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "POP909-CL",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "cfcolor",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "MMLU",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "GPQA Diamond",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "ARC-Easy",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "ARC-Challenge",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "WinoGrande",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "HellaSwag",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "GSM8K",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "ChessBench",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "MuSR",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "SATA-Bench",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "BRIGHT",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "Amazon ESCI",
+   "aliases": [
+    "esci"
+   ],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "ACOS",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "FinEntity",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "VAST",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "NLI4CT",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "CRUXEval",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "CLadder",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "ForecastBench",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "Habermas Machine",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "PhishNChips",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "MMLU-Pro",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "BBH",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "RAGTruth",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "HoVer",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "When2Call MCQ",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  },
+  {
+   "name": "New Yorker",
+   "aliases": [],
+   "role": "clef-decision-index-eval",
+   "source_url": "https://clef-evals.workers-ai-mle.workers.dev",
+   "card": "https://huggingface.co/Cloudflare/clef",
+   "detail": "Clef training data is unreleased; only the eval suite is known"
+  }
+ ]
 }

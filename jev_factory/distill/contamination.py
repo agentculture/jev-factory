@@ -1,14 +1,23 @@
 """Contamination check of evaluation sources against upstream training data and eval suites.
 
 Each evaluation source name gets one of three statuses against the checked-in manifest
-``data/upstream_sources.json`` (strands-decider-2B-hobson-v21's 29 card datasets with the
-role from its ``data/sources.md``, plus Clef's Decision Index suites; every entry cites the
-URL it came from):
+``data/upstream_sources.json`` (the 48 ``datasets`` of the card of
+``StrandsAgents/strands-decider-2B-qwen3.5-v1-2610`` at revision ``216d1ccb``, with the role
+from its ``training/sources.md``, plus Clef's Decision Index suites; every entry cites the URL
+it came from):
 
-* ``overlapping``: v21 trained on it, or it is a Clef Decision Index suite;
-* ``v21-evaluated``: v21 only held it out / evaluated on it. It does not inflate v21 but is
-  not independent of it either (when a name hits both, ``overlapping`` wins);
+* ``overlapping``: the 2610 recipe trained on it (or lists it with no held-out role, which
+  fails closed), or it is a Clef Decision Index suite;
+* ``stock-evaluated``: the stock model only held it out / evaluated on it. The label is
+  model-neutral. It does not inflate the stock model but is not independent of it either
+  (when a name hits both, ``overlapping`` wins);
 * ``clean``: not found.
+
+``LocalLLaMA/typed-decisions`` is the public mirror of the typed-decisions data that the card
+lists as ``tasksource/tasksource-jev-typed-decisions`` (v25 round, training role), and I could
+not show the two apart row for row. So the manifest carries ``LocalLLaMA/typed-decisions`` (and
+``typed-decisions``) as aliases of the tasksource entry and the check reports it overlapping.
+This is the fail-closed reading; it needs no evidence that the sets are identical.
 
 jev-bench configs are matched through aliases (``banking77``, ``clinc150``, ``massive``,
 ``civil_comments``, ``measuring_hate_speech`` ...) or by upstream HF id. ``Record.hf_id`` holds
@@ -22,8 +31,9 @@ check is done, so a renamed or re-mirrored copy of an upstream dataset is report
 clean. Clef's own training data is unreleased, so its Decision Index entries only cite the
 leaderboard and cannot be checked at row level; "clean" means "not found in the manifest",
 not "proven clean". Of the 21 jev-bench configs without a known upstream id (the page shows
-``meta.hf_id`` only for ``arc_challenge``), unaliased ones fall to ``clean`` by name.
-Stdlib only.
+``meta.hf_id`` only for ``arc_challenge``), unaliased ones fall to ``clean`` by name. The 2610
+recipe also reads non-Hub release files (ContractNLI, MuSiQue) that are not card datasets;
+ContractNLI is covered by its Clef suite entry, MuSiQue is not listed. Stdlib only.
 """
 
 from __future__ import annotations
@@ -42,8 +52,8 @@ STAGE = "distill-contamination"
 MANIFEST_PATH = Path(__file__).parent / "data" / "upstream_sources.json"
 CLEAN = "clean"
 OVERLAPPING = "overlapping"
-V21_EVALUATED = "v21-evaluated"
-EVAL_ONLY_ROLE = "v21-eval-only"
+STOCK_EVALUATED = "stock-evaluated"
+EVAL_ONLY_ROLE = "stock-evaluated"
 JEV_BENCH_PREFIX = "jev-bench:"
 
 
@@ -78,7 +88,7 @@ def _status(hits: list[dict[str, Any]]) -> str:
     if not hits:
         return CLEAN
     if all(h["role"] == EVAL_ONLY_ROLE for h in hits):
-        return V21_EVALUATED
+        return STOCK_EVALUATED
     return OVERLAPPING
 
 
@@ -96,7 +106,7 @@ def check_sources(
     hf_ids: Mapping[str, str] | None = None,
     records: Iterable[Record] | None = None,
 ) -> dict[str, Any]:
-    """Mark each source name clean, v21-evaluated or overlapping; returns the report dict.
+    """Mark each source name clean, stock-evaluated or overlapping; returns the report dict.
 
     *hf_ids* optionally maps a source name to its upstream HF id (``meta.hf_id``); when
     present the id is matched in addition to the name. *records* supplies ``Record.hf_id``
@@ -137,7 +147,7 @@ def check_sources(
         "manifest_note": manifest.get("note", ""),
         "results": results,
         "overlapping": of(OVERLAPPING),
-        "v21_evaluated": of(V21_EVALUATED),
+        "stock_evaluated": of(STOCK_EVALUATED),
         "clean": of(CLEAN),
     }
 
