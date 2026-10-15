@@ -180,7 +180,8 @@ def test_loss_mixes_mean_kl_and_mean_ce_by_alpha():
     out = dl.distill_loss([a, b, c], alpha=0.7)
     kl = (dl.row_kl(a) + dl.row_kl(c)) / 2
     ce = (_ce([1.0, 0.0], 0) + _ce([0.0, 2.0, 1.0], 2)) / 2
-    assert out.n_teacher == 2 and out.n_gold == 2
+    assert out.n_teacher == 2
+    assert out.n_gold == 2
     assert out.loss == pytest.approx(0.7 * kl + 0.3 * ce)
 
 
@@ -192,13 +193,15 @@ def test_gold_ce_is_a_weighted_mean_like_upstream():
 
 
 def test_a_row_with_neither_target_is_refused():
+    rows = [_row([0.0, 1.0])]
     with pytest.raises(ValueError, match="neither"):
-        dl.distill_loss([_row([0.0, 1.0])], alpha=0.5)
+        dl.distill_loss(rows, alpha=0.5)
 
 
 def test_alpha_outside_unit_interval_is_refused():
+    rows = [_row([0.0, 1.0], gold=0)]
     with pytest.raises(ValueError, match="alpha"):
-        dl.distill_loss([_row([0.0, 1.0], gold=0)], alpha=1.5)
+        dl.distill_loss(rows, alpha=1.5)
 
 
 def test_gold_targets_mirror_the_upstream_collator():
@@ -272,7 +275,8 @@ def test_stacked_lora_equals_the_sum_of_both_deltas():
     first = {f"{key}.lora_A.weight": a1, f"{key}.lora_B.weight": b1}
     second = {f"{key}.lora_A.weight": a2, f"{key}.lora_B.weight": b2}
     state, rank, alpha = td.stack_lora(first, 8 / 4, second, 4 / 2)
-    assert rank == 6 and alpha == 6
+    assert rank == 6
+    assert alpha == 6
     a, b = state[f"{key}.lora_A.weight"], state[f"{key}.lora_B.weight"]
     want = b1 @ a1 * 2.0 + b2 @ a2 * 2.0
     assert torch.allclose(b @ a * (alpha / rank), want, atol=1e-5)
@@ -313,7 +317,8 @@ def test_plan_returns_the_command_without_running_it(tmp_path, monkeypatch):
     monkeypatch.setattr(gpu, "run_gpu_stage", boom)
     monkeypatch.setattr(gpu, "run_capped", boom)
     p = plan(tmp_path)
-    assert p["dry_run"] is True and p["stage"] == "train"
+    assert p["dry_run"] is True
+    assert p["stage"] == "train"
     argv = p["argv"]
     assert argv[:3] == ["/opt/trainer/bin/python", "-m", td.MODULE]
     assert argv[argv.index("--prereg") + 1] == str(tmp_path / "prereg.json")
@@ -326,15 +331,18 @@ def test_plan_returns_the_command_without_running_it(tmp_path, monkeypatch):
 
 def test_every_hyperparameter_comes_from_the_locked_prereg(tmp_path):
     hp = plan(tmp_path)["hyperparameters"]
-    assert hp["alpha"] == 0.7 and hp["lr"] == 1e-4 and hp["epochs"] == 1
+    assert hp["alpha"] == 0.7
+    assert hp["lr"] == 1e-4
+    assert hp["epochs"] == 1
     assert hp["temperature"] == {"choice": 2.0, "score": 1.0, "noul": 1.0}
-    assert hp["head_lr"] == 1e-3 and hp["ordinal_smoothing"] == 0.1
-    assert hp["micro_batch_size"] == 8 and hp["grad_accum"] == 4
+    assert hp["head_lr"] == 1e-3
+    assert hp["ordinal_smoothing"] == 0.1
+    assert hp["micro_batch_size"] == 8
+    assert hp["grad_accum"] == 4
     assert hp["init_mode"] == "continue"
     assert set(hp["sources"]) >= set(td.REQUIRED_UPSTREAM)
-    assert hp["sources"]["alpha"] == "knob_grid" and hp["sources"]["head_lr"].startswith(
-        "upstream:train_config.json"
-    )
+    assert hp["sources"]["alpha"] == "knob_grid"
+    assert hp["sources"]["head_lr"].startswith("upstream:train_config.json")
 
 
 def test_unregistered_knob_values_are_refused(tmp_path):
@@ -373,7 +381,8 @@ def test_both_init_modes_plan(tmp_path, mode):
     hp = plan(tmp_path, knobs={**RUN_KNOBS, "init_mode": mode})["hyperparameters"]
     assert hp["init_mode"] == mode
     if mode == "merge_fresh":
-        assert hp["lora_r"] == 16 and hp["lora_targets"] == ["q_proj", "v_proj"]
+        assert hp["lora_r"] == 16
+        assert hp["lora_targets"] == ["q_proj", "v_proj"]
     else:
         assert "lora_r" not in hp  # continue trains v21's own adapter as configured
 
@@ -399,7 +408,8 @@ def test_run_train_is_dry_run_by_default(tmp_path, monkeypatch):
     called = []
     monkeypatch.setattr(gpu, "run_gpu_stage", lambda *a, **k: called.append(a))
     out = td.run_train(plan(tmp_path))
-    assert out["dry_run"] is True and not called
+    assert out["dry_run"] is True
+    assert not called
 
 
 def test_run_train_apply_goes_through_run_gpu_stage(tmp_path, monkeypatch):
@@ -422,15 +432,17 @@ def test_run_train_apply_goes_through_run_gpu_stage(tmp_path, monkeypatch):
     assert seen["kw"]["memory_max"] == "100G"
     assert seen["kw"]["env"]["PYTHONPATH"] == p["env"]["PYTHONPATH"]
     assert seen["kw"]["allow_foreign"] is False
-    assert out["returncode"] == 0 and out["dry_run"] is False
+    assert out["returncode"] == 0
+    assert out["dry_run"] is False
 
 
 def test_run_train_apply_refuses_a_foreign_gpu_process(tmp_path, monkeypatch):
     monkeypatch.setattr(gpu, "query_compute_apps", lambda env=None: [gpu.GpuProcess(1, "x")])
     monkeypatch.setattr(gpu, "own_pids", lambda extra=(): {2})
     monkeypatch.setattr(gpu, "run_capped", lambda *a, **k: pytest.fail("ran past the guard"))
+    train_plan = plan(tmp_path)
     with pytest.raises(gpu.GpuBusyError):
-        td.run_train(plan(tmp_path), apply=True, memory_max="100G")
+        td.run_train(train_plan, apply=True, memory_max="100G")
 
 
 def test_run_train_apply_reports_a_failed_trainer(tmp_path, monkeypatch):
@@ -440,8 +452,9 @@ def test_run_train_apply_reports_a_failed_trainer(tmp_path, monkeypatch):
         stderr = "watchdog"
 
     monkeypatch.setattr(gpu, "run_gpu_stage", lambda *a, **k: Failed())
+    train_plan = plan(tmp_path)
     with pytest.raises(CliError, match="exited 3"):
-        td.run_train(plan(tmp_path), apply=True, memory_max="100G")
+        td.run_train(train_plan, apply=True, memory_max="100G")
 
 
 def _main_argv(tmp_path, **paths):
@@ -546,12 +559,15 @@ def test_load_items_builds_canonical_targets(tmp_path):
     ]
     out = td.load_items(write_items(tmp_path, items), HP)
     assert [i.record_id for i in out] == ["r1", "r2", "r3", "r4", "r5"]
-    assert out[0].target == [1.0, 0.0] and out[0].teacher == [0.8, 0.2]
+    assert out[0].target == [1.0, 0.0]
+    assert out[0].teacher == [0.8, 0.2]
     assert out[0].temperature == 2.0
     assert out[1].teacher is None
     assert out[2].target == pytest.approx([0.0, 0.1, 0.9])
-    assert out[3].target == pytest.approx([0.25, 0.75]) and out[3].temperature == 1.0
-    assert out[4].target is None and out[4].teacher == [0.8, 0.2]
+    assert out[3].target == pytest.approx([0.25, 0.75])
+    assert out[3].temperature == 1.0
+    assert out[4].target is None
+    assert out[4].teacher == [0.8, 0.2]
 
 
 @pytest.mark.parametrize(
@@ -565,8 +581,9 @@ def test_load_items_builds_canonical_targets(tmp_path):
     ],
 )
 def test_load_items_refuses_malformed_rows(tmp_path, bad, match):
+    path = write_items(tmp_path, [_item(**bad)])
     with pytest.raises(CliError, match=match):
-        td.load_items(write_items(tmp_path, [_item(**bad)]), HP)
+        td.load_items(path, HP)
 
 
 def test_soft_gold_probabilities_are_used_as_given(tmp_path):
@@ -586,7 +603,8 @@ def test_upstream_provenance_is_cited():
 def test_slot_rows_follow_the_collator_order(tmp_path):
     items = td.load_items(write_items(tmp_path, [_item()]), HP)
     (row,) = td.slot_rows(items, [[1, 0]])
-    assert row.target == [0.0, 1.0] and row.teacher == [0.2, 0.8]
+    assert row.target == [0.0, 1.0]
+    assert row.teacher == [0.2, 0.8]
     assert row.temperature == 2.0
     with pytest.raises(ValueError):
         td.slot_rows(items, [])

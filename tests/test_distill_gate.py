@@ -55,7 +55,9 @@ def test_decide_table(dist, thresholds, outcome, reason):
 
 def test_decide_on_a_label_mapping_names_the_top_label_and_ties_go_first():
     d = G.decide({"fix": 0.5, "wait": 0.5}, OFF)
-    assert d.label == "fix" and d.outcome == "answer" and d.margin == 0.0
+    assert d.label == "fix"
+    assert d.outcome == "answer"
+    assert d.margin == 0.0
     assert G.decide({"fix": 0.2, "wait": 0.8}, OFF).label == "wait"
 
 
@@ -148,7 +150,9 @@ def test_fit_gate_reports_selection_coverage_and_selective_accuracy_with_seeded_
     assert choice["coverage"]["value"] == pytest.approx(6 / 8)
     assert choice["selective_accuracy"]["value"] == 1.0
     for stat in (choice["coverage"], choice["selective_accuracy"]):
-        assert stat["n"] == 8 and stat["ci_low"] is not None and stat["ci_high"] is not None
+        assert stat["n"] == 8
+        assert stat["ci_low"] is not None
+        assert stat["ci_high"] is not None
     again = G.fit_gate(fit, sel, objective=_objective(cov), grid=GRID, resamples=RESAMPLES)
     assert again == out
 
@@ -157,8 +161,9 @@ def test_fit_gate_refuses_when_no_grid_point_meets_the_minimum():
     fit = _items("choice", 2, 8)
     grid = {"floor": [0.6], "margin": [None], "max_entropy": [None]}
     cov = {"choice": 0.5, "noul": 0.5, "score": 0.5}
+    objective = _objective(cov)
     with pytest.raises(CliError, match="coverage"):
-        G.fit_gate(fit, [], objective=_objective(cov), grid=grid, resamples=RESAMPLES)
+        G.fit_gate(fit, [], objective=objective, grid=grid, resamples=RESAMPLES)
 
 
 def test_a_kind_with_no_fit_rows_is_left_ungated_and_says_so():
@@ -166,7 +171,8 @@ def test_a_kind_with_no_fit_rows_is_left_ungated_and_says_so():
     cov = {"choice": 0.6, "noul": 0.6, "score": 0.6}
     out = G.fit_gate(fit, [], objective=_objective(cov), grid=GRID, resamples=RESAMPLES)
     noul = out["by_kind"]["noul"]
-    assert noul["fitted"] is False and noul["reason"]
+    assert noul["fitted"] is False
+    assert noul["reason"]
     assert noul["thresholds"] == {"floor": None, "margin": None, "max_entropy": None}
 
 
@@ -278,27 +284,32 @@ def test_apply_fits_on_the_deployed_build_and_writes_gate_json(tmp_path):
     assert doc == out
     assert set(doc["thresholds_by_kind"]) == {"choice", "noul", "score"}
     choice = doc["by_kind"]["choice"]
-    assert choice["fit"]["selective_accuracy"] == 1.0 and choice["fit"]["coverage"] == 0.65
+    assert choice["fit"]["selective_accuracy"] == 1.0
+    assert choice["fit"]["coverage"] == 0.65
     assert doc["by_kind"]["score"]["fitted"] is False  # no score questions in the folds
     assert doc["calibration_sha256"] == _sha(run / "distill/quant/calibration.json")
     assert doc["prereg_sha256"] == _sha(prereg)
     assert doc["objective"]["objective"] == "max_selective_accuracy"
     sel = doc["by_kind"]["choice"]["selection"]
-    assert sel["coverage"]["ci_low"] is not None and sel["selective_accuracy"]["value"] == 1.0
-    assert doc["fitted_on"] == "fit" and doc["reported_on"] == "selection"
+    assert sel["coverage"]["ci_low"] is not None
+    assert sel["selective_accuracy"]["value"] == 1.0
+    assert doc["fitted_on"] == "fit"
+    assert doc["reported_on"] == "selection"
 
 
 def test_apply_without_a_measurer_is_refused(tmp_path):
     run, prereg = setup(tmp_path)
+    fold_set = folds()
     with pytest.raises(CliError, match="measurer"):
-        G.run_gate(run, prereg_path=prereg, folds=folds(), apply=True)
+        G.run_gate(run, prereg_path=prereg, folds=fold_set, apply=True)
 
 
 def test_a_held_out_or_test_fold_is_refused(tmp_path):
     run, prereg = setup(tmp_path)
     for side in ("held_out", "test"):
+        bad_folds = {**folds(), side: [_rec(99)]}
         with pytest.raises(CliError):
-            G.run_gate(run, prereg_path=prereg, folds={**folds(), side: [_rec(99)]})
+            G.run_gate(run, prereg_path=prereg, folds=bad_folds)
 
 
 def test_a_prereg_without_a_gate_block_is_refused(tmp_path):
@@ -314,12 +325,15 @@ def test_a_prereg_without_a_gate_block_is_refused(tmp_path):
     (other / "run" / "distill" / "quant").mkdir(parents=True)
     for name in ("calibration.json", "format_decision.json", "quant_manifest.json"):
         (other / "run" / "distill" / "quant" / name).write_bytes((q / name).read_bytes())
+    other_run = other / "run"
+    fold_set = folds()
     with pytest.raises(CliError, match="gate"):
-        G.run_gate(other / "run", prereg_path=p2, folds=folds())
+        G.run_gate(other_run, prereg_path=p2, folds=fold_set)
 
 
 def test_a_calibration_that_does_not_match_the_quant_manifest_is_refused(tmp_path):
     run, prereg = setup(tmp_path)
     (run / "distill/quant/calibration.json").write_text(json.dumps({**CAL, "x": 1}))
+    fold_set = folds()
     with pytest.raises(CliError):
-        G.run_gate(run, prereg_path=prereg, folds=folds())
+        G.run_gate(run, prereg_path=prereg, folds=fold_set)
