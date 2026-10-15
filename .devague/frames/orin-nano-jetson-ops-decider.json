@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-15T05:25:25Z",
-  "updated": "2026-10-15T18:07:07Z",
+  "updated": "2026-10-15T18:55:07Z",
   "claims": [
     {
       "id": "c1",
@@ -917,6 +917,17 @@
       "skipped_check": "a real heal round on the Spark with the built int4 artifact",
       "refs": [
         "t12"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l9",
+      "code": "control-absent",
+      "what": "t19's socket guard recorded no connections during the 15-stage run because the stage fakes never open sockets, so the localhost-only boundary test passes vacuously for the real clients",
+      "skipped_check": "drive at least one real client (SystemOneClient, edge/final GET) through the guard against a loopback server and assert the guard saw it",
+      "refs": [
+        "t19"
       ],
       "origin": "llm",
       "status": "proposed"

@@ -236,3 +236,30 @@ def test_the_distill_registry_still_has_fifteen_stages():
     """Criterion 1 depends on the full registry: edge sits after final."""
     assert len(P.STAGE_ORDER) == 15
     assert P.STAGE_ORDER.index("edge") == P.STAGE_ORDER.index("final") + 1
+
+
+def test_a_real_systemone_client_is_seen_by_the_guard_and_stays_on_loopback(monkeypatch):
+    """l9: drive the real client through a recording guard, so the boundary is not vacuous."""
+    from jev_factory.distill import systemone as s1
+    from tests.test_distill_systemone import RECORD, _answers, _Server
+
+    srv = _Server(_answers())
+    seen: list = []
+    real_connect = socket.socket.connect
+
+    def recording(sock, address, *args, **kwargs):
+        seen.append(address)
+        if not is_loopback(address):
+            raise AssertionError(f"non-loopback connection attempted: {address!r}")
+        return real_connect(sock, address, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, "connect", recording)
+    try:
+        result = s1.SystemOneClient(srv.url, model="m").ask(RECORD)
+    finally:
+        srv.close()
+    assert result.response_sha256
+    assert seen
+    assert all(is_loopback(a) for a in seen)
+    with pytest.raises(ValueError):
+        s1.SystemOneClient("http://192.0.2.10:8000", model="m")
