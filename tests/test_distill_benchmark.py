@@ -14,7 +14,8 @@ from jev_factory.distill import benchmark as bm
 from jev_factory.distill import dataset
 from jev_factory.distill.records import Gold, Question, Record
 from tests import test_distill_train as tt
-from tests.test_distill_train import cache as pin_cache  # noqa: F401 - guard-test fixture
+
+pin_cache = tt.cache  # the pin-cache fixture, reused by the train guard test
 
 
 def _rec(i: int, split: str = "train") -> Record:
