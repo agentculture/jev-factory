@@ -82,22 +82,46 @@ into the student **Strands Decider 2B** (a pointer-scorer on
 model name; the Layer-3 decider (candidates are `jev decide` verdicts) is
 unrelated and the distillery does not build it.
 
-- 14 stages in order (`jev_factory/distill/pipeline.py`): `preregister`,
+- The student is `StrandsAgents/strands-decider-2B-qwen3.5-v1-2610` at
+  `216d1ccb` (issue 20 retargets the run to a Jetson-ops specialist for an
+  Orin Nano); the reference role is the model-neutral `stock`.
+- 15 stages in order (`jev_factory/distill/pipeline.py`): `preregister`,
   `dataset`, `contamination`, `teacher-label`, `audit`, `corrections-draft`,
-  `assemble`, `benchmark`, `train`, `quantize`, `gate`, `final`, `bundle`,
-  `upload`. The stage is a positional argument (one `jev.distill` domain
+  `assemble`, `benchmark`, `train`, `quantize`, `gate`, `final`, `edge`,
+  `bundle`, `upload`. The stage is a positional argument (one `jev.distill` domain
   operation). Every stage is dry-run unless `--apply`.
 - Records are `/v1/systemone` bodies plus gold (`distill/records.py`); only
   per-option probabilities are read, never the vendor `confidence` field.
 - Sides: train, fit, selection, sealed held-out, test. The teacher labels
   train only; test and held-out are measured once.
+- The teacher is reached through an SSH tunnel to `127.0.0.1` only; its
+  bearer key is read from an env var that the run config names, and is never
+  written down. Requests carry `X-Lobes-Model: decider:general`.
 - Corrections are operator-reviewed (`jev review --corrections FILE`) before
-  they can train. The student's int8/int4 path is torchao weight-only. The
-  decision gate is per question kind and fitted on the fit fold.
-- Headline numbers use human-gold records from clean sources only.
+  they can train. Human-gold test records need an operator approval in the
+  ledger of `jev review --gold FILE`; `jev review --drafts FILE` reviews
+  drafted records one at a time.
+- `dataset` admits apache-2.0, mit and cc-by-4.0 (with attribution); a
+  question over 24 options or a record over 4096 tokens is refused, never
+  truncated. Contamination is checked against the 2610 card's 48 datasets and
+  its non-card training sources.
+- The quantized build (`backbones/pointer/quantized.py`) merges the LoRA,
+  drops the vision tower and MTP head, uses int4 blocks and a packed
+  full-vocabulary embedding, and must stay under 10^9 bytes. It is healed at
+  most once (at least 0.97 agreement with the bf16 student), and there is no
+  bf16 fallback when no quant qualifies. The decision gate is per question
+  kind and fitted on the fit fold.
+- `final` scores Clef, the stock model, the bf16 student and the quant once,
+  the quant served on the AGX Orin through a tunnel and attested by
+  `/v1/bundle`. `edge` measures the quant on a board on non-test data only.
+  The board serves it under a cgroup cap with `systemd-run --user -p
+  MemoryMax=<cap> python -m jev_factory.backbones.pointer.quantized serve
+  ARTIFACT --host 127.0.0.1 --port N`.
+- Headline numbers use operator-approved human-gold records from clean
+  sources only.
 - Serving belongs to lobes (its `decider` role); training belongs here.
-- The code is built, but no distill run has happened and no student bundle
-  exists yet.
+- The code is built, but no distill run has happened. No issue-20 model has
+  been trained or measured, and no student bundle exists yet.
 
 ## Prompt files by harness
 

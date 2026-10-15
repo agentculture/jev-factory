@@ -84,19 +84,27 @@ into the student **Strands Decider 2B**. The full write-up is
   an external model. The Layer-3 decider (candidates are `jev decide`
   verdicts) is a different thing, and the distillery does not build it.
 - The verb is `jev distill <stage>`, with the stage as a positional argument.
-  There are 14 stages, in order: `preregister`, `dataset`, `contamination`,
+  There are 15 stages, in order: `preregister`, `dataset`, `contamination`,
   `teacher-label`, `audit`, `corrections-draft`, `assemble`, `benchmark`,
-  `train`, `quantize`, `gate`, `final`, `bundle`, `upload`. All are dry-run
+  `train`, `quantize`, `gate`, `final`, `edge`, `bundle`, `upload`. All are dry-run
   unless `--apply` is passed; do not describe that as tunable.
 - Data is `/v1/systemone` records (`choice`, `noul`, `score` questions) with
   gold. Sides are train, fit, selection, a sealed held-out set and test; the
   teacher labels train only and the sealed sides are measured once.
 - Drafted corrections need operator review (`jev review --corrections`)
-  before they can train.
+  before they can train. Human-gold test records need an operator approval
+  (`jev review --gold`); `jev review --drafts` reviews drafted records.
+- Issue 20 retargets the distillery to the student
+  `StrandsAgents/strands-decider-2B-qwen3.5-v1-2610` at `216d1ccb`, quantized
+  under 10^9 bytes for an Orin Nano. The teacher is reached only through an
+  SSH tunnel to `127.0.0.1`, with its bearer key named by an env var and never
+  stated. `edge` (after `final`) measures the quant on a board under a cgroup
+  cap, on non-test data only. The board command is in `docs/distill.md`.
 - Serving of the result belongs to the lobes `decider` role; training belongs
   here. The two consumers are the operator and that role.
 - **Current state.** The code is built and tested on fixtures. No distill run
-  has happened, so report no distilled student or bundle as shipped.
+  has happened and no issue-20 model has been trained or measured, so report
+  no distilled student, quantized build or bundle as shipped.
 
 ## Four harnesses, four files, no shared base
 
