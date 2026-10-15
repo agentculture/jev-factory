@@ -271,7 +271,11 @@ def _stage_student(src: Path, out: Path, calibration: Mapping[str, Any]) -> dict
 
 
 def _licence_ok(row: Mapping[str, Any]) -> bool:
-    return str(row.get("licence", "")).strip().lower() in ALLOWED_LICENCES
+    """Apache-2.0 and MIT rows pass; a cc-by-4.0 row passes only with a non-blank attribution."""
+    licence = str(row.get("licence", "")).strip().lower()
+    if licence in ATTRIBUTION_LICENCES:
+        return bool(str(row.get("attribution") or "").strip())
+    return licence in ALLOWED_LICENCES
 
 
 def _index_row(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -285,7 +289,7 @@ def _collect_attributions(node: Any, found: set[str]) -> None:
     """Every ``attribution`` string (or list of strings) at any depth of *node*."""
     if isinstance(node, dict):
         for key, value in node.items():
-            if key == "attribution":
+            if key in ("attribution", "attributions"):
                 items = value if isinstance(value, list) else [value]
                 found.update(i.strip() for i in items if isinstance(i, str) and i.strip())
             else:
@@ -299,7 +303,8 @@ def attribution_strings(manifest: Mapping[str, Any] | None, rows: Iterable[Mappi
     """Sorted, de-duplicated attribution strings from the dataset manifest's licence table
     (``licences``, key ``attribution``, a string or a list) and the rows' own field."""
     found: set[str] = set()
-    _collect_attributions((manifest or {}).get("licences"), found)
+    for table in ("licences", "licence_table"):
+        _collect_attributions((manifest or {}).get(table), found)
     _collect_attributions(list(rows), found)
     return sorted(found)
 

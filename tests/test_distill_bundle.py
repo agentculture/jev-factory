@@ -403,7 +403,8 @@ CCBY = "Dataset X by Alice, CC BY 4.0, https://example.org/x"
 
 
 def _ccby_rows():
-    return [_row("t1", "q", "mit"), _row("t2", "q", "cc-by-4.0", "human_gold")]
+    row = {**_row("t2", "q", "cc-by-4.0", "human_gold"), "attribution": CCBY}
+    return [_row("t1", "q", "mit"), row]
 
 
 def _manifest(tmp_path: Path, attribution=CCBY) -> Path:
@@ -427,12 +428,14 @@ def test_notice_lists_every_manifest_attribution_in_both_bundles(tmp_path):
         assert "Other by Bob, CC BY 4.0" in text
 
 
-def test_cc_by_record_without_any_attribution_refuses_the_build(tmp_path):
-    """AC1: a cc-by-4.0 record with no attribution (so no NOTICE) is refused."""
-    run, prereg_path, ds = make_run(tmp_path, rows=_ccby_rows())
-    _manifest(tmp_path, attribution=None)
-    with pytest.raises(CliError, match="attribution"):
-        B.build_bundles(run, tmp_path / "out", prereg_path=prereg_path, dataset_dir=ds)
+def test_cc_by_record_without_attribution_is_left_out_of_the_dataset(tmp_path):
+    """AC1: a cc-by-4.0 record with no attribution never reaches the dataset bundle."""
+    rows = [_row("t1", "q", "mit"), _row("t2", "q", "cc-by-4.0")]
+    run, prereg_path, ds = make_run(tmp_path, rows=rows)
+    out = tmp_path / "out"
+    B.build_bundles(run, out, prereg_path=prereg_path, dataset_dir=ds)
+    text = (out / "dataset" / "train.jsonl").read_text()
+    assert "t2" not in text
 
 
 def test_cc_by_dataset_bundle_without_notice_is_refused_at_upload(tmp_path):
@@ -521,3 +524,28 @@ def test_upload_refuses_when_the_scan_inputs_are_not_configured(tmp_path):
     bundles = {"model": out / "model", "dataset": out / "dataset"}
     with pytest.raises(CliError, match=B.PROBE_SET_KEY):
         _upload(bundles, FakeHub(tmp_path / "r"), apply=False, scan_cfg={})
+
+
+def test_cc_by_rows_need_their_own_attribution_and_the_manifest_licence_table(tmp_path):
+    """Scope addition: cc-by-4.0 rows are admitted only with a non-blank attribution; NOTICE
+    is written from t7's licence_table whenever one is bundled."""
+    rows = [
+        _row("t1", "q", "mit"),
+        {**_row("t2", "q", "cc-by-4.0"), "attribution": "Row by Carol, CC BY 4.0"},
+        {**_row("t3", "q", "cc-by-4.0"), "attribution": "  "},
+        _row("t4", "q", "cc-by-4.0"),
+    ]
+    run, prereg_path, ds = make_run(tmp_path, rows=rows)
+    table = {"cc-by-4.0": {"count": 3, "attributions": [CCBY]}}
+    (ds / "manifest.json").write_text(json.dumps({"licence_table": table}), encoding="utf-8")
+    out = tmp_path / "out"
+    B.build_bundles(run, out, prereg_path=prereg_path, dataset_dir=ds)
+    kept = [
+        json.loads(x)["record_id"]
+        for x in (out / "dataset" / "train.jsonl").read_text().splitlines()
+    ]
+    assert kept == ["t1", "t2"]
+    for side in ("model", "dataset"):
+        text = (out / side / "NOTICE").read_text()
+        assert CCBY in text
+        assert "Row by Carol, CC BY 4.0" in text
