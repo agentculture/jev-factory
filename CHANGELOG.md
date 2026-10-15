@@ -20,6 +20,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The jev-CLI domain gains one `jev.distill` operation with a grounded `stage` argument (deviation d5) and eight seed entries pending operator review; `cli_surface_sha256` changes, so the jev-tool seed review must include them before the extraction plan's t34.
 - New `distill_*` run-config keys; CLAUDE.md, QWEN.md, AGENTS.override.md and AGENTS.colleague.md describe the distillery.
+- SonarCloud code smells on this change cleared with no behaviour change: composite asserts split (every condition kept), `pytest.raises` blocks narrowed to the one raising call, complex functions split into helpers, and the `run_final` / `run_grid` / `run_quant` inputs grouped into frozen specs (`jev_factory/distill/runspec.py`: `Bootstrap`, `GpuLimits`, `TrainerEnv`; `quant.QuantHooks`).
 
 ## [0.10.0] - 2026-10-01
 
