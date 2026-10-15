@@ -74,12 +74,16 @@ def test_approved_and_edited_are_trainable_citing_the_reviewer_decision(corr):
     records = rc.read_records(rc.review_path(corr))
     out = {t.record_id: t for t in rc.trainable(read_corrections(corr), records)}
     assert set(out) == {"r1", "r2"}  # r3 rejected, r4 still proposed
-    assert out["r1"].label == "a" and out["r1"].decision["action"] == "approve"
-    assert out["r1"].decision["reviewer"] == "ori" and out["r1"].decision["at"] == AT
+    assert out["r1"].label == "a"
+    assert out["r1"].decision["action"] == "approve"
+    assert out["r1"].decision["reviewer"] == "ori"
+    assert out["r1"].decision["at"] == AT
     assert out["r2"].label == "b"  # the operator's edit, not the proposal
-    assert out["r2"].decision["action"] == "edit" and out["r2"].decision["note"] == "b is right"
+    assert out["r2"].decision["action"] == "edit"
+    assert out["r2"].decision["note"] == "b is right"
     row = out["r2"].to_json()
-    assert row["status"] == "edited" and row["reviewer_decision"]["action"] == "edit"
+    assert row["status"] == "edited"
+    assert row["reviewer_decision"]["action"] == "edit"
     assert out["r1"].to_json()["status"] == "approved"
 
 
@@ -126,8 +130,10 @@ def test_the_review_file_is_append_only_and_cites_its_corrections(corr):
     first = _decide(corr, "r1", "approve")
     _decide(corr, "r1", "reject")
     lines = rc.review_path(corr).read_text().splitlines()
-    assert len(lines) == 2 and json.loads(lines[0]) == first
-    assert first["correction_sha256"] and first["before"]["label"] == "a"
+    assert len(lines) == 2
+    assert json.loads(lines[0]) == first
+    assert first["correction_sha256"]
+    assert first["before"]["label"] == "a"
 
 
 # -- the CLI -----------------------------------------------------------------------------
@@ -143,7 +149,8 @@ def test_the_dry_run_writes_nothing(corr, capsys):
     _stage(corr, "r1", "approve")
     assert cli_main(["review", "--corrections", str(corr), "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["staged"] == 1 and out["applied"] is False
+    assert out["staged"] == 1
+    assert out["applied"] is False
     assert not rc.review_path(corr).exists()
 
 
@@ -153,7 +160,8 @@ def test_apply_writes_the_decisions_to_the_review_file(corr, capsys):
     _stage(corr, "r3", "reject")
     assert cli_main(["review", "--corrections", str(corr), "--apply", "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["applied"] is True and out["recorded"] == 3
+    assert out["applied"] is True
+    assert out["recorded"] == 3
     records = rc.read_records(rc.review_path(corr))
     assert [r["action"] for r in records] == ["approve", "edit", "reject"]
     assert {t.record_id for t in rc.trainable(read_corrections(corr), records)} == {"r1", "r2"}
@@ -210,4 +218,5 @@ def test_the_site_serves_corrections_state_and_stages_decisions(corr):
 
 def test_the_page_has_a_corrections_view():
     page = server.page("k").decode()
-    assert "corrections" in page and 'mode === "corrections"' in page
+    assert "corrections" in page
+    assert 'mode === "corrections"' in page

@@ -90,7 +90,8 @@ def _plan(tmp_path, bits=8, **kw):
 def test_dry_run_returns_the_plan_and_writes_nothing(tmp_path):
     ckpt, plan = _plan(tmp_path)
     assert plan["dry_run"] is True
-    assert plan["format"] == "torch_int8_wo" and plan["bits"] == 8
+    assert plan["format"] == "torch_int8_wo"
+    assert plan["bits"] == 8
     assert plan["argv"] == [
         "/envs/student/bin/python",
         "-m",
@@ -109,13 +110,15 @@ def test_dry_run_returns_the_plan_and_writes_nothing(tmp_path):
     assert path[:2] == [str(tmp_path / "sd"), str(tmp_path / "sd" / "src")]
     assert (Path(path[2]) / "jev_factory" / "backbones" / "pointer" / "quantized.py").is_file()
     assert plan["base_model_revision"] == REV
-    assert plan["head_dtype"] == "float32" and plan["lora_merged"] is True
+    assert plan["head_dtype"] == "float32"
+    assert plan["lora_merged"] is True
     assert not (tmp_path / "out").exists()
 
 
 def test_int4_plans_the_int4_api(tmp_path):
     _ckpt, plan = _plan(tmp_path, bits=4)
-    assert plan["format"] == "torch_int4_wo" and plan["argv"][7] == "4"
+    assert plan["format"] == "torch_int4_wo"
+    assert plan["argv"][7] == "4"
     assert plan["torchao_api"] == qz.TORCHAO_APIS[4]
 
 
@@ -172,7 +175,8 @@ def test_apply_runs_the_planned_command_in_the_student_env_and_verifies(tmp_path
     _ckpt, out = _plan(tmp_path, apply=True, runner=runner, memory_max="100G")
     assert out["dry_run"] is False
     argv, env = runner.calls[0]
-    assert argv == out["argv"] and env["PYTHONPATH"] == out["env"]["PYTHONPATH"]
+    assert argv == out["argv"]
+    assert env["PYTHONPATH"] == out["env"]["PYTHONPATH"]
     assert out["artifact"]["manifest"]["format"] == "torch_int8_wo"
 
 
@@ -184,8 +188,9 @@ def test_apply_reports_a_failed_build_with_its_error(tmp_path):
 
 
 def test_apply_refuses_a_build_that_left_no_valid_artifact(tmp_path):
+    runner = FakeRunner(write=False)
     with pytest.raises(CliError, match="jev_quant.json"):
-        _plan(tmp_path, apply=True, runner=FakeRunner(write=False), memory_max="100G")
+        _plan(tmp_path, apply=True, runner=runner, memory_max="100G")
 
 
 class GpuStage:
@@ -217,7 +222,8 @@ def test_apply_without_a_memory_cap_is_refused_and_runs_nothing(tmp_path, monkey
         with pytest.raises(CliError, match="memory cap") as err:
             _plan(tmp_path, apply=True, **kw)
         assert err.value.code == EXIT_USER_ERROR
-    assert stage.calls == [] and runner.calls == []
+    assert stage.calls == []
+    assert runner.calls == []
 
 
 def test_dry_run_needs_no_memory_cap(tmp_path):
@@ -232,10 +238,14 @@ def test_apply_goes_through_run_gpu_stage_never_a_bare_subprocess(tmp_path, monk
         tmp_path, apply=True, memory_max="100G", memory_floor="12G", allow_foreign=True
     )
     name, run_dir, cmd, kw = stage.calls[0]
-    assert name == "quantize" and cmd == out["argv"]
-    assert kw["memory_max"] == "100G" and kw["memory_floor"] == "12G"
-    assert kw["allow_foreign"] is True and kw["env"]["PYTHONPATH"] == out["env"]["PYTHONPATH"]
-    assert run_dir.is_dir() and run_dir != tmp_path / "out"
+    assert name == "quantize"
+    assert cmd == out["argv"]
+    assert kw["memory_max"] == "100G"
+    assert kw["memory_floor"] == "12G"
+    assert kw["allow_foreign"] is True
+    assert kw["env"]["PYTHONPATH"] == out["env"]["PYTHONPATH"]
+    assert run_dir.is_dir()
+    assert run_dir != tmp_path / "out"
     assert out["artifact"]["manifest"]["format"] == "torch_int8_wo"
     assert out["capped"] == {"memory_max": "100G", "memory_floor": "12G"}
 
@@ -253,7 +263,8 @@ def test_launch_records_that_the_server_is_not_capped(tmp_path, monkeypatch):
     env = EnvSpec(role="student", python="/envs/student/bin/python", lockfile_hash="c" * 64)
     qz.launch(tmp_path / "jobs", "q", env, root, port=8000)
     record = json.loads((tmp_path / "jobs" / "q.serve.json").read_text())
-    assert record["capped"] is False and "long-lived" in record["capped_note"]
+    assert record["capped"] is False
+    assert "long-lived" in record["capped_note"]
 
 
 # --------------------------------------------------------------------- the artifact
@@ -265,8 +276,10 @@ def test_a_complete_artifact_reads_back(tmp_path):
     assert (m["format"], m["bits"], m["head_dtype"]) == ("torch_int4_wo", 4, "float32")
     assert m["artifact_format"] == qz.ARTIFACT_FORMAT
     assert set(m["files"]) == {qz.TORSO_FILE, player.HEAD, player.CONFIG}
-    assert m["torchao_version"] == "0.18.0" and m["torch_version"] == "2.12.1"
-    assert m["base_model_revision"] == REV and m["lora_merged"] is True
+    assert m["torchao_version"] == "0.18.0"
+    assert m["torch_version"] == "2.12.1"
+    assert m["base_model_revision"] == REV
+    assert m["lora_merged"] is True
 
 
 @pytest.mark.parametrize(
@@ -333,7 +346,8 @@ def test_serve_argv_is_loopback_only(tmp_path):
 def test_serve_argv_runs_the_wrapper_module_with_jev_factory_on_the_path(tmp_path):
     root = _artifact(tmp_path / "a")
     argv = qz.serve_argv("py", root, port=8123, decider_repo=tmp_path / "sd", model_name="m")
-    assert argv[0] == "env" and argv[1].startswith("PYTHONPATH=")
+    assert argv[0] == "env"
+    assert argv[1].startswith("PYTHONPATH=")
     assert str(tmp_path / "sd" / "src") in argv[1]
     assert argv[2:] == [
         "py",
@@ -377,7 +391,8 @@ def test_launch_needs_the_student_env_and_records_what_answers(tmp_path, monkeyp
         qz.launch(tmp_path / "jobs", "q", None, root, port=8000)
     env = EnvSpec(role="student", python="/envs/student/bin/python", lockfile_hash="c" * 64)
     pid = qz.launch(tmp_path / "jobs", "q", env, root, port=8000, decider_repo=tmp_path / "sd")
-    assert pid == 4242 and started[0][2] == "/envs/student/bin/python"
+    assert pid == 4242
+    assert started[0][2] == "/envs/student/bin/python"
     record = json.loads((tmp_path / "jobs" / "q.serve.json").read_text())
     assert record["argv"] == started[0]
     assert record["environment"]["lockfile_hash"] == "c" * 64
@@ -454,7 +469,8 @@ def test_health_answers_ok(server):
 def test_systemone_answers_with_the_upstream_shape_plus_latency(server):
     url, seen = server
     status, body = _post(url, {"id": "r", "state": "s", "questions": {}})
-    assert status == 200 and seen == [{"id": "r", "state": "s", "questions": {}}]
+    assert status == 200
+    assert seen == [{"id": "r", "state": "s", "questions": {}}]
     assert {k: v for k, v in body.items() if k != "latency_ms"} == ANSWER
     assert isinstance(body["latency_ms"], float)
 
@@ -466,7 +482,8 @@ def test_a_caller_error_is_a_422_with_detail_like_upstream(server):
         {"detail": "option count over num_slots"},
     )
     status, body = _post(url, b"{not json")
-    assert status == 422 and "detail" in body
+    assert status == 422
+    assert "detail" in body
 
 
 def test_an_unknown_path_is_a_404(server):

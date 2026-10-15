@@ -200,8 +200,9 @@ def test_predict_fails_closed_when_the_server_answer_is_not_a_distribution(fake)
     srv = fake({"lamp_status": 0.9, "explain": 0.9})  # sums to 1.8
     pb = registry.get("pointer")
     offered = ["lamp_status", "explain"]
+    records = [pb.render(DOMAIN, "q", offered)]
     with pytest.raises(CliError, match="sum"):
-        pb.predict_distributions(srv.url, [pb.render(DOMAIN, "q", offered)], [offered])
+        pb.predict_distributions(srv.url, records, [offered])
 
 
 def test_predict_refuses_offered_that_disagrees_with_the_rendered_record(fake):
@@ -270,23 +271,25 @@ def test_read_layout_accepts_a_complete_hobson_export(tmp_path):
 def test_read_layout_refuses_a_layout_missing_any_file(tmp_path, missing):
     src = _source(tmp_path)
     (src / missing).unlink()
+    pointer = _pointer()
     with pytest.raises(CliError, match="missing"):
-        _pointer().read_layout(src)
+        pointer.read_layout(src)
 
 
 def test_read_layout_refuses_a_wrong_format_or_hash_or_head_type(tmp_path):
     src = _source(tmp_path)
+    pointer = _pointer()
     prov = json.loads((src / "provenance.json").read_text())
     (src / "provenance.json").write_text(json.dumps({**prov, "format": "other/2"}))
     with pytest.raises(CliError, match="format"):
-        _pointer().read_layout(src)
+        pointer.read_layout(src)
     (src / "provenance.json").write_text(json.dumps(prov))
     (src / "head.safetensors").write_bytes(b"tampered")
     with pytest.raises(CliError, match="head_sha256"):
-        _pointer().read_layout(src)
+        pointer.read_layout(src)
     slot = _source(tmp_path / "slot", head_type="slot")
     with pytest.raises(CliError, match="pointer"):
-        _pointer().read_layout(slot)
+        pointer.read_layout(slot)
 
 
 def test_export_is_dry_run_by_default_and_writes_nothing(tmp_path):
@@ -301,8 +304,9 @@ def test_export_apply_writes_a_layout_that_reads_back(tmp_path):
     src = _source(tmp_path, with_provenance=False)
     out = tmp_path / "bundle"
     pb = registry.get("pointer")
+    src_arg, out_arg = str(src), str(out)
     with pytest.raises(CliError, match="base_model_revision"):
-        pb.export(str(src), str(out), apply=True)
+        pb.export(src_arg, out_arg, apply=True)
     src2 = _source(tmp_path / "again")
     report = pb.export(str(src2), str(out), apply=True)
     assert report["apply"] is True
@@ -316,16 +320,19 @@ def test_export_apply_writes_a_layout_that_reads_back(tmp_path):
 def test_export_refuses_a_source_missing_a_required_file(tmp_path):
     src = _source(tmp_path)
     (src / "head.safetensors").unlink()
+    pb = registry.get("pointer")
+    src_arg, out_arg = str(src), str(tmp_path / "out")
     with pytest.raises(CliError, match="missing"):
-        registry.get("pointer").export(str(src), str(tmp_path / "out"))
+        pb.export(src_arg, out_arg)
 
 
 def test_merge_verify_checks_the_layout_and_the_base(tmp_path):
     pb = registry.get("pointer")
     report = pb.merge_verify(str(_source(tmp_path)), "Qwen/Qwen3.5-2B-Base")
     assert report["merged"] is False
+    other_src = str(_source(tmp_path / "b"))
     with pytest.raises(CliError, match="base"):
-        pb.merge_verify(str(_source(tmp_path / "b")), "Qwen/Qwen3.5-0.8B")
+        pb.merge_verify(other_src, "Qwen/Qwen3.5-0.8B")
 
 
 def test_train_plan_and_quantize_candidates_are_descriptive_only():
@@ -346,19 +353,21 @@ def test_serve_argv_is_the_real_strands_decider_cli_on_loopback(tmp_path):
     assert argv[:5] == ["/env/bin/python", "-m", "strands_decider.cli", "serve", str(bundle)]
     assert argv[argv.index("--host") + 1] == "127.0.0.1"
     assert argv[argv.index("--port") + 1] == "8123"
-    assert "--revision" not in argv and "--model" not in argv
+    assert "--revision" not in argv
+    assert "--model" not in argv
 
 
 def test_serve_argv_refuses_a_non_loopback_host_and_an_unverified_bundle(tmp_path):
     bundle = tmp_path / "bundle"
     registry.get("pointer").export(str(_source(tmp_path)), str(bundle), apply=True)
+    pointer = _pointer()
     with pytest.raises(CliError, match="127.0.0.1"):
-        _pointer().serve_argv("/py", bundle, port=1, host="0.0.0.0")  # nosec B104
+        pointer.serve_argv("/py", bundle, port=1, host="0.0.0.0")  # nosec B104
     (bundle / "tokenizer.json").unlink()
     with pytest.raises(CliError, match="tokenizer"):
-        _pointer().serve_argv("/py", bundle, port=1)
+        pointer.serve_argv("/py", bundle, port=1)
     with pytest.raises(CliError):
-        _pointer().serve_argv("/py", "StrandsAgents/strands-decider-2B-hobson-v21", port=1)
+        pointer.serve_argv("/py", "StrandsAgents/strands-decider-2B-hobson-v21", port=1)
 
 
 def test_launch_needs_the_pinned_student_env_and_records_provenance(tmp_path, monkeypatch):
@@ -401,8 +410,10 @@ def test_merge_verify_names_the_file_whose_base_disagrees(tmp_path):
     src = _source(tmp_path)
     prov = json.loads((src / "provenance.json").read_text())
     (src / "provenance.json").write_text(json.dumps({**prov, "base_model": "Qwen/Other"}))
+    pb = registry.get("pointer")
+    src_arg = str(src)
     with pytest.raises(CliError, match="provenance"):
-        registry.get("pointer").merge_verify(str(src), "Qwen/Qwen3.5-2B-Base")
+        pb.merge_verify(src_arg, "Qwen/Qwen3.5-2B-Base")
 
 
 def test_read_layout_refuses_a_member_symlinked_out_of_the_bundle(tmp_path):
@@ -411,8 +422,9 @@ def test_read_layout_refuses_a_member_symlinked_out_of_the_bundle(tmp_path):
     outside.write_bytes(b"head-bytes")
     (src / "head.safetensors").unlink()
     (src / "head.safetensors").symlink_to(outside)
+    pointer = _pointer()
     with pytest.raises(CliError, match="escapes"):
-        _pointer().read_layout(src)
+        pointer.read_layout(src)
 
 
 def test_read_layout_and_export_refuse_a_member_that_is_a_symlink(tmp_path):
@@ -420,7 +432,10 @@ def test_read_layout_and_export_refuse_a_member_that_is_a_symlink(tmp_path):
     (src / "lora" / "real.json").write_bytes(b'{"r": 16}')
     (src / "lora" / "adapter_config.json").unlink()
     (src / "lora" / "adapter_config.json").symlink_to(src / "lora" / "real.json")
+    pointer = _pointer()
+    pb = registry.get("pointer")
+    src_arg, out_arg = str(src), str(tmp_path / "out")
     with pytest.raises(CliError, match="symlink"):
-        _pointer().read_layout(src)
+        pointer.read_layout(src)
     with pytest.raises(CliError, match="symlink"):
-        registry.get("pointer").export(str(src), str(tmp_path / "out"))
+        pb.export(src_arg, out_arg)

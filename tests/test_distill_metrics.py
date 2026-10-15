@@ -117,8 +117,9 @@ def test_confident_wrong_rate_uses_preregistered_threshold():
 
 
 def test_threshold_is_required():
+    items = _items()
     with pytest.raises(TypeError):
-        dm.assess(_items())  # type: ignore[call-arg]
+        dm.assess(items)  # type: ignore[call-arg]
 
 
 def test_log_loss_hand_computed():
@@ -131,7 +132,8 @@ def test_log_loss_hand_computed():
 def test_log_loss_clips_zero_probability():
     item = dm.choice_item([1.0, 0.0], gold_index=1)
     value = _value(_assess([item])["log_loss"], "choice")
-    assert math.isfinite(value) and value > 20
+    assert math.isfinite(value)
+    assert value > 20
 
 
 def test_brier_hand_computed():

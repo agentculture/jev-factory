@@ -60,7 +60,8 @@ def test_hate_speech_is_v21_evaluated_and_civil_comments_overlapping():
 def test_eval_only_source_gets_separate_status():
     rep = c.check_sources(["hotpotqa", "massive", "emotion"])
     assert {v["status"] for v in rep["results"].values()} == {"v21-evaluated"}
-    assert rep["overlapping"] == [] and rep["clean"] == []
+    assert rep["overlapping"] == []
+    assert rep["clean"] == []
 
 
 def test_hf_id_match_beats_name():
@@ -141,6 +142,7 @@ def test_report_refuses_a_contamination_file_symlinked_out_of_the_run(tmp_path):
     target = tmp_path / "elsewhere.json"
     target.write_text("keep", encoding="utf-8")
     (run / "contamination.json").symlink_to(target)
+    report = c.check_sources(["banking77"])
     with pytest.raises(CliError, match="escapes"):
-        c.write_report(c.check_sources(["banking77"]), run)
+        c.write_report(report, run)
     assert target.read_text(encoding="utf-8") == "keep"
