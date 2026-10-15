@@ -426,8 +426,8 @@ class Env:
         )
         # The real v21 digests are of files we cannot ship; the toy cache holds toy bytes, so the
         # pins under test are the toy digests. Everything else in verify_pins runs for real.
-        monkeypatch.setattr(dpins, "V21_ADAPTER_SHA256", _sha(b"adapter"))
-        monkeypatch.setattr(dpins, "V21_HEAD_SHA256", _sha(b"head"))
+        monkeypatch.setattr(dpins, "DECIDER_ADAPTER_SHA256", _sha(b"adapter"))
+        monkeypatch.setattr(dpins, "DECIDER_HEAD_SHA256", _sha(b"head"))
         return root
 
     def _fake_gpu(self, stage, run_dir, cmd, **kw):
