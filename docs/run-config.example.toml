@@ -75,6 +75,8 @@ distill_student_port = 18070
 # distill_alt_teacher_model = "<served drafter model name>"
 # distill_v21_url = "<localhost systemone url of stock v21>"
 # distill_v21_model = "<served v21 model name>"
+# distill_probe_set = "<path to the operator-held Clef probe set; never committed>"
+# distill_side_model_list = "<path to the operator-held side-model names; never committed>"
 
 # --- secrets, by the NAME of the environment variable ---
 # aug_key_env = "TEACHER_GATEWAY_KEY"

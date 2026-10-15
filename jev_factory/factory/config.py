@@ -145,6 +145,13 @@ KEYS: tuple[Key, ...] = (
     _k("distill_alt_teacher_model", "str", None, "served model name of the correction drafter"),
     _k("distill_v21_url", "str", None, "localhost /v1/systemone base URL of stock v21"),
     _k("distill_v21_model", "str", None, "served model name of stock v21"),
+    _k(
+        "distill_probe_set",
+        "path",
+        None,
+        "operator-held Clef probe set (upload scan; never committed)",
+    ),
+    _k("distill_side_model_list", "path", None, "operator-held side-model names (upload scan)"),
     # secrets, by the NAME of the environment variable that holds them
     _k("aug_key_env", "envname", None, "name of the env var holding the teacher gateway key"),
     _k("hf_token_env", "envname", "HF_TOKEN", "name of the env var holding the hub token"),
