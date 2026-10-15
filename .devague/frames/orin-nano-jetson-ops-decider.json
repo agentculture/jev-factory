@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-15T05:25:25Z",
-  "updated": "2026-10-15T17:26:52Z",
+  "updated": "2026-10-15T17:34:27Z",
   "claims": [
     {
       "id": "c1",
@@ -851,6 +851,28 @@
       "skipped_check": "a real int4 build of 2610 and an on-disk byte count",
       "refs": [
         "t10"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "grader-unverified",
+      "what": "t13 assumes the card's JevBench grader is argmax == gold (noul: p_true >= 0.5); results.jsonl's ordinal_ev field was not examined, so the stock reproduction may grade ordinal tasks differently from the card",
+      "skipped_check": "compare reproduce_stock's grading with eval/jevbench-w4096/results.jsonl row by row",
+      "refs": [
+        "t13"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l4",
+      "code": "assumption-for-measurement",
+      "what": "t13 defines the card's CI as a 95% Wilson interval on 180/231 because the card publishes none (its README gives a seed spread of 179.7 +/- 3.8, a different quantity)",
+      "skipped_check": "",
+      "refs": [
+        "t13"
       ],
       "origin": "llm",
       "status": "proposed"

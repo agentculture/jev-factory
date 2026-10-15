@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-15T16:29:32Z",
-  "updated": "2026-10-15T17:26:52Z",
+  "updated": "2026-10-15T17:34:28Z",
   "targets": [
     {
       "id": "c1",
@@ -834,6 +834,22 @@
       "text": "quant.choose_format still falls back to bf16 when no quant qualifies; bf16 is over the < 10^9-byte budget (c36), so for this run a no-qualifying-quant outcome must be recorded as a failed bar, not a bf16 ship \u2014 operator decision before t23",
       "kind": "unknown_nonblocking",
       "task_id": "t23",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r11",
+      "text": "edge agreement (t15) compares against the final's student predictions, but final scores only test and held-out while edge may only use the selection fold and probe set, so the overlap is empty; t17 must point edge at the quant stage's selection-fold predictions of the shipped format (same sha256 bundle) instead",
+      "kind": "unknown_nonblocking",
+      "task_id": "t17",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r12",
+      "text": "the 231 JevBench w4096 task texts are not shipped with the 2610 card; the stock reproduction needs them converted to Record jsonl (source: JevBench public items at commit 1bcc55e per 2610's sources.md); until stage_benchmark writes stock_reproduction.json, train's base-match guard has nothing to read \u2014 t17 must make an absent record refuse for this run",
+      "kind": "unknown_nonblocking",
+      "task_id": "t17",
       "resolved": false,
       "resolution": ""
     }
