@@ -451,7 +451,9 @@ class Env:
         rc, out, err = self.cli(stage, "--json", knobs=knobs)
         assert rc == 0, (stage, err)
         plan = json.loads(out)
-        assert plan["applied"] is False and plan["stage"] == stage and plan["would_run"] is True
+        assert plan["applied"] is False
+        assert plan["stage"] == stage
+        assert plan["would_run"] is True
         assert tree(self.tmp) == before, f"the {stage} dry run changed files"
         rc, out, err = self.cli(stage, knobs=knobs)
         assert rc == 0, (stage, err)
@@ -512,14 +514,16 @@ def test_every_stage_dry_runs_then_applies_end_to_end_into_a_complete_bundle(env
     for stage in STAGES[: STAGES.index("corrections-draft") + 1]:
         assert env.apply(stage)["status"] == "complete"
     proposed = approve_corrections(env)
-    assert proposed and {c.status for c in proposed} == {"proposed"}  # the file never self-approves
+    assert proposed  # the file never self-approves
+    assert {c.status for c in proposed} == {"proposed"}
     for stage in ("assemble", "benchmark", "train", "quantize", "gate", "final", "bundle"):
         assert env.apply(stage)["status"] == "complete", stage
     assert env.apply("upload", UPLOAD_KNOBS)["status"] == "complete"
 
     for stage in STAGES:
         manifest = read_manifest(env.base, stage)
-        assert manifest["status"] == "complete" and manifest["stage"] == stage
+        assert manifest["status"] == "complete"
+        assert manifest["stage"] == stage
 
     check_early_stages(env)
     check_training_chain(env)
@@ -545,7 +549,8 @@ def check_early_stages(env: Env) -> None:
     table = env.read("teacher_audit.json")
     assert table["teacher_weak_sources"] == [WEAK_SOURCE]  # the model-gold source is never flagged
     drafted = env.read("corrections/draft.json")
-    assert drafted["proposed"] > 0 and drafted["author"] == "model:fake-drafter"
+    assert drafted["proposed"] > 0
+    assert drafted["author"] == "model:fake-drafter"
     frozen = env.read("assemble/assemble_manifest.json")
     assert frozen["status"] == "frozen"
     assert frozen["counts"]["trainable_corrections"] > 0  # the operator's approvals took effect
@@ -558,10 +563,12 @@ def check_early_stages(env: Env) -> None:
 
 def check_training_chain(env: Env) -> None:
     summary = env.read("select/summary.json")
-    assert len(summary["candidates"]) == 2 and summary["winner"] is not None
+    assert len(summary["candidates"]) == 2
+    assert summary["winner"] is not None
     assert env.scorer.calls == ["c000", "c001"]
     assert len(env.gpu_calls) == 2  # one guarded trainer run per candidate
-    assert summary["fold"] == "selection" and set(summary["fold_ids"]) == {"fit", "selection"}
+    assert summary["fold"] == "selection"
+    assert set(summary["fold_ids"]) == {"fit", "selection"}
     quant = env.read("quant/quant_manifest.json")
     decision = env.read("quant/format_decision.json")
     assert quant["chosen_format"] == decision["format"] == "torch_int8_wo"
@@ -589,7 +596,8 @@ def check_final_and_bundle(env: Env) -> None:
             == 10 + env.read("dataset/manifest.json")["counts"]["held_out"]
         )
     report = env.read(P.FINAL_REPORT)
-    assert report["c42"]["bars"] and report["c43"]["bars"]
+    assert report["c42"]["bars"]
+    assert report["c43"]["bars"]
     assert report["result"] in (dreport.PASSED, dreport.MISSED)
     assert report["decision_gate"]["fitted"] is True
 
@@ -610,21 +618,26 @@ def check_final_and_bundle(env: Env) -> None:
         player.HEAD,
     } <= names
     gate = json.loads((model / "gate.json").read_text())
-    assert gate["fitted"] is True and set(gate["thresholds_by_kind"]) == {"choice", "noul", "score"}
+    assert gate["fitted"] is True
+    assert set(gate["thresholds_by_kind"]) == {"choice", "noul", "score"}
     assert (model / "calibration.json").read_bytes() == (
         env.base / P.QUANT_CALIBRATION
     ).read_bytes()
     served = json.loads((model / player.CONFIG).read_text())
-    assert served["temperature"] == 1.0 and served["temperature_by_kind"]
+    assert served["temperature"] == 1.0
+    assert served["temperature_by_kind"]
     index = json.loads((model / "scorer-train.json").read_text())
     assert index["rows"] == len(index["entries"]) > 0
     assert set(index["target_sources"]) == {"clef+gold", "correction"}  # target sources, per row
     assert all(e["target_source"] and e["licence"] for e in index["entries"])
     assert "state" not in index["entries"][0]  # an index, never text
     shipped = json.loads((model / "report.json").read_text())
-    assert shipped["c42"]["bars"] and shipped["c43"]["bars"] and "decision_gate" in shipped
+    assert shipped["c42"]["bars"]
+    assert shipped["c43"]["bars"]
+    assert "decision_gate" in shipped
     prov = json.loads((model / "distill_provenance.json").read_text())
-    assert prov["held_out_published"] is False and prov["test_published"] is False
+    assert prov["held_out_published"] is False
+    assert prov["test_published"] is False
     assert (
         prov["training_set_sha256"]
         == env.read("assemble/assemble_manifest.json")["output"]["sha256"]
@@ -634,7 +647,8 @@ def check_final_and_bundle(env: Env) -> None:
         p.name for p in data.iterdir()
     }
     kept = [json.loads(x) for x in (data / "train.jsonl").read_text().splitlines()]
-    assert kept and {r["licence"].lower() for r in kept} <= {"apache-2.0", "mit"}
+    assert kept
+    assert {r["licence"].lower() for r in kept} <= {"apache-2.0", "mit"}
 
     # no sealed text anywhere in either bundle, nor in what the hub received
     sealed = {
@@ -650,15 +664,18 @@ def check_final_and_bundle(env: Env) -> None:
         for text in (uid_of(by_id[rid]), json.dumps(rid)):  # the quoted JSON id
             assert not any(text.encode() in blob for blob in blobs), f"sealed {text} leaked"
     trained = {uid_of(by_id[r["record_id"]]) for r in kept}
-    assert trained and all(any(u.encode() in blob for blob in blobs) for u in trained)
+    assert trained
+    assert all(any(u.encode() in blob for blob in blobs) for u in trained)
 
 
 def check_upload(env: Env) -> None:
     result = env.read(P.UPLOAD_FILE)
     assert result["applied"] is True
-    assert result["model"]["private"] is True and result["dataset"]["private"] is True
+    assert result["model"]["private"] is True
+    assert result["dataset"]["private"] is True
     calls = [c[0] for c in env.hub.calls]
-    assert calls.count("create_repo") == 2 and calls.count("snapshot_download") == 2
+    assert calls.count("create_repo") == 2
+    assert calls.count("snapshot_download") == 2
     creates = [c for c in env.hub.calls if c[0] == "create_repo"]
     assert all(c[2]["private"] is True for c in creates)  # private-first, never public
     assert [c[1] for c in creates] == [MODEL_REPO, DATASET_REPO]
@@ -675,9 +692,11 @@ def check_final_is_once(env: Env) -> None:
     asked = {n: len(c.asked) for n, c in env.final_clients.items()}
     ledger = once.OnceLedger(env.work).records()
     rc, out, err = env.cli("final", "--apply", "--json")  # fresh: skipped, nothing is rerun
-    assert rc == 0 and json.loads(out)["skipped"] is True
+    assert rc == 0
+    assert json.loads(out)["skipped"] is True
     rc, out, err = env.cli("final", "--apply", "--json", "--force")  # a second final: refused
-    assert rc != 0 and "deviation" in err
+    assert rc != 0
+    assert "deviation" in err
     assert once.OnceLedger(env.work).records() == ledger
     assert {n: len(c.asked) for n, c in env.final_clients.items()} == asked  # nothing scored
     assert read_manifest(env.base, "final")["status"] == "failed"  # recorded, not smoothed over
@@ -687,9 +706,11 @@ def test_the_cli_lists_all_fourteen_stages_and_status_sees_the_run(env):
     env.capsys.readouterr()
     assert main(["distill", "--json"]) == 0
     listed = json.loads(env.capsys.readouterr().out)["stages"]
-    assert [s["stage"] for s in listed] == STAGES and len(STAGES) == 14
+    assert [s["stage"] for s in listed] == STAGES
+    assert len(STAGES) == 14
     env.apply("preregister")
     assert main(["status", str(env.work), "--json"]) == 0
     rows = {s["stage"]: s for s in json.loads(env.capsys.readouterr().out)["distill_stages"]}
-    assert list(rows) == STAGES and rows["preregister"]["status"] == "complete"
+    assert list(rows) == STAGES
+    assert rows["preregister"]["status"] == "complete"
     assert rows["upload"]["status"] == "not-run"
