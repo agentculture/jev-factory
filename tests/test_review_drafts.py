@@ -107,6 +107,8 @@ def test_the_page_has_filters_shortcuts_and_progress(site):
         assert ident in html
     for key in ('"k"', '"d"', '"e"', '"n"', '"j"', '"u"', "ArrowRight", "ArrowLeft"):
         assert key in html
+    for quick in ('["not_sure", "I\'m not sure."]', '["escalate",', '["do_not_proceed",'):
+        assert quick in html  # one-click options the operator adds where a question needs them
 
 
 def test_a_wrong_token_or_host_is_refused(site):

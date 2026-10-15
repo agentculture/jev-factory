@@ -2,7 +2,7 @@
   "plan_slug": "orin-nano-jetson-ops-decider",
   "schema_version": 2,
   "created": "2026-10-15T17:16:36Z",
-  "updated": "2026-10-15T20:58:59Z",
+  "updated": "2026-10-15T21:02:46Z",
   "deviations": [
     {
       "id": "d1",
@@ -99,6 +99,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "not_sure is no longer drafted onto every question (amends d8): drafters write choice questions without it, and the operator adds not_sure ('I'm not sure.') where a question needs it with a one-click button on the review page, beside escalate and do_not_proceed; questions stay choice-only so any of them can take the option",
+      "task_ref": "t22",
+      "reason": "operator: with the add-option buttons there is no need to put not_sure on every question; they add it as needed",
+      "affects": [
+        "t25"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 9
     }
   ],
   "evidence": [],

@@ -339,7 +339,9 @@ written.
   one): the state text, the questions with the drafted gold highlighted, the evidence
   quote and why, source group and split, progress counts and filters by split, source
   and status. Keys: k keep, d drop, e edit gold (percentages per option, add an option,
-  restore the drafted gold), n note, j or the arrow keys to move, u next unreviewed. Every call needs the per-run token and a loopback Host header.
+  one-click not_sure / escalate / do_not_proceed, restore the drafted gold), n note, j or
+  the arrow keys to move, u next unreviewed. Every call needs the per-run token and a
+  loopback Host header.
 - `--decide ID=keep|drop|note`, `--edit ID:QID=LABEL`, `--reviewer`, `--note`: decisions
   from the command line.
 - `--apply`: appends the decisions to the ledger.
