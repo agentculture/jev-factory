@@ -201,6 +201,7 @@ def test_refuses_without_a_locked_prereg(tmp_path, cache):
     path, run_dir = locked(tmp_path, lock=False)
     pins = student_pins()
     fold_set = folds()
+    env = TrainerEnv(python="python3", decider_repo=tmp_path)
     with pytest.raises(CliError, match="locked"):
         T.run_grid(
             prereg_path=path,
@@ -208,7 +209,7 @@ def test_refuses_without_a_locked_prereg(tmp_path, cache):
             cache_dir=cache,
             pins=pins,
             folds=fold_set,
-            trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
+            trainer_env=env,
         )
 
 
@@ -250,16 +251,19 @@ def test_apply_refuses_without_memory_cap_scorer_or_train_set(tmp_path, cache, m
     prereg_b = locked(tmp_path / "b")[0]
     pins = student_pins()
     fold_set = folds()
+    run_dir_b = tmp_path / "b" / "run"
+    env = TrainerEnv(python="python3", decider_repo=tmp_path)
+    limits = GpuLimits(memory_max="100G")
     with pytest.raises(CliError, match="scorer"):
         T.run_grid(
             prereg_path=prereg_b,
-            run_dir=tmp_path / "b" / "run",
+            run_dir=run_dir_b,
             cache_dir=cache,
             pins=pins,
             folds=fold_set,
-            trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
+            trainer_env=env,
             apply=True,
-            limits=GpuLimits(memory_max="100G"),
+            limits=limits,
         )
     with pytest.raises(CliError, match="train_set"):
         run(tmp_path / "c", cache, train=False)

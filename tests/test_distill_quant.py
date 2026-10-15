@@ -221,13 +221,9 @@ def _read(run_dir, name):
 def test_refuses_without_a_locked_prereg(tmp_path):
     path, run_dir, _ = setup(tmp_path, lock=False)
     all_folds = folds()
+    env = TrainerEnv(python="python3", decider_repo=tmp_path)
     with pytest.raises(CliError, match="no distill pre-registration is locked"):
-        Q.run_quant(
-            prereg_path=path,
-            run_dir=run_dir,
-            folds=all_folds,
-            trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
-        )
+        Q.run_quant(prereg_path=path, run_dir=run_dir, folds=all_folds, trainer_env=env)
 
 
 def test_refuses_a_prereg_without_a_heal_block(tmp_path):
@@ -459,15 +455,18 @@ def test_a_spent_heal_round_refuses_a_new_trigger_without_training(tmp_path):
     builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
     trainer = FakeTrainer(log)
     all_folds = folds()
+    env = TrainerEnv(python="python3", decider_repo=tmp_path)
+    hooks = Q.QuantHooks(builders=builders, measurer=measurer, trainer=trainer)
+    bootstrap = Bootstrap(resamples=50)
     with pytest.raises(CliError, match="stop_escalate"):
         Q.run_quant(
             prereg_path=path,
             run_dir=run_dir,
             folds=all_folds,
-            trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
+            trainer_env=env,
             apply=True,
-            hooks=Q.QuantHooks(builders=builders, measurer=measurer, trainer=trainer),
-            bootstrap=Bootstrap(resamples=50),
+            hooks=hooks,
+            bootstrap=bootstrap,
         )
     assert trainer.plans == []
     assert not (run_dir / Q.QUANT_REL / Q.MANIFEST_FILE).exists()
