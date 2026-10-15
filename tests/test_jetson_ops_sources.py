@@ -13,12 +13,11 @@ from jev_factory.cli._errors import CliError
 from jev_factory.distill.jetson_ops import sources
 
 EXPECTED = {
-    "jetson-containers-nv",
+    "jetson-containers",
     "jetson-ai-lab",
     "jetson-device-skills",
     "jetson-bsp-skills",
-    "lobes-cli",
-    "nvsh",
+    "general-ops",
 }
 
 
@@ -59,29 +58,33 @@ def test_nvidia_skills_split_licences_and_cc_by_attribution():
 
 
 def test_other_licences_match_the_repos():
-    """AC1: containers and ai-lab are MIT; lobes-cli and nvsh Apache-2.0."""
+    """AC1: containers and ai-lab are MIT; agent-drafted general-ops text is Apache-2.0 (d3)."""
     loaded = sources.load_sources()
-    assert loaded["jetson-containers-nv"].licence_for("code") == "MIT"
+    assert loaded["jetson-containers"].licence_for("code") == "MIT"
     assert loaded["jetson-ai-lab"].licence_for("docs") == "MIT"
-    assert loaded["lobes-cli"].licence_for("docs") == "Apache-2.0"
-    assert loaded["nvsh"].licence_for("code") == "Apache-2.0"
+    assert loaded["general-ops"].licence_for("docs") == "Apache-2.0"
 
 
-def test_local_clone_pins_match_when_clones_exist():
-    """AC1: pinned commits of lobes-cli and nvsh exist in their local clones."""
-    home = Path.home() / "git"
+def test_no_source_is_the_operators_own_stack():
+    """Deviation d3: lobes-cli and nvsh are not sources; NVIDIA repos are pinned upstream."""
     loaded = sources.load_sources()
-    for sid, name in (("lobes-cli", "lobes-cli"), ("nvsh", "nvsh")):
-        clone = home / name
-        if not clone.is_dir():
-            pytest.skip("no local clone")
-        res = subprocess.run(
-            ["git", "-C", str(clone), "cat-file", "-t", loaded[sid].commit],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert res.stdout.strip() == "commit"
+    assert not {"lobes-cli", "nvsh", "jetson-containers-nv"} & set(loaded)
+    for sid in ("jetson-containers", "jetson-ai-lab"):
+        assert loaded[sid].repo_url.startswith("https://github.com/NVIDIA-AI-IOT/")
+
+
+def test_general_ops_pin_is_a_commit_of_this_repository():
+    """d3: the agent-drafted general-ops source pins a jev-factory commit (the spec)."""
+    repo = Path(__file__).resolve().parents[1]
+    if not (repo / ".git").exists():
+        pytest.skip("not a git checkout")
+    res = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "-t", sources.load_sources()["general-ops"].commit],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.stdout.strip() == "commit"
 
 
 def test_record_terms_carry_licence_and_attribution():

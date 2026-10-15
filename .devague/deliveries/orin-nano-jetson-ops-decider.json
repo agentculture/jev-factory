@@ -2,7 +2,7 @@
   "plan_slug": "orin-nano-jetson-ops-decider",
   "schema_version": 2,
   "created": "2026-10-15T17:16:36Z",
-  "updated": "2026-10-15T17:16:36Z",
+  "updated": "2026-10-15T18:18:27Z",
   "deviations": [
     {
       "id": "d1",
@@ -27,6 +27,32 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "dataset sources: drop lobes-cli evidence and nvsh verbs (the operator's own stack); keep jetson-containers (JP6.2), jetson-ai-lab tutorials and NVIDIA's skills; add agent-drafted general-knowledge records (own text, Apache-2.0) on Orin boards (Nano, NX, AGX 32/64GB), jtop, JetPack 7.2 vs 6.2 and Jetson defaults, and standard Ubuntu commands used on Jetson; tegrastats GR3D follows NVIDIA's docs",
+      "task_ref": "t22",
+      "reason": "operator: the model must not be opinionated about the operator's personal tech stack; it should know the public Jetson Orin tooling and defaults",
+      "affects": [
+        "t9"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "add a task: the local jev review site gains a draft-review mode (all splits, evidence quotes, keep / drop / edit gold / note) for drafted records, beside the gold approval page",
+      "task_ref": "t24",
+      "reason": "operator wants a site to work with when reviewing drafted records before and during the fan-out",
+      "affects": [
+        "t22"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],

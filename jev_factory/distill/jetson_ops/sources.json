@@ -2,9 +2,9 @@
   "schema": 1,
   "sources": [
     {
-      "id": "jetson-containers-nv",
+      "id": "jetson-containers",
       "repo_url": "https://github.com/NVIDIA-AI-IOT/jetson-containers",
-      "commit": "c8bad15f98fc00fa1c7bfc645135892496479036",
+      "commit": "9416e82702dbc8b6689a06c17d40dd31611633f8",
       "paths": [
         "**"
       ],
@@ -16,8 +16,8 @@
     },
     {
       "id": "jetson-ai-lab",
-      "repo_url": "https://github.com/OriNachum/jetson-generative-ai-playground",
-      "commit": "045025a971a04a0d1770221ae7b8bde251355c83",
+      "repo_url": "https://github.com/NVIDIA-AI-IOT/jetson-generative-ai-playground",
+      "commit": "c089671d950f9067c0e62fde137258990f91258d",
       "paths": [
         "**"
       ],
@@ -25,7 +25,7 @@
         "code": "MIT",
         "docs": "MIT"
       },
-      "attribution": "Contains material from the Jetson AI Lab site source (https://github.com/OriNachum/jetson-generative-ai-playground), Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved. MIT License: the copyright notice and permission notice are retained."
+      "attribution": "Contains material from the Jetson AI Lab site source (https://github.com/NVIDIA-AI-IOT/jetson-generative-ai-playground), Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved. MIT License: the copyright notice and permission notice are retained."
     },
     {
       "id": "jetson-device-skills",
@@ -57,31 +57,17 @@
       "attribution": "Contains material from NVIDIA-AI-IOT/jetson-bsp-skills (https://github.com/NVIDIA-AI-IOT/jetson-bsp-skills), Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. Documentation is licensed CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/); source code is licensed Apache-2.0. Changes: text was selected, trimmed and recombined into training records."
     },
     {
-      "id": "lobes-cli",
-      "repo_url": "https://github.com/agentculture/lobes-cli",
-      "commit": "55b59e3244821eaf67f3f02bb1ee6407d03b5019",
+      "id": "general-ops",
+      "repo_url": "https://github.com/agentculture/jev-factory",
+      "commit": "ca14f012c53d0be81d13deef96e2b9e47e4213e0",
       "paths": [
-        "docs/**",
-        "docs/evidence/**"
+        "**"
       ],
       "licences": {
         "code": "Apache-2.0",
         "docs": "Apache-2.0"
       },
-      "attribution": "Contains material from agentculture/lobes-cli (https://github.com/agentculture/lobes-cli), licensed Apache-2.0."
-    },
-    {
-      "id": "nvsh",
-      "repo_url": "https://github.com/agentculture/nvsh",
-      "commit": "2c696a00a606fceea1a87bc98d74ce35084455c7",
-      "paths": [
-        "nvsh/ops/table.py"
-      ],
-      "licences": {
-        "code": "Apache-2.0",
-        "docs": "Apache-2.0"
-      },
-      "attribution": "Contains material from agentculture/nvsh (https://github.com/agentculture/nvsh), device-CLI verbs, licensed Apache-2.0."
+      "attribution": "Agent-drafted from general Jetson Orin and Ubuntu operations knowledge for jev-factory issue #20 (spec at the pinned commit); no third-party text. Licensed Apache-2.0."
     }
   ]
 }
