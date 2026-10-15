@@ -113,7 +113,8 @@ def test_parse_distributions_over_exactly_offered_options():
     assert list(parsed["q_choice"].distribution) == ["fix", "wait", "page"]
     assert parsed["q_choice"].distribution["fix"] == 0.6
     assert list(parsed["q_score"].distribution) == ["low", "mid", "high"]
-    assert parsed["q_noul"].p_true == 0.25 and parsed["q_noul"].distribution is None
+    assert parsed["q_noul"].p_true == 0.25
+    assert parsed["q_noul"].distribution is None
 
 
 def test_score_probabilities_as_list_align_to_levels():
@@ -145,7 +146,9 @@ def test_score_criteria_keyed_probabilities_are_still_accepted():
 def test_bad_index_keyed_score_probabilities_are_errors(probs):
     ans = _answers(q_score={"probabilities": probs})
     bad = {q.qid: q for q in s1.parse_response(RECORD, ans)}["q_score"]
-    assert not bad.ok and bad.distribution is None and bad.error
+    assert not bad.ok
+    assert bad.distribution is None
+    assert bad.error
 
 
 def test_build_body_tolerates_a_noul_spec_without_criteria():
@@ -183,7 +186,9 @@ def test_bad_choice_probabilities_are_errors_never_distributions(probs):
     ans = _answers(q_choice={"choice": "fix", "probabilities": probs})
     parsed = {q.qid: q for q in s1.parse_response(RECORD, ans)}
     bad = parsed["q_choice"]
-    assert not bad.ok and bad.distribution is None and bad.error
+    assert not bad.ok
+    assert bad.distribution is None
+    assert bad.error
     assert parsed["q_noul"].ok  # other questions are unaffected
 
 
@@ -198,7 +203,8 @@ def test_missing_question_and_bad_noul_are_errors():
     ans = _answers(q_noul={"noul": 1.5})
     del ans["answers"]["q_score"]
     parsed = {q.qid: q for q in s1.parse_response(RECORD, ans)}
-    assert not parsed["q_noul"].ok and parsed["q_noul"].p_true is None
+    assert not parsed["q_noul"].ok
+    assert parsed["q_noul"].p_true is None
     assert not parsed["q_score"].ok
     assert not s1.parse_response(RECORD, "junk")[0].ok
 
@@ -208,8 +214,10 @@ def test_provenance_on_every_result(server):
     client = s1.SystemOneClient(srv.url, model="clef-q4", timeout=3.0)
     result = client.ask(RECORD)
     path, sent = srv.requests[0]
-    assert path == "/v1/systemone" and sent == s1.build_body(RECORD, model="clef-q4")
-    assert result.model == "clef-q4" and result.record_id == "r1"
+    assert path == "/v1/systemone"
+    assert sent == s1.build_body(RECORD, model="clef-q4")
+    assert result.model == "clef-q4"
+    assert result.record_id == "r1"
     assert result.request_config["timeout"] == 3.0
     assert result.request_config["body_sha256"]
     import hashlib
@@ -222,7 +230,8 @@ def test_provenance_on_every_result(server):
 def test_transport_failure_is_an_error_result():
     client = s1.SystemOneClient("http://127.0.0.1:9", model="m", timeout=1.0)
     result = client.ask(RECORD)
-    assert result.error and not any(q.ok for q in result.questions)
+    assert result.error
+    assert not any(q.ok for q in result.questions)
     assert result.response_sha256 is None
 
 
@@ -241,4 +250,5 @@ def test_stdlib_only():
     for banned in ("requests", "httpx", "aiohttp", "confidence"):
         assert f"import {banned}" not in src
     # the field is never read: it appears nowhere as a key lookup
-    assert '["confidence"]' not in src and '"confidence"' not in src
+    assert '["confidence"]' not in src
+    assert '"confidence"' not in src

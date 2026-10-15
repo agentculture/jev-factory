@@ -63,8 +63,10 @@ def test_example_doc_carries_every_knob_the_trainer_needs_with_cited_sources():
         assert seeded[name].source_file == source, name
         assert seeded[name].source_key == name, name
     targets = seeded["lora_targets"]
-    assert targets.source_file == "train_config.json" and targets.source_key == "lora_targets"
-    assert "q_proj" in targets.value and "out_proj" in targets.value
+    assert targets.source_file == "train_config.json"
+    assert targets.source_key == "lora_targets"
+    assert "q_proj" in targets.value
+    assert "out_proj" in targets.value
     assert reg.knob_grid["init_mode"] == list(td.INIT_MODES)
     needed = set(td.REQUIRED_UPSTREAM) | set(td.LORA_UPSTREAM)
     assert needed <= set(seeded) | set(reg.knob_grid)
@@ -101,9 +103,11 @@ def test_trainer_plan_accepts_the_example_doc(tmp_path, init_mode):
     )
     hp = plan["hyperparameters"]
     assert hp["init_mode"] == init_mode
-    assert hp["seed"] == 5 and hp["micro_batch_size"] == 8
+    assert hp["seed"] == 5
+    assert hp["micro_batch_size"] == 8
     if init_mode == "merge_fresh":
-        assert hp["lora_r"] == 16 and hp["lora_dropout"] == 0.05
+        assert hp["lora_r"] == 16
+        assert hp["lora_dropout"] == 0.05
         assert hp["sources"]["lora_dropout"] == "upstream:strands_decider_config.json#lora_dropout"
 
 
@@ -237,7 +241,8 @@ def test_example_doc_registers_one_heal_round_with_cited_knobs_in_the_grid():
     reg = dp.validate(doc)
     knobs = quant.heal_knobs(reg)
     assert knobs == {"epochs": 1, "lr": 5e-5, "init_mode": "continue"}
-    assert "d18" in doc["heal"]["source"] and "5e-5" in doc["heal"]["source"]
+    assert "d18" in doc["heal"]["source"]
+    assert "5e-5" in doc["heal"]["source"]
     for name in ("epochs", "lr", "init_mode"):
         assert knobs[name] in doc["knob_grid"][name]
     assert doc["bars"]["quant"]["heal_rounds_max"] == 1
