@@ -154,3 +154,11 @@ Lapses `l2`–`l14` are operator-approved: each caps the confidence of the claim
 - banking77 excluded by the Apache/MIT rule (compound `cc-by-4.0` licence) — operator to confirm.
 - Operator seed review: jev-CLI `jcs-op-191..198` (jev.distill) must be reviewed before the extraction plan's t34 freezes the jev-tool seed (r2); `cli_surface_sha256` changed.
 - Follow-ups: W4A16 / ONNX / GGUF student formats remain unavailable (recorded with reasons); distill-specific `jev decide` verdicts (r12); coordinate the bundle hand-off with lobes (orin-decision-models) via the communicate skill.
+
+## Note, 2026-10-15 (issue #20)
+
+This record is historical and its claims above are unchanged. One test it cites
+was renamed when issue #20 added the `edge` stage and made the registry 15
+stages: `tests/test_distill_e2e.py::test_the_cli_lists_all_fourteen_stages_and_status_sees_the_run`
+is now `tests/test_distill_e2e.py::test_the_cli_lists_all_fifteen_stages_and_status_sees_the_run`.
+See `docs/distill.md` for the current stage list.

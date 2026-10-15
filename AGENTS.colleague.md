@@ -74,18 +74,26 @@ and `jev_factory/distill/pipeline.py` before a delegated task touches
 model name; do not mix it up with the jev-like decider whose candidates are
 `jev decide` verdicts.
 
-- 14 stages, in order: `preregister`, `dataset`, `contamination`,
+- 15 stages, in order: `preregister`, `dataset`, `contamination`,
   `teacher-label`, `audit`, `corrections-draft`, `assemble`, `benchmark`,
-  `train`, `quantize`, `gate`, `final`, `bundle`, `upload`. The stage is a
-  positional argument. Dry-run unless `--apply`.
+  `train`, `quantize`, `gate`, `final`, `edge`, `bundle`, `upload`. The stage
+  is a positional argument. Dry-run unless `--apply`.
+- The student is `StrandsAgents/strands-decider-2B-qwen3.5-v1-2610` at
+  `216d1ccb` (issue 20, an Orin Nano Jetson-ops specialist); the reference
+  role is the model-neutral `stock`. Its quantized build stays under 10^9
+  bytes. Tests use fakes for the teacher tunnel, the AGX/Nano servers and the
+  bundle attestation: never connect to anything but `127.0.0.1`, and never
+  put a key value in code, tests or logs (name the env var).
 - Records are `/v1/systemone` bodies plus gold; read only the per-option
   probabilities, never the vendor `confidence`.
 - Train, fit, selection, sealed held-out and test are separate sides; the
   teacher labels train only; test and held-out are measured once.
-- Corrections need operator review before training. Tests must run CPU-only
+- Corrections need operator review before training, and human-gold test
+  records need an operator approval in the `jev review --gold` ledger. Tests must run CPU-only
   with stdlib fakes: no GPU, network or model downloads.
 - Serving is lobes' `decider` role; training is here. No distill run has
-  happened yet, so no student bundle exists.
+  happened yet and no issue-20 model has been trained or measured, so no
+  student bundle exists.
 
 Keep these invariants, whatever the task says:
 
