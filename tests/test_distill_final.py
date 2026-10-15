@@ -656,6 +656,58 @@ def test_an_explicit_gold_ledger_path_is_used(env, tmp_path):
     assert plan["gold_ledger"]["sha256"] == dp.sha256_file(moved)
 
 
+def _model_drafted_sides(env) -> None:
+    """Rewrite both sealed sides as model-drafted gold and remove the gold ledger."""
+    for side, ids in env["sides"].items():
+        lines = []
+        for i in ids:
+            data = _rec(i, side).to_json()
+            data["gold_provenance"] = "model-generated"
+            lines.append(json.dumps(data, sort_keys=True))
+        (env["data"] / f"{side}.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    env["ledger"].unlink()
+
+
+@pytest.mark.parametrize("apply", [True, False])
+def test_the_unverified_gold_final_is_refused_without_a_deviation_id(env, apply):
+    """d10: measuring on gold no human approved needs a recorded deviation."""
+    _model_drafted_sides(env)
+    with pytest.raises(CliError) as exc:
+        _run(
+            env,
+            _models(env, env["log"]),
+            apply=apply,
+            inputs=F.FinalInputs(unverified_gold=True),
+        )
+    assert exc.value.code == EXIT_USER_ERROR
+    assert "deviation" in exc.value.message
+    assert env["log"] == []
+    assert _ledger(env) == []
+
+
+def test_the_unverified_gold_final_needs_no_ledger_and_marks_the_report(env):
+    """d10: no gold ledger is read; the report carries an UNVERIFIED c17 block."""
+    _model_drafted_sides(env)
+    out = _run(
+        env, _models(env, []), deviation_id="d10", inputs=F.FinalInputs(unverified_gold=True)
+    )
+    approval = out["final"]["gold_ledger"]
+    assert approval["verification"] == "unverified"
+    assert approval["file"] is None
+    assert approval["unverified_test"] == 12
+    assert approval["unverified_held_out"] == 6
+    report = out["report"]
+    assert report["headline_n"]["records"] == 0
+    block = report["unverified_c17"]
+    assert block["verified"] is False
+    assert block["n_records"] == 12
+    assert block["unverified_share"] == 1.0
+    assert report["unverified_result"] == block["result"]
+    assert report["verification"].startswith("UNVERIFIED")
+    written = json.loads((env["run_dir"] / F.FINAL_REL / F.REPORT_FILE).read_text("utf-8"))
+    assert written["unverified_c17"]["verified"] is False
+
+
 def test_the_headline_counts_only_approved_human_gold_test_records_with_n(env):
     """AC2: the headline counts only approved human-gold test records, with n."""
     out = _run(env, _models(env, []))

@@ -147,7 +147,7 @@ DEFAULT_KNOBS: dict[str, dict[str, Any]] = {
     "train": {},
     "quantize": {"formats": None},
     "gate": {},
-    "final": {"clef_calibration": None},
+    "final": {"clef_calibration": None, "unverified_gold": False},
     "edge": {"label": "nano", "served_model": "distill-edge-student"},
     "bundle": {},
     "upload": {"model_repo": None, "dataset_repo": None},
@@ -891,13 +891,20 @@ def _contamination_manifest(ctx: DistillContext) -> dict[str, Any]:
     return contamination.load_manifest()
 
 
-def _final_inputs(ctx: DistillContext) -> Any:
+def _final_inputs(ctx: DistillContext, knobs: Mapping[str, Any] | None = None) -> Any:
     calibration = stage_dir(ctx.work) / SELECT_CALIBRATION
+    unverified = (knobs or {}).get("unverified_gold", False)
+    if not isinstance(unverified, bool):
+        raise _err(
+            f"knob unverified_gold must be true or false, got {unverified!r}",
+            "pass --knob unverified_gold=true (with --deviation <id>) or leave it unset",
+        )
     return dfinal.FinalInputs(
         gold_ledger=ctx.config.get("distill_gold_ledger") or None,
         probe=ctx.config.get("distill_probe_set") or None,
         bf16_calibration=calibration if calibration.is_file() else None,
         contamination_manifest=_contamination_manifest(ctx),
+        unverified_gold=unverified,
     )
 
 
@@ -909,7 +916,7 @@ def _final_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, An
         "deviation_id": ctx.deviation_id,
         "clef_calibration": knobs.get("clef_calibration") or None,
         "memory_probe": _memory_probe(ctx),
-        "inputs": _final_inputs(ctx),
+        "inputs": _final_inputs(ctx, knobs),
     }
 
 

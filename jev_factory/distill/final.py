@@ -21,7 +21,9 @@ Refusals before any request (dry run and apply): the run's teacher-label lock ex
 record has no ``approve`` entry for its current sha256 in the gold ledger
 (:func:`jev_factory.review.gold.approved_ids`; the ids are printed, nothing else); the quant
 manifest records no shipped format (a failed ``no qualifying format`` result: there is no bf16
-fallback, risk r10, and bundle refuses it too). Before any
+fallback, risk r10, and bundle refuses it too). In the unverified-gold proving mode
+(``FinalInputs.unverified_gold``, deviation d10) the ledger is not read, a deviation id is
+required, and the report carries an ``unverified_c17`` block marked UNVERIFIED. Before any
 request (apply): the shipped student's ``GET /v1/bundle`` (localhost only) differs from the
 deployed artifact's attestation (:func:`jev_factory.backbones.pointer.quantized.bundle_attestation`:
 per-file sha256 and manifest sha256), or its ``GET /v1/stats`` reports no cgroup memory cap. The
@@ -117,6 +119,9 @@ class FinalInputs:
     #: A calibration for the bf16 student row; without one it is scored raw (as served).
     bf16_calibration: Path | str | None = None
     contamination_manifest: Mapping[str, Any] | None = None
+    #: Proving mode (deviation d10): measure on the model-drafted, never-approved gold. Needs a
+    #: deviation id; the gold ledger is not read and the report marks every result UNVERIFIED.
+    unverified_gold: bool = False
 
 
 def _refuse(message: str, remediation: str = "") -> CliError:
@@ -267,6 +272,28 @@ def approved_records(
         "approved": approved,
         "approved_test": len(test),
         "approved_held_out": sum(1 for r in held_out if r.id in approved),
+    }
+
+
+def unverified_records(
+    deviation_id: str | None, test: Sequence[Record], held_out: Sequence[Record]
+) -> dict[str, Any]:
+    """The approval block of the unverified-gold proving mode: nothing is approved.
+
+    Refused without a deviation id: measuring on gold no human approved is an out-of-plan run.
+    """
+    if not deviation_id:
+        raise _refuse(
+            "the unverified-gold final needs a recorded deviation id",
+            "record the proving run with /deviate and pass --deviation <id>",
+        )
+    return {
+        "file": None,
+        "verification": "unverified",
+        "approved": frozenset(),
+        "unverified_test": len(test),
+        "unverified_held_out": len(held_out),
+        "deviation": deviation_id,
     }
 
 
@@ -435,9 +462,12 @@ def run_final(
     _check_models(models)
     sealed = _sealed_sides(dataset_dir)
     records = {stem: _read_side(side) for stem, side in sealed.items()}
-    approval = approved_records(
-        _ledger_file(dataset_dir, inputs), records["test"], records["held_out"]
-    )
+    if inputs.unverified_gold:
+        approval = unverified_records(deviation_id, records["test"], records["held_out"])
+    else:
+        approval = approved_records(
+            _ledger_file(dataset_dir, inputs), records["test"], records["held_out"]
+        )
     probe = load_probe(inputs.probe, sealed)
     student = deployed_student(run_dir)
     bundle = deployed_bundle(run_dir, student["artifact"])
@@ -505,6 +535,7 @@ def run_final(
                     probe_records=probe,
                     seed=bootstrap.seed,
                     resamples=bootstrap.resamples,
+                    unverified_gold=inputs.unverified_gold,
                 ),
             ),
         )

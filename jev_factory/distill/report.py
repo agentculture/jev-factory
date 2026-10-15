@@ -847,6 +847,55 @@ class ReportContext:
     probe_records: Sequence[Record] = ()
     seed: int = core_metrics.DEFAULT_BOOTSTRAP_SEED
     resamples: int = core_metrics.DEFAULT_BOOTSTRAP_RESAMPLES
+    #: Proving mode (deviation d10): also compute the c17 bars on model-drafted gold,
+    #: marked UNVERIFIED (``unverified_c17``); ``c17`` and ``result`` are unchanged.
+    unverified_gold: bool = False
+
+
+UNVERIFIED = "unverified"
+UNVERIFIED_NOTE = (
+    "UNVERIFIED: model-drafted gold, never approved by a human; proves the process only, "
+    "never a ship or quality claim"
+)
+
+
+def unverified_c17(
+    records_by_side: Mapping[str, Sequence[Record]],
+    predictions: Mapping[str, Sequence[Mapping[str, Any]]],
+    calibrations: Mapping[str, Mapping[str, Any] | None],
+    runtime: Mapping[str, Mapping[str, Any]],
+    sources: Mapping[str, Mapping[str, Any]],
+    headline_records: int,
+    ctx: ReportContext,
+) -> dict[str, Any]:
+    """The c17 bars on the test side's model-drafted gold from clean sources (deviation d10).
+
+    Marked ``verified: False`` with the share of the test pool (unverified plus headline
+    records) whose gold no human approved. Never feeds ``result``.
+    """
+    threshold = float(ctx.prereg.selection_rule["confident_wrong_threshold"])
+    members = [
+        r
+        for r in records_by_side.get(GATED_SIDE, ())
+        if r.gold_provenance != "human" and sources[r.source]["status"] == contamination.CLEAN
+    ]
+    pool = _pool_block(members, predictions, calibrations, threshold, ctx.seed, ctx.resamples)
+    block = c17_report(
+        pool,
+        ctx.prereg.bars["c17"],
+        bundle=ctx.bundle,
+        runtime=runtime,
+        prereg_sha256=ctx.prereg_sha256,
+    )
+    total = len(members) + headline_records
+    block.update(
+        pool=UNVERIFIED,
+        verified=False,
+        unverified_share=1.0 if not headline_records else len(members) / total,
+        sources=sorted({r.source for r in members}),
+        note=UNVERIFIED_NOTE,
+    )
+    return block
 
 
 def _sides(
@@ -916,7 +965,7 @@ def build_report(
     c43 = _verdict(c43_bars(ctx.quant_manifest, ctx.prereg.bars["quant"]))
     c43.update(gated=False, reason=C42_NOT_GATED)
     regressed = any(b["regression"]["regression"] for b in c17["builds"].values())
-    return {
+    report = {
         "stage": "distill-report",
         "prereg": {"file": dp.PREREG_REL, "lock": dp.LOCK_REL, "sha256": ctx.prereg_sha256},
         "headline_rule": (
@@ -953,3 +1002,14 @@ def build_report(
         ),
         "result": c17["result"],
     }
+    if ctx.unverified_gold:
+        block = unverified_c17(
+            records_by_side, predictions, calibrations, runtime, sources, headline["records"], ctx
+        )
+        report["unverified_c17"] = block
+        report["unverified_result"] = block["result"]
+        report["verification"] = (
+            f"UNVERIFIED: {100 * block['unverified_share']:.1f}% of the test pool's gold is "
+            "model-drafted and unapproved; unverified_c17 proves the process only"
+        )
+    return report

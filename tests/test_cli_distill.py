@@ -730,6 +730,16 @@ def test_the_final_inputs_come_from_the_run_config_and_earlier_stages(assembled,
     assert P._final_inputs(_ctx(assembled)).bf16_calibration == cal
 
 
+def test_the_unverified_gold_knob_reaches_the_final_and_must_be_a_boolean(assembled):
+    """d10: ``--knob unverified_gold=true`` sets the proving mode; off by default."""
+    ctx = _ctx(assembled)
+    assert P.DEFAULT_KNOBS["final"]["unverified_gold"] is False
+    assert P._final_inputs(ctx).unverified_gold is False
+    assert P._final_inputs(ctx, {"unverified_gold": True}).unverified_gold is True
+    with pytest.raises(CliError, match="unverified_gold must be true or false"):
+        P._final_inputs(ctx, {"unverified_gold": "yes"})
+
+
 def test_the_final_refuses_before_the_contamination_check_has_run(work):
     _apply(work, "preregister", "dataset")
     ctx = _ctx(work)

@@ -95,6 +95,7 @@ def _build(
     approved=None,
     bundle=BUNDLE,
     probe=(),
+    unverified=False,
 ):
     every = [*test, *held_out]
     return R.build_report(
@@ -112,8 +113,44 @@ def _build(
             gate=gate,
             probe_records=list(probe),
             resamples=RESAMPLES,
+            unverified_gold=unverified,
         ),
     )
+
+
+def test_unverified_mode_adds_a_marked_c17_on_model_gold_and_leaves_the_headline_alone():
+    """d10: model-drafted clean test gold gets its own c17, marked UNVERIFIED."""
+    recs = [_rec(i, provenance="model-generated") for i in range(40)]
+    rep = _build(recs, _good(recs), unverified=True)
+    assert rep["headline_n"]["records"] == 0
+    assert rep["result"] == R.MISSED  # no human gold: the real c17 is an honest miss
+    block = rep["unverified_c17"]
+    assert block["verified"] is False
+    assert block["pool"] == R.UNVERIFIED
+    assert block["unverified_share"] == 1.0
+    assert block["n_records"] == 40
+    assert block["note"].startswith("UNVERIFIED")
+    assert rep["unverified_result"] == block["result"] == R.PASSED, block["missed"]
+    assert rep["verification"].startswith("UNVERIFIED: 100.0%")
+
+
+def test_unverified_share_counts_human_headline_records_and_skips_unclean_sources():
+    model = [_rec(i, provenance="model-generated") for i in range(30)]
+    human = [_rec(100 + i) for i in range(10)]
+    overlap = [_rec(i, OVERLAP, provenance="model-generated") for i in range(5)]
+    recs = [*model, *human, *overlap]
+    rep = _build(recs, _good(recs), unverified=True)
+    block = rep["unverified_c17"]
+    assert block["n_records"] == 30
+    assert block["unverified_share"] == pytest.approx(30 / 40)
+    assert block["sources"] == [CLEAN]
+
+
+def test_without_unverified_mode_the_report_has_no_unverified_block():
+    recs = [_rec(i, provenance="model-generated") for i in range(10)]
+    rep = _build(recs, _good(recs))
+    assert "unverified_c17" not in rep
+    assert "unverified_result" not in rep
 
 
 def _bar(rep, name, section="c42"):
