@@ -38,10 +38,12 @@ def test_dot_dot_traversal_out_of_the_root_is_refused(tmp_path, rel):
 
 def test_an_absolute_path_outside_the_root_is_refused(tmp_path):
     root = _root(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside_abs = str(outside.resolve())
     with pytest.raises(CliError, match="escapes"):
-        safepath.contained(tmp_path / "outside.txt", root)
+        safepath.contained(outside, root)
     with pytest.raises(CliError, match="escapes"):
-        safepath.regular_file(str((tmp_path / "outside.txt").resolve()), root)
+        safepath.regular_file(outside_abs, root)
 
 
 def test_a_symlink_escaping_the_root_is_refused(tmp_path):
@@ -84,5 +86,6 @@ def test_a_relative_path_resolves_against_the_working_directory(tmp_path, monkey
     assert safepath.contained(os.path.join("sub", "a.json"), root) == root.resolve() / "sub" / (
         "a.json"
     )
+    parent_relative = os.path.join("..", "outside.txt")
     with pytest.raises(CliError, match="escapes"):
-        safepath.contained(os.path.join("..", "outside.txt"), root)
+        safepath.contained(parent_relative, root)
