@@ -185,7 +185,8 @@ def test_model_bundle_has_the_layout_and_the_fitted_temperatures(tmp_path, fmt):
     assert json.loads((model / "calibration.json").read_text()) == CAL
     assert release_bundle.bundle_problems(model) == []
     prov = json.loads((model / "distill_provenance.json").read_text())
-    assert prov["deployed_format"] == fmt and prov["held_out_published"] is False
+    assert prov["deployed_format"] == fmt
+    assert prov["held_out_published"] is False
     assert prov["teacher_build_ids"] == ["build1"]
 
 
@@ -221,7 +222,9 @@ def test_without_a_gate_stage_the_bundle_records_none_fitted(tmp_path):
     assert "gate" in dp.example_doc()
     _, out, summary = build(tmp_path)
     gate = json.loads((out / "model" / "gate.json").read_text())
-    assert gate["fitted"] is False and "reason" in gate and summary["gate_fitted"] is False
+    assert gate["fitted"] is False
+    assert "reason" in gate
+    assert summary["gate_fitted"] is False
     assert gate["thresholds_by_kind"] == {}
 
 
@@ -343,17 +346,22 @@ def test_upload_without_apply_sends_nothing(tmp_path, monkeypatch):
     result = _upload(
         {"model": out / "model", "dataset": out / "dataset"}, hub, apply=False, environ={}
     )
-    assert hub.calls == [] and result["applied"] is False
-    assert result["model"]["private"] is True and not (tmp_path / "remote").exists()
+    assert hub.calls == []
+    assert result["applied"] is False
+    assert result["model"]["private"] is True
+    assert not (tmp_path / "remote").exists()
 
 
 def test_upload_apply_is_private_fetched_back_and_hash_verified(tmp_path):
     _, out, _ = build(tmp_path)
     hub = FakeHub(tmp_path / "remote")
     result = _upload({"model": out / "model", "dataset": out / "dataset"}, hub, apply=True)
-    assert result["applied"] and result["model"]["private"] and result["dataset"]["private"]
+    assert result["applied"]
+    assert result["model"]["private"]
+    assert result["dataset"]["private"]
     names = [c[0] for c in hub.calls]
-    assert names.count("create_repo") == 2 and names.count("snapshot_download") == 2
+    assert names.count("create_repo") == 2
+    assert names.count("snapshot_download") == 2
     creates = [c for c in hub.calls if c[0] == "create_repo"]
     assert all(c[2]["private"] is True for c in creates)
     assert [c[2]["repo_type"] for c in creates] == ["model", "dataset"]
@@ -373,4 +381,5 @@ def test_upload_fails_when_the_fetched_copy_differs(tmp_path):
 
 def test_no_public_visibility_call_exists_in_the_source():
     src = Path(B.__file__).read_text()
-    assert "private=False" not in src and "make_public" not in src
+    assert "private=False" not in src
+    assert "make_public" not in src
