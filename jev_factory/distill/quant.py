@@ -38,22 +38,40 @@ pre-registration (:func:`jev_factory.distill.prereg.require_locked`).
    :data:`FORMATS` order. bf16 is a valid outcome when no quantized format qualifies; the
    decision says why. ``format_decision.json`` cites every measurement it used (value plus
    the sha256 of ``measurements.json``).
-3. **Heal, one round.** When the chosen quant loses more than :data:`HEAL_MARGIN_POINTS`
-   points against its own bf16 on the selection fold, the trigger is appended to
-   ``heal_log.jsonl`` **first**, then one more training pass runs from the winner's
-   checkpoint on the same frozen ``train_set.jsonl`` through
-   :mod:`jev_factory.backbones.pointer.train_distill` (``run_train``, so ``run_gpu_stage``),
-   with the winner's knobs and the pre-registered ``heal`` block (``epochs``, ``lr``,
-   ``init_mode``). The healed checkpoint is re-quantized and both its bf16 and its quant are
-   re-measured. A second trigger (the healed quant still loses too much, or a heal round is
-   already in the log) raises ``stop_escalate`` and writes nothing further.
-4. **Recalibrate.** The deployed build's per-kind temperature is refitted on its own
+3. **Agreement (c17, h10).** Every quantized build's argmax agreement with the bf16
+   student is computed on the **fit and selection** predictions only (never test or
+   held-out; any other fold in a measurement is ignored) and must reach the pre-registered
+   ``bars.c17.quant.quant_vs_bf16_agreement_min`` (0.97). A chosen quant below it is not
+   shippable as is and goes to the heal.
+4. **Heal, one round per format (c10).** When the chosen quant loses more than
+   :data:`HEAL_MARGIN_POINTS` points against its own bf16 on the selection fold, or agrees
+   with the bf16 student below the bar, a heal round runs. The heal set
+   (``heal/<format>/round-<n>/heal_set.jsonl``) is the frozen ``train_set.jsonl``'s rows
+   with Clef's distribution (rows whose teacher is Clef) and no gold; a row whose record id
+   is a test, held-out, fit or selection id is refused (exit non-zero) before anything is
+   logged, and the trainer re-checks the same ids (as sha256) before it loads a model. The
+   trigger is then appended to ``heal_log.jsonl`` and one training pass runs from the
+   winner's checkpoint through :mod:`jev_factory.backbones.pointer.train_distill` in heal
+   mode (``run_train``, so ``run_gpu_stage``), with the winner's knobs and the
+   pre-registered ``heal`` block (``epochs``, ``lr``, ``init_mode``, and ``mix``: the
+   weights on the bf16 student's and Clef's per-option distributions in each soft
+   target). The trainer trains the quantized student (its LoRA and pointer head, through a
+   fake-quantized forward at the built format's scheme, read from the artifact's
+   ``jev_quant.json``) and falls back to nvsh d18's bf16 continuation when QAT is
+   unavailable on the student env; the healed checkpoint records which ran
+   (``heal.method``), and the manifest carries it. The healed checkpoint is re-quantized
+   and re-measured; its agreement is against the **original** bf16 student's predictions.
+   A healed build that still loses too much, misses the ECE bar or agrees below the bar is
+   not shippable: a ``heal_result`` with ``shippable: false`` is appended and the stage
+   raises ``stop_escalate``. A format whose heal round is spent is refused another without
+   a deviation id (each further round needs a deviation id not used before for it).
+5. **Recalibrate.** The deployed build's per-kind temperature is refitted on its own
    fit-fold predictions with :func:`jev_factory.distill.train.fit_calibration` (vector kept
    only if it lowers selection-fold ECE) and written to ``distill/quant/calibration.json``.
    ``quant_manifest.json`` carries the chosen format, the heal count, the quant-vs-bf16
    delta and the sha256 of every output.
 
-5. **Pruned-vocabulary comparison (decision c38, h9).** When a builder for a
+6. **Pruned-vocabulary comparison (decision c38, h9).** When a builder for a
    :data:`PRUNED_FORMATS` name is registered (:func:`default_builders` registers both), the
    run's train, fit and selection prompts are written to ``prompt_set.jsonl`` (never test
    or held-out) and the pruned build at the bits of the full-vocabulary torchao build it is
@@ -105,6 +123,11 @@ BUILDS_DIR = "builds"
 BF16 = "bf16"
 STOP_VERDICT = "stop_escalate"
 HEAL_KEYS = ("epochs", "lr", "init_mode")
+HEAL_SET_FILE = "heal_set.jsonl"
+HEAL_SPEC_FILE = "heal_spec.json"
+#: The folds agreement with the bf16 student is computed on (never test or held-out).
+AGREEMENT_FOLDS: tuple[str, ...] = dtrain.FOLDS
+POOLED = "fit+selection"
 #: '< 1 GB' means < 10^9 bytes of weight files on disk; one owner (the quantized builder).
 SIZE_BUDGET_BYTES = qz.SIZE_BUDGET_BYTES
 #: Files counted as weights in an artifact that carries no ``jev_quant.json``.
@@ -272,6 +295,23 @@ def heal_knobs(reg: dp.DistillPrereg) -> dict[str, Any]:
     if not (isinstance(block["source"], str) and block["source"].strip()):
         raise _refuse("heal.source must cite where the heal recipe comes from")
     return {k: block[k] for k in HEAL_KEYS}
+
+
+def heal_mix(reg: dp.DistillPrereg) -> dict[str, float]:
+    """The pre-registered ``heal.mix``: weights on the bf16 student's and Clef's targets."""
+    heal_knobs(reg)  # the block itself first
+    block = reg.raw["heal"]
+    if "mix" not in block:
+        raise _refuse(
+            f"the heal block names no mix {list(td.HEAL_MIX_KEYS)}",
+            "register heal.mix before the lock (see example_doc), or record a deviation",
+        )
+    return td.check_mix(block["mix"])
+
+
+def agreement_min(reg: dp.DistillPrereg) -> float:
+    """``bars.c17.quant.quant_vs_bf16_agreement_min`` (validated >= 0.97 by the prereg)."""
+    return float(reg.bars["c17"]["quant"]["quant_vs_bf16_agreement_min"])
 
 
 def read_winner(run_dir: Path) -> dict[str, Any]:
@@ -561,6 +601,65 @@ def _drop_points(bf16: Mapping[str, Any], quant: Mapping[str, Any]) -> float | N
     return round(100.0 * (bf16["accuracy"] - quant["accuracy"]), 9)
 
 
+def _answer(question: Mapping[str, Any]) -> Any:
+    """A question's argmax (option name, or ``p_true >= 0.5`` for noul); None on an error."""
+    if question.get("error"):
+        return None
+    dist = question.get("distribution")
+    if isinstance(dist, Mapping) and dist:
+        return max(sorted(dist), key=lambda k: dist[k])
+    p_true = question.get("p_true")
+    return None if p_true is None else bool(p_true >= 0.5)
+
+
+def _answers(rows: Sequence[Mapping[str, Any]] | None) -> dict[tuple[str, str], Any]:
+    return {
+        (str(row.get("record_id")), str(qid)): _answer(q)
+        for row in rows or ()
+        if not row.get("error")
+        for qid, q in (row.get("questions") or {}).items()
+    }
+
+
+def _agree(ref: Mapping[Any, Any], other: Mapping[Any, Any]) -> dict[str, Any]:
+    keys = [k for k, v in ref.items() if v is not None]
+    compared = [k for k in keys if other.get(k) is not None]
+    agree = sum(1 for k in compared if ref[k] == other[k])
+    return {
+        "n_reference": len(keys),
+        "n_compared": len(compared),
+        "n_agree": agree,
+        # a reference answer the quant left unanswered counts against it
+        "agreement": agree / len(keys) if keys else None,
+    }
+
+
+def agreement_vs_bf16(
+    bf16: Mapping[str, Sequence[Mapping[str, Any]]],
+    quant: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> dict[str, Any]:
+    """Argmax agreement of a quant's predictions with the bf16 student's, per fold and pooled.
+
+    Only :data:`AGREEMENT_FOLDS` (fit and selection) are read; any other fold in either
+    prediction set is ignored, so test and held-out never enter it.
+    """
+    out: dict[str, Any] = {"folds": list(AGREEMENT_FOLDS)}
+    pooled_ref: dict[Any, Any] = {}
+    pooled_q: dict[Any, Any] = {}
+    for fold in AGREEMENT_FOLDS:
+        ref, other = _answers(bf16.get(fold)), _answers(quant.get(fold))
+        out[fold] = _agree(ref, other)
+        pooled_ref.update({(fold, *k): v for k, v in ref.items()})
+        pooled_q.update({(fold, *k): v for k, v in other.items()})
+    out[POOLED] = _agree(pooled_ref, pooled_q)
+    return out
+
+
+def _pooled_agreement(m: Mapping[str, Any]) -> float | None:
+    value = ((m.get("agreement_vs_bf16") or {}).get(POOLED) or {}).get("agreement")
+    return float(value) if _is_num(value) else None
+
+
 def _measure_format(
     fmt: str,
     checkpoint: Path,
@@ -569,25 +668,27 @@ def _measure_format(
     measurer: Measurer,
     fold_records: Mapping[str, Sequence[Record]],
     **kw: Any,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], Mapping[str, Any]]:
+    """One format's measurement and its raw predictions (``{}`` when unavailable)."""
     builder = builders.get(fmt)
     if builder is None:
-        return _unavailable(fmt, UNSUPPORTED.get(fmt, f"no builder registered for {fmt}"))
+        return _unavailable(fmt, UNSUPPORTED.get(fmt, f"no builder registered for {fmt}")), {}
     size = None
     try:
         artifact = Path(builder(fmt, checkpoint, out_dir))
         if fmt != BF16:  # the reference, never a candidate: no size gate
             size = size_record(artifact)
             if not size["within_size_budget"]:
-                return _unavailable(fmt, _over_budget(fmt, size), size=size)
+                return _unavailable(fmt, _over_budget(fmt, size), size=size), {}
         measured = measurer(fmt, artifact, {f: list(fold_records[f]) for f in dtrain.FOLDS})
     except FormatUnavailable as exc:
-        return _unavailable(fmt, exc.reason, size=size)
-    return {
+        return _unavailable(fmt, exc.reason, size=size), {}
+    entry = {
         **assess(fmt, artifact, fold_records, measured, **kw),
         "size": size,
         "oov_refusals": oov_refusals(measured),
     }
+    return entry, measured.get("predictions") or {}
 
 
 def oov_refusals(measured: Mapping[str, Any]) -> dict[str, Any]:
@@ -606,13 +707,20 @@ def _measure_all(
     measurer: Measurer,
     fold_records: Mapping[str, Sequence[Record]],
     formats: Sequence[str],
+    reference: Mapping[str, Any] | None = None,
     **kw: Any,
-) -> dict[str, dict[str, Any]]:
-    out = {}
+) -> tuple[dict[str, dict[str, Any]], Mapping[str, Any]]:
+    """Measure bf16 and *formats*; return the measurements and bf16's raw predictions.
+
+    Each available quant's ``agreement_vs_bf16`` is against *reference* (the bf16
+    student's predictions; default: this round's bf16).
+    """
+    out, predictions = {}, {}
     for fmt in (BF16, *formats):
-        out[fmt] = _measure_format(
+        out[fmt], predictions[fmt] = _measure_format(
             fmt, checkpoint, builds / fmt, builders, measurer, fold_records, **kw
         )
+    reference = predictions[BF16] if reference is None else reference
     bf16 = out[BF16]
     if not bf16["available"]:
         raise _refuse(f"the bf16 winner could not be built or served: {bf16['reason']}")
@@ -627,7 +735,8 @@ def _measure_all(
             out[fmt]["delta_points"] = (
                 None if out[fmt]["drop_points"] is None else -out[fmt]["drop_points"]
             )
-    return out
+            out[fmt]["agreement_vs_bf16"] = agreement_vs_bf16(reference, predictions[fmt])
+    return out, predictions[BF16]
 
 
 # --------------------------------------------------------------------- pruned comparison (c38)
@@ -873,6 +982,7 @@ def _cited(measured: Mapping[str, Mapping[str, Any]], source: Path) -> list[dict
             "latency_median_s": (m["latency"] or {}).get("median_s"),
             "peak_memory_mib": (m["memory"] or {}).get("peak_mib"),
             "weight_bytes": (m.get("size") or {}).get("weight_bytes"),
+            "agreement_vs_bf16": None if fmt == BF16 else _pooled_agreement(m),
         }
         for name, value in values.items():
             value = float(value) if _is_num(value) else None
@@ -890,8 +1000,18 @@ def _heal_log(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in lines if line.strip()]
 
 
-def heal_rounds_spent(log: Path) -> int:
-    return sum(1 for e in _heal_log(log) if e.get("event") == "heal_trigger")
+def _triggers(log: Path, fmt: str | None) -> list[dict[str, Any]]:
+    """Heal triggers in *log* for *fmt* (all of them for ``None``; an entry naming no
+    format counts against every format)."""
+    return [
+        e
+        for e in _heal_log(log)
+        if e.get("event") == "heal_trigger" and (fmt is None or e.get("format") in (fmt, None))
+    ]
+
+
+def heal_rounds_spent(log: Path, fmt: str | None = None) -> int:
+    return len(_triggers(log, fmt))
 
 
 def _append(path: Path, event: Mapping[str, Any]) -> None:
@@ -900,29 +1020,115 @@ def _append(path: Path, event: Mapping[str, Any]) -> None:
         handle.write(json.dumps(dict(event), sort_keys=True) + "\n")
 
 
+def heal_root(out_dir: Path, fmt: str, round_: int) -> Path:
+    """``<quant>/heal/<format>/round-<n>``: the heal set, spec, checkpoint and builds."""
+    return Path(out_dir) / HEAL_DIR / fmt / f"round-{int(round_)}"
+
+
+def protected_digests(
+    fold_records: Mapping[str, Sequence[Record]], sealed: Sequence[Any]
+) -> list[str]:
+    """sha256 of every id the heal must never train on: test, held-out, fit and selection."""
+    ids = {str(i) for side in sealed for i in getattr(side, "ids", ())}
+    ids |= {r.id for recs in fold_records.values() for r in recs}
+    return sorted(td.id_digest(i) for i in ids)
+
+
+def _clef_of(row: Mapping[str, Any]) -> Any:
+    """Clef's distribution for a trainer row: its teacher when the teacher slot is Clef's."""
+    return row.get("teacher") if str(row.get("target_source", "")).startswith("clef") else None
+
+
+_HEAL_ROW_KEYS = ("record_id", "question_id", "kind", "state", "options")
+
+
+def write_heal_set(train_file: Path, path: Path, protected: Sequence[str]) -> dict[str, Any]:
+    """The heal input from the frozen train rows: Clef's distribution, no gold or teacher.
+
+    Refuses (exit non-zero, nothing written) a row whose record id is protected.
+    """
+    rows = []
+    for line, text in enumerate(Path(train_file).read_text(encoding="utf-8").splitlines(), 1):
+        if not text.strip():
+            continue
+        row = json.loads(text)
+        missing = [k for k in _HEAL_ROW_KEYS if not isinstance(row, dict) or k not in row]
+        if missing:
+            raise _refuse(f"{train_file} row {line} is not a trainer row (no {missing})")
+        rows.append(row)
+    td.check_heal_ids([r["record_id"] for r in rows], protected)
+    if not rows:
+        raise _refuse(f"the frozen training set {train_file} has no rows to heal on")
+    out = [
+        {
+            **{k: r[k] for k in _HEAL_ROW_KEYS},
+            "instructions": r.get("instructions") or "",
+            "weight": r.get("weight", 1.0),
+            "clef": _clef_of(r),
+            "clef_source": r.get("target_source"),
+        }
+        for r in rows
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in out), encoding="utf-8")
+    return {
+        "path": str(path),
+        "sha256": dp.sha256_file(path),
+        "rows": len(out),
+        "rows_with_clef": sum(r["clef"] is not None for r in out),
+        "train_file_sha256": dp.sha256_file(Path(train_file)),
+    }
+
+
+def fake_quant_scheme(fmt: str, artifact: Path | str | None) -> dict[str, Any] | None:
+    """The fake-quant scheme a QAT heal mirrors: the built torchao artifact's own scheme.
+
+    ``None`` (the heal then falls back to the bf16 continuation) for a format that is not a
+    torchao weight-only build or whose artifact carries no verified ``jev_quant.json``.
+    """
+    if fmt not in TORCH_FORMATS or artifact is None:
+        return None
+    if not (Path(artifact) / qz.MANIFEST_FILE).is_file():
+        return None
+    try:
+        scheme = qz.read_artifact(Path(artifact))["manifest"]["scheme"]
+    except CliError:
+        return None
+    bits = int(scheme["block_bits"])
+    return {
+        "block_bits": bits,
+        # torchao int4 weight-only: grouped, scale and zero; int8: per channel, symmetric
+        "block_group_size": int(scheme["block_group_size"]) if bits == 4 else None,
+        "block_symmetric": bits == 8,
+        "embedding_bits": int(scheme["embedding_bits"]),
+        "embedding_group_size": int(scheme["embedding_group_size"]),
+    }
+
+
 def plan_heal(
     *,
     reg: dp.DistillPrereg,
     prereg_path: Path,
     run_dir: Path,
     winner: Mapping[str, Any],
-    train_file: Path,
+    root: Path,
     trainer_python: str,
     decider_repo: Path | str,
     deviation_id: str | None,
 ) -> dict[str, Any]:
-    """One more training pass from the winner's checkpoint, with the heal knobs."""
+    """One heal-mode training pass from the winner's checkpoint, with the heal knobs."""
     knobs = {**winner["knobs"], **heal_knobs(reg)}
     return td.plan_train(
         prereg_path=prereg_path,
         run_dir=run_dir,
         run_knobs=knobs,
-        train_file=train_file,
+        train_file=root / HEAL_SET_FILE,
         init_from=winner["checkpoint"],
-        output_dir=run_dir / QUANT_REL / HEAL_DIR / dtrain.CHECKPOINT_DIR,
+        output_dir=root / dtrain.CHECKPOINT_DIR,
         trainer_python=trainer_python,
         decider_repo=decider_repo,
         deviation_id=deviation_id,
+        heal_spec=root / HEAL_SPEC_FILE,
     )
 
 
@@ -937,9 +1143,9 @@ def _dry_run(
     base: Mapping[str, Any],
     formats: Sequence[str],
     builders: Mapping[str, Builder],
-    heal_plan: Mapping[str, Any],
+    heal_plans: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """The dry-run plan: each candidate format, whether it has a builder, and the heal plan."""
+    """The dry-run plan: each candidate format, whether it has a builder, and its heal plan."""
     return {
         **base,
         "dry_run": True,
@@ -958,7 +1164,7 @@ def _dry_run(
             if f in builders
         ],
         "comparison_note": COMPARISON_NOTE,
-        "heal_plan": heal_plan,
+        "heal_plans": dict(heal_plans),
     }
 
 
@@ -972,49 +1178,224 @@ def _check_apply_inputs(measurer: Measurer | None, builders: Mapping[str, Builde
         raise _refuse("apply needs a bf16 builder", "pass builders=default_builders(revision)")
 
 
-def _check_heal_allowed(
-    fmt: str, measured: Mapping[str, Mapping[str, Any]], heal_log: Path, train_file: Path
-) -> None:
-    """The one heal round must still be unspent, and the frozen training set must exist."""
-    if heal_rounds_spent(heal_log) >= HEAL_ROUNDS:
-        raise _stop(
-            f"{fmt} loses {measured[fmt]['drop_points']} points against its own bf16 "
-            f"(> {HEAL_MARGIN_POINTS}) and the heal round is already spent ({heal_log})"
+def heal_reasons(
+    fmt: str, measured: Mapping[str, Mapping[str, Any]], choice: Mapping[str, Any], minimum: float
+) -> list[str]:
+    """Why the chosen quant needs a heal (empty: it ships as is). bf16 never heals."""
+    if fmt == BF16:
+        return []
+    reasons = []
+    if choice["heal"]:
+        reasons.append(
+            f"accuracy: {fmt} loses {measured[fmt]['drop_points']} points against its own "
+            f"bf16 (> {HEAL_MARGIN_POINTS})"
         )
+    agreement = _pooled_agreement(measured[fmt])
+    if agreement is None or agreement < minimum - _EPS:
+        reasons.append(
+            f"agreement: {fmt} agrees {agreement} with the bf16 student on fit+selection "
+            f"(< {minimum})"
+        )
+    return reasons
+
+
+@dataclass(frozen=True)
+class _HealRun:
+    """What one heal round needs from the stage."""
+
+    reg: dp.DistillPrereg
+    prereg_path: Path
+    run_dir: Path
+    out_dir: Path
+    winner: Mapping[str, Any]
+    train_file: Path
+    trainer_env: TrainerEnv
+    deviation_id: str | None
+    fold_records: Mapping[str, Sequence[Record]]
+    sealed: Sequence[Any]
+    builders: Mapping[str, Builder]
+    measurer: Measurer
+    kw: Mapping[str, Any]
+
+    @property
+    def heal_log(self) -> Path:
+        return self.out_dir / HEAL_LOG_FILE
+
+    def plan(self, fmt: str, round_: int) -> dict[str, Any]:
+        return plan_heal(
+            reg=self.reg,
+            prereg_path=self.prereg_path,
+            run_dir=self.run_dir,
+            winner=self.winner,
+            root=heal_root(self.out_dir, fmt, round_),
+            trainer_python=self.trainer_env.python,
+            decider_repo=self.trainer_env.decider_repo,
+            deviation_id=self.deviation_id,
+        )
+
+
+def _check_heal_allowed(
+    fmt: str, reasons: Sequence[str], heal_log: Path, train_file: Path, deviation_id: str | None
+) -> int:
+    """This format's heal round number, refused past :data:`HEAL_ROUNDS` without a fresh
+    deviation id; the frozen training set must exist."""
+    spent = _triggers(heal_log, fmt)
+    if len(spent) >= HEAL_ROUNDS:
+        why = "; ".join(reasons)
+        if not (deviation_id or "").strip():
+            raise _stop(
+                f"{why}; the heal round for {fmt} is already spent ({heal_log}) and a "
+                "second heal of the same format needs a deviation id"
+            )
+        if any(e.get("deviation_id") == deviation_id for e in spent):
+            raise _stop(
+                f"{why}; deviation {deviation_id} already paid for a heal round of {fmt} "
+                f"({heal_log}); a further round needs its own deviation"
+            )
     if not train_file.is_file():
         raise _refuse(
             f"the frozen training set {train_file} does not exist; heal trains on it",
             "run the distill assemble stage first",
         )
+    return len(spent) + 1
 
 
 def _heal_trigger(
-    reg: dp.DistillPrereg, fmt: str, measured: Mapping[str, Mapping[str, Any]], heal_log: Path
+    hr: _HealRun,
+    fmt: str,
+    round_: int,
+    reasons: Sequence[str],
+    measured: Mapping[str, Mapping[str, Any]],
+    heal_set: Mapping[str, Any],
 ) -> dict[str, Any]:
     return {
         "event": "heal_trigger",
         "format": fmt,
-        "heal_round": heal_rounds_spent(heal_log) + 1,
+        "heal_round": round_,
+        "deviation_id": hr.deviation_id if round_ > HEAL_ROUNDS else None,
+        "reasons": list(reasons),
         "drop_points": measured[fmt]["drop_points"],
+        "agreement_vs_bf16": _pooled_agreement(measured[fmt]),
+        "agreement_min": agreement_min(hr.reg),
         "bf16_accuracy": measured[BF16]["accuracy"],
         "quant_accuracy": measured[fmt]["accuracy"],
         "margin_points": HEAL_MARGIN_POINTS,
-        "heal_knobs": heal_knobs(reg),
-        "heal_source": reg.raw["heal"]["source"],
+        "heal_knobs": heal_knobs(hr.reg),
+        "heal_mix": heal_mix(hr.reg),
+        "heal_source": hr.reg.raw["heal"]["source"],
+        "heal_set": dict(heal_set),
     }
 
 
-def _check_healed(fmt: str, again: Mapping[str, Any], bars: Mapping[str, Any]) -> None:
-    """The healed build must measure cleanly, within the heal margin and the ECE bar."""
+def healed_method(checkpoint: Path) -> dict[str, Any]:
+    """Which heal ran (``qat`` or the ``bf16_continuation`` fallback), from the checkpoint."""
+    path = Path(checkpoint) / td.CONFIG_FILE
+    heal = None
+    if path.is_file():
+        heal = json.loads(path.read_text(encoding="utf-8")).get("heal")
+    if not isinstance(heal, dict) or heal.get("method") not in (td.HEAL_QAT, td.HEAL_BF16):
+        raise _refuse(
+            f"{path} does not record which heal method ran (qat or bf16_continuation)",
+            "heal with the distill trainer's heal mode, which records it",
+        )
+    return {
+        "method": heal["method"],
+        "fallback_reason": heal.get("fallback_reason"),
+        "fake_quant": heal.get("fake_quant"),
+        "target_sources": heal.get("target_sources"),
+    }
+
+
+def _healed_problem(
+    fmt: str, again: Mapping[str, Any], bars: Mapping[str, Any], minimum: float
+) -> str | None:
+    """Why the healed build is not shippable (``None``: it is)."""
     if not again["available"] or not again["safe"]:
-        raise _stop(f"the healed {fmt} could not be measured cleanly: {again.get('reason')}")
+        return f"the healed {fmt} could not be measured cleanly: {again.get('reason')}"
     if again["drop_points"] is None or again["drop_points"] > HEAL_MARGIN_POINTS + _EPS:
-        raise _stop(
+        return (
             f"second heal trigger: the healed {fmt} still loses {again['drop_points']} "
             f"points against its own bf16 (> {HEAL_MARGIN_POINTS})"
         )
     if again["ece"] is None or again["ece"] > float(bars["ece_max"]) + _EPS:
-        raise _stop(f"the healed {fmt} has calibrated ECE {again['ece']} > {bars['ece_max']}")
+        return f"the healed {fmt} has calibrated ECE {again['ece']} > {bars['ece_max']}"
+    agreement = _pooled_agreement(again)
+    if agreement is None or agreement < minimum - _EPS:
+        return (
+            f"the healed {fmt} agrees {agreement} with the bf16 student on fit+selection, "
+            f"below the {minimum} bar; it is not shippable"
+        )
+    return None
+
+
+def _heal_round(
+    hr: _HealRun,
+    fmt: str,
+    reasons: Sequence[str],
+    measured: Mapping[str, Mapping[str, Any]],
+    bf16_predictions: Mapping[str, Any],
+    trainer: Trainer,
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]], Path]:
+    """One heal round of *fmt*: heal set, trigger, train, re-quantize, re-measure, verdict."""
+    round_ = _check_heal_allowed(fmt, reasons, hr.heal_log, hr.train_file, hr.deviation_id)
+    root = heal_root(hr.out_dir, fmt, round_)
+    protected = protected_digests(hr.fold_records, hr.sealed)
+    heal_set = write_heal_set(hr.train_file, root / HEAL_SET_FILE, protected)  # refuses first
+    spec = {
+        "format": fmt,
+        "mix": heal_mix(hr.reg),
+        "fake_quant": fake_quant_scheme(fmt, measured[fmt].get("artifact")),
+        "protected_id_sha256": protected,
+        "bf16_student": str(hr.winner["checkpoint"]),
+        "heal_set_sha256": heal_set["sha256"],
+    }
+    _write_json(root / HEAL_SPEC_FILE, spec)
+    plan = hr.plan(fmt, round_)
+    trigger = _heal_trigger(hr, fmt, round_, reasons, measured, heal_set)
+    _append(hr.heal_log, trigger)  # logged before anything heals
+    trainer(plan)
+    healed_checkpoint = Path(plan["output_dir"])
+    dtrain.check_raw_readout(healed_checkpoint)
+    method = healed_method(healed_checkpoint)
+    healed, _ = _measure_all(
+        healed_checkpoint,
+        root / BUILDS_DIR,
+        hr.builders,
+        hr.measurer,
+        hr.fold_records,
+        (fmt,),
+        reference=bf16_predictions,
+        **hr.kw,
+    )
+    again = healed[fmt]
+    problem = _healed_problem(fmt, again, quant_bars(hr.reg), agreement_min(hr.reg))
+    _append(
+        hr.heal_log,
+        {
+            "event": "heal_result",
+            "format": fmt,
+            "heal_round": round_,
+            "method": method["method"],
+            "fallback_reason": method["fallback_reason"],
+            "drop_points": again.get("drop_points"),
+            "agreement_vs_bf16": _pooled_agreement(again),
+            "shippable": problem is None,
+            "problem": problem,
+        },
+    )
+    if problem:
+        raise _stop(problem)
+    record = {**trigger, "healed_checkpoint": str(healed_checkpoint), "method": method}
+    return record, healed, healed_checkpoint
+
+
+def _heal_plans(hr: _HealRun, formats: Sequence[str]) -> dict[str, Any]:
+    """The dry run's heal plan per buildable quantized format (its next round)."""
+    return {
+        f: hr.plan(f, heal_rounds_spent(hr.heal_log, f) + 1)
+        for f in formats
+        if f in hr.builders and f != BF16
+    }
 
 
 def run_quant(
@@ -1032,16 +1413,12 @@ def run_quant(
     formats: Sequence[str] = tuple(FORMATS),
     bootstrap: Bootstrap = Bootstrap(),
 ) -> dict[str, Any]:
-    """Plan (dry-run) or run the format spike, the one heal round and the recalibration."""
-    builders, measurer, trainer = hooks.builders, hooks.measurer, hooks.trainer
-    trainer_python, decider_repo = trainer_env.python, trainer_env.decider_repo
-    memory_max, memory_floor = limits.memory_max, limits.memory_floor
-    allow_foreign, timeout = limits.allow_foreign, limits.timeout
-    seed, resamples = bootstrap.seed, bootstrap.resamples
+    """Plan (dry-run) or run the format spike, the heal round and the recalibration."""
     prereg_path, run_dir = Path(prereg_path), Path(run_dir)
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
     bars = quant_bars(reg)
-    threshold = dtrain._threshold(reg)
+    minimum = agreement_min(reg)
+    heal_mix(reg)  # refused before anything runs when the heal block names no mix
     _refuse_comparison_candidates(formats)
     unknown = [f for f in formats if f not in FORMATS]
     if unknown:
@@ -1049,19 +1426,26 @@ def run_quant(
     winner = read_winner(run_dir)
     dtrain.check_raw_readout(winner["checkpoint"])
     fold_records = dtrain._folds(folds, sealed)
-    train_file = Path(train_file) if train_file else run_dir / TRAIN_SET_REL
-    builders = dict(builders or {})
     out_dir = run_dir / QUANT_REL
-    heal_log = out_dir / HEAL_LOG_FILE
-    heal_plan = plan_heal(
+    kw = {
+        "threshold": dtrain._threshold(reg),
+        "seed": bootstrap.seed,
+        "resamples": bootstrap.resamples,
+    }
+    hr = _HealRun(
         reg=reg,
         prereg_path=prereg_path,
         run_dir=run_dir,
+        out_dir=out_dir,
         winner=winner,
-        train_file=train_file,
-        trainer_python=trainer_python,
-        decider_repo=decider_repo,
+        train_file=Path(train_file) if train_file else run_dir / TRAIN_SET_REL,
+        trainer_env=trainer_env,
         deviation_id=deviation_id,
+        fold_records=fold_records,
+        sealed=tuple(sealed),
+        builders=dict(hooks.builders or {}),
+        measurer=hooks.measurer,  # type: ignore[arg-type]
+        kw=kw,
     )
     base = {
         "stage": "distill-quant",
@@ -1070,61 +1454,48 @@ def run_quant(
         "folds": {f: len(fold_records[f]) for f in dtrain.FOLDS},
         "heal_margin_points": HEAL_MARGIN_POINTS,
         "heal_rounds_max": HEAL_ROUNDS,
+        "heal_mix": heal_mix(reg),
+        "agreement_min": minimum,
+        "agreement_folds": list(AGREEMENT_FOLDS),
         "size_budget_bytes": SIZE_BUDGET_BYTES,
         "format_rule": FORMAT_RULE,
     }
     if not apply:
-        return _dry_run(base, formats, builders, heal_plan)
-    _check_apply_inputs(measurer, builders)
-    kw = {"threshold": threshold, "seed": seed, "resamples": resamples}
-    measured = _measure_all(
-        winner["checkpoint"], out_dir / BUILDS_DIR, builders, measurer, fold_records, formats, **kw
+        return _dry_run(base, formats, hr.builders, _heal_plans(hr, formats))
+    _check_apply_inputs(hooks.measurer, hr.builders)
+    measured, bf16_predictions = _measure_all(
+        winner["checkpoint"],
+        out_dir / BUILDS_DIR,
+        hr.builders,
+        hr.measurer,
+        fold_records,
+        formats,
+        **kw,
     )
     choice = choose_format(measured, ece_max=float(bars["ece_max"]), formats=formats)
+    reasons = heal_reasons(choice["format"], measured, choice, minimum)
     deployed_checkpoint = winner["checkpoint"]
     heal_record: dict[str, Any] | None = None
     healed: dict[str, dict[str, Any]] | None = None
-    if choice["heal"]:
-        fmt = choice["format"]
-        _check_heal_allowed(fmt, measured, heal_log, train_file)
-        trigger = _heal_trigger(reg, fmt, measured, heal_log)
-        _append(heal_log, trigger)  # logged before anything heals
-        if trainer is None:
-            trainer = _default_trainer(
-                allow_foreign=allow_foreign,
-                memory_max=memory_max,
-                memory_floor=memory_floor,
-                timeout=timeout,
-            )
-        trainer(heal_plan)
-        healed_checkpoint = Path(heal_plan["output_dir"])
-        dtrain.check_raw_readout(healed_checkpoint)
-        healed = _measure_all(
-            healed_checkpoint,
-            out_dir / HEAL_DIR / BUILDS_DIR,
-            builders,
-            measurer,
-            fold_records,
-            (fmt,),
-            **kw,
+    if reasons:
+        trainer = hooks.trainer or _default_trainer(
+            allow_foreign=limits.allow_foreign,
+            memory_max=limits.memory_max,
+            memory_floor=limits.memory_floor,
+            timeout=limits.timeout,
         )
-        again = healed[fmt]
-        _check_healed(fmt, again, bars)
-        deployed_checkpoint = healed_checkpoint
-        heal_record = {**trigger, "healed_checkpoint": str(healed_checkpoint)}
-        _append(
-            heal_log,
-            {"event": "heal_result", "format": fmt, "drop_points": again["drop_points"]},
+        heal_record, healed, deployed_checkpoint = _heal_round(
+            hr, choice["format"], reasons, measured, bf16_predictions, trainer
         )
     comparison = compare_pruned(
         measured,
         choice["format"],
         checkpoint=winner["checkpoint"],
         out_dir=out_dir / COMPARISON_DIR,
-        builders=builders,
-        measurer=measurer,
+        builders=hr.builders,
+        measurer=hr.measurer,
         fold_records=fold_records,
-        train_file=train_file,
+        train_file=hr.train_file,
         **kw,
     )
     return _finish(
@@ -1132,9 +1503,9 @@ def run_quant(
         out_dir=out_dir,
         measured=measured,
         healed=healed,
-        choice=choice,
+        choice={**choice, "heal_reasons": reasons},
         heal_record=heal_record,
-        heal_log=heal_log,
+        heal_log=hr.heal_log,
         deployed_checkpoint=deployed_checkpoint,
         comparison=comparison,
     )
@@ -1162,6 +1533,7 @@ def _finish(
         {
             "prereg_sha256": base["prereg_sha256"],
             "fold": "selection",
+            "agreement_folds": list(AGREEMENT_FOLDS),
             "formats": measured,
             "healed": healed,
             "pruned_vocabulary_comparison": comparison,
@@ -1175,6 +1547,7 @@ def _finish(
         "format": fmt,
         "description": FORMATS.get(fmt, "bf16 (unquantized)"),
         "reason": choice["reason"],
+        "heal_reasons": list(choice.get("heal_reasons") or []),
         "rule": FORMAT_RULE,
         "trail": choice["trail"],
         "unavailable": {f: m["reason"] for f, m in measured.items() if not m["available"]},
@@ -1207,10 +1580,14 @@ def _finish(
         "deployed_size": final.get("size"),
         "heal_count": 1 if heal_record else 0,
         "heal": heal_record,
+        "heal_method": (heal_record or {}).get("method"),
         "quant_vs_bf16_delta_points": 0.0 if fmt == BF16 else delta,
         "quant_vs_bf16_initial_delta_points": (
             None if fmt == BF16 else measured[fmt].get("delta_points")
         ),
+        "quant_vs_bf16_agreement": None if fmt == BF16 else final.get("agreement_vs_bf16"),
+        # a quant reaches here only at or above the bar (else it healed or stopped)
+        "shippable": True,
         "bf16_selection_accuracy": final_bf16["accuracy"],
         "deployed_selection_accuracy": final["accuracy"],
         "deployed_selection_ece": final["ece"],
