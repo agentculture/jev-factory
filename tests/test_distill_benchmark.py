@@ -448,6 +448,26 @@ def test_require_base_match_passes_a_match_and_an_absent_record(tmp_path):
     bm.require_base_match(tmp_path)
 
 
+def test_an_absent_reproduction_fails_closed_when_required(tmp_path):
+    """Risk r12: for the distill run an absent record refuses train unless a deviation id."""
+    with pytest.raises(CliError, match="no stock reproduction record"):
+        bm.require_base_match(tmp_path, required=True)
+    with pytest.raises(CliError) as blank:
+        bm.require_base_match(tmp_path, " ", required=True)
+    assert "--deviation-id" in blank.value.remediation
+    bm.require_base_match(tmp_path, "d9", required=True)
+    _mismatch_record(tmp_path, True)  # a recorded mismatch keeps its own refusal
+    with pytest.raises(CliError, match="base-mismatch"):
+        bm.require_base_match(tmp_path, required=True)
+    _mismatch_record(tmp_path, False)
+    bm.require_base_match(tmp_path, required=True)
+
+
+def test_the_reproduction_record_lives_under_the_distill_dir(tmp_path):
+    path = bm.write_reproduction(tmp_path, {"base_mismatch": False})
+    assert path == tmp_path / "distill" / "benchmark" / "stock_reproduction.json"
+
+
 def test_require_base_match_refuses_a_corrupt_record(tmp_path):
     path = tmp_path / bm.REPRODUCTION_REL
     path.parent.mkdir(parents=True)

@@ -77,7 +77,14 @@ distill_student_port = 18070
 # distill_stock_model = "<served stock model name>"
 # distill_probe_set = "<path to the operator-held Clef probe set; never committed>"
 # distill_side_model_list = "<path to the operator-held side-model names; never committed>"
+# distill_teacher_model_header = "<model name sent as X-Lobes-Model, if the gateway routes>"
+# distill_gold_ledger = "<path to the human-gold ledger; default beside test.jsonl>"
+# distill_jevbench_tasks = "<path to the 231 JevBench w4096 public tasks, record JSONL>"
+# distill_agx_url = "<localhost tunnel url of the shipped quant on the AGX Orin>"
+# distill_edge_url = "<localhost tunnel url of the shipped quant on the edge board>"
+# distill_edge_memory_cap = "4G"
 
 # --- secrets, by the NAME of the environment variable ---
 # aug_key_env = "TEACHER_GATEWAY_KEY"
+# distill_teacher_key_env = "DISTILL_TEACHER_KEY"
 hf_token_env = "HF_TOKEN"

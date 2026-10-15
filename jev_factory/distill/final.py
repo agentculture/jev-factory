@@ -19,7 +19,9 @@ SSH tunnel at ``http://127.0.0.1:<port>``), under :class:`jev_factory.measure.on
 Refusals before any request (dry run and apply): the run's teacher-label lock exists
 (:func:`jev_factory.distill.edge.require_no_teacher_lock`; the box is busy labelling); a test
 record has no ``approve`` entry for its current sha256 in the gold ledger
-(:func:`jev_factory.review.gold.approved_ids`; the ids are printed, nothing else). Before any
+(:func:`jev_factory.review.gold.approved_ids`; the ids are printed, nothing else); the quant
+manifest records no shipped format (a failed ``no qualifying format`` result: there is no bf16
+fallback, risk r10, and bundle refuses it too). Before any
 request (apply): the shipped student's ``GET /v1/bundle`` (localhost only) differs from the
 deployed artifact's attestation (:func:`jev_factory.backbones.pointer.quantized.bundle_attestation`:
 per-file sha256 and manifest sha256), or its ``GET /v1/stats`` reports no cgroup memory cap. The
@@ -146,12 +148,21 @@ def _write_json(path: Path, payload: Any) -> None:
 def deployed_student(run_dir: Path) -> dict[str, Any]:
     """The deployed format, its calibration and the quant manifest, cross-checked by sha256."""
     qdir = run_dir / dquant.QUANT_REL
-    decision = _read_json(qdir / dquant.DECISION_FILE, "deployed format decision")
     manifest = _read_json(qdir / dquant.MANIFEST_FILE, "quant manifest")
-    cal_path = qdir / dquant.CALIBRATION_FILE
-    calibration = _read_json(cal_path, "student calibration")
+    if manifest.get("shippable") is False or manifest.get("status") == "failed":
+        raise _refuse(
+            f"the quant manifest records no shipped format: {manifest.get('reason') or ''}",
+            "no quantized build qualified (risk r10: there is no bf16 fallback); a human "
+            "decides the next step and records it as a deviation",
+        )
     if manifest.get("status") != "done":
         raise _refuse(f"the quant manifest status is {manifest.get('status')!r}, not 'done'")
+    shipped = manifest.get("shipped_format", manifest.get("chosen_format"))
+    if not shipped or shipped != manifest.get("chosen_format"):
+        raise _refuse("the quant manifest records no shipped format; nothing was shipped")
+    decision = _read_json(qdir / dquant.DECISION_FILE, "deployed format decision")
+    cal_path = qdir / dquant.CALIBRATION_FILE
+    calibration = _read_json(cal_path, "student calibration")
     if decision.get("format") != manifest.get("chosen_format"):
         raise _refuse("format_decision.json and quant_manifest.json disagree on the format")
     recorded = [

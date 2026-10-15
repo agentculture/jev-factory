@@ -486,8 +486,9 @@ CARD_TASKS_SHA256 = "771ea8ac252af155606eeb09cad920b32b326c5c2b1e9c9af868be00fe8
 #: is context, not part of the test.
 CI_METHOD = "wilson-95"
 WILSON_Z = 1.959964
-REPRODUCTION_REL = "benchmark/stock_reproduction.json"
-STOCK_SETS_REL = "benchmark/stock_measurements.json"
+#: Both relative to the run dir (``<work>``), beside the benchmark stage's own outputs.
+REPRODUCTION_REL = "distill/benchmark/stock_reproduction.json"
+STOCK_SETS_REL = "distill/benchmark/stock_measurements.json"
 PROBE_SET = "probe"
 JEVBENCH_SET = "jevbench"
 #: Sets whose per-record rows are never written out (the Clef probe set is private).
@@ -618,16 +619,26 @@ def write_reproduction(run_dir: Path | str, result: Mapping[str, Any]) -> Path:
     return path
 
 
-def require_base_match(run_dir: Path | str, deviation_id: str | None = None) -> None:
+def require_base_match(
+    run_dir: Path | str, deviation_id: str | None = None, *, required: bool = False
+) -> None:
     """Refuse (train) when the recorded reproduction marks a base mismatch, absent a deviation.
 
-    No record on disk is not a refusal here (the benchmark stage has not run in a bare train
-    call); a corrupt record is, because it cannot be trusted either way.
+    No record on disk is a refusal only when *required* (the distill run's train stage passes
+    it: an absent reproduction fails closed unless a deviation id is given); a bare train call
+    without a benchmark stage passes. A corrupt record is always refused, because it cannot be
+    trusted either way.
     """
     import json
 
     path = Path(run_dir) / REPRODUCTION_REL
     if not path.is_file():
+        if required and not (deviation_id or "").strip():
+            raise _refuse(
+                f"{path}: no stock reproduction record; the served base is unverified",
+                "run the distill benchmark stage (it reproduces JevBench w4096), or record a "
+                "deviation and pass its id (--deviation-id <id>)",
+            )
         return
     try:
         rec = json.loads(path.read_text(encoding="utf-8"))

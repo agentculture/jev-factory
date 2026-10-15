@@ -9,6 +9,7 @@ the 3.0-point margin; recalibration fits on the deployed build's own fit-fold pr
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -244,6 +245,36 @@ def run(tmp_path, *, doc=None, apply=True, builders=None, measurer=None, trainer
     return Q.run_quant(**args), run_dir, trainer
 
 
+def run_no_qualifying(tmp_path, **kw):
+    """Risk r10: a run where no quantized build qualifies records a failed result and stops."""
+    with pytest.raises(CliError, match="no qualifying format") as err:
+        run(tmp_path, **kw)
+    assert err.value.code == 1
+    assert "stop_escalate" in err.value.message
+    return tmp_path / "run", err.value
+
+
+def assert_ships_nothing(run_dir):
+    """The failed result is on the record; nothing deployable is written (no bf16 fallback)."""
+    assert outputs(run_dir) == {
+        Q.MEASUREMENTS_FILE: True,
+        Q.DECISION_FILE: True,
+        Q.CALIBRATION_FILE: False,
+        Q.MANIFEST_FILE: True,
+    }
+    assert not (run_dir / Q.QUANT_REL / Q.DEPLOYED_PREDICTIONS_FILE).exists()
+    manifest = _read(run_dir, Q.MANIFEST_FILE)
+    assert manifest["status"] == "failed"
+    assert manifest["outcome"] == Q.NO_QUALIFYING
+    assert manifest["shipped_format"] is None
+    assert manifest["chosen_format"] is None
+    assert manifest["shippable"] is False
+    decision = _read(run_dir, Q.DECISION_FILE)
+    assert decision["format"] is None
+    assert decision["outcome"] == Q.NO_QUALIFYING
+    return manifest, decision
+
+
 def outputs(run_dir):
     out = run_dir / Q.QUANT_REL
     return {
@@ -405,24 +436,51 @@ def test_an_unbuildable_format_is_recorded_unavailable_never_dropped(tmp_path):
     assert out["chosen_format"] == "w4a16_fp32_head"
 
 
-def test_bf16_is_the_outcome_when_no_quantized_format_qualifies(tmp_path):
+def test_no_qualifying_format_records_a_failed_result_and_ships_nothing(tmp_path):
+    """Operator decision (risk r10): no bf16 fallback; a failed result, nothing shipped."""
     builders = FakeBuilders(formats=("bf16",))
-    out, run_dir, trainer = run(tmp_path, builders=builders)
-    assert out["chosen_format"] == "bf16"
-    assert out["heal_count"] == 0
-    decision = _read(run_dir, Q.DECISION_FILE)
-    assert "stays bf16" in decision["reason"]
+    trainer = FakeTrainer(tmp_path / "run" / Q.QUANT_REL / Q.HEAL_LOG_FILE)
+    run_dir, err = run_no_qualifying(tmp_path, builders=builders, trainer=trainer)
+    _manifest, decision = assert_ships_nothing(run_dir)
     assert "available" in decision["reason"]
-    assert out["quant_vs_bf16_delta_points"] == 0.0
+    assert "bf16" not in (decision.get("description") or "")
+    assert "no bf16 fallback" in err.message
     assert trainer.plans == []
+
+
+def test_choose_format_never_falls_back_to_bf16():
+    """Risk r10: when nothing survives, the choice names no format (not bf16)."""
+    measured = {"onnx_int8": {"format": "onnx_int8", "available": False, "reason": "x"}}
+    choice = Q.choose_format(measured, ece_max=0.1, formats=("onnx_int8",))
+    assert choice["format"] is None
+    assert choice["reason"].startswith(Q.NO_QUALIFYING)
+    assert "fallback" not in Q.FORMAT_RULE
+
+
+def test_every_build_over_the_size_budget_ships_nothing(tmp_path):
+    """Risk r10: every quantized build at or over 10^9 bytes -> no qualifying format."""
+    builders = FakeBuilders(formats=("bf16",))
+
+    def huge(fmt, ck, out):
+        out.mkdir(parents=True, exist_ok=True)
+        with (out / "model.safetensors").open("wb") as fh:  # sparse: no real disk use
+            fh.truncate(Q.SIZE_BUDGET_BYTES)
+        return out
+
+    builders["torch_int8_wo"] = huge
+    run_dir, _err = run_no_qualifying(tmp_path, builders=builders, formats=("torch_int8_wo",))
+    meas = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]["torch_int8_wo"]
+    assert meas["available"] is False
+    assert meas["size"]["weight_bytes"] == Q.SIZE_BUDGET_BYTES
+    assert_ships_nothing(run_dir)
 
 
 def test_a_quant_over_the_ece_bar_does_not_qualify(tmp_path):
     doc = dp.example_doc()
     doc["bars"]["quant"]["ece_max"] = 0.0
-    out, run_dir, _ = run(tmp_path, doc=doc)
-    assert out["chosen_format"] == "bf16"
-    assert "calibration" in _read(run_dir, Q.DECISION_FILE)["reason"]
+    run_dir, _err = run_no_qualifying(tmp_path, doc=doc)
+    _manifest, decision = assert_ships_nothing(run_dir)
+    assert "calibration" in decision["reason"]
 
 
 # --------------------------------------------------------------------- heal
@@ -493,13 +551,14 @@ def test_heal_runs_once_from_the_winner_and_lands_in_the_manifest(tmp_path):
     assert out == {**out, **manifest}
 
 
-def test_a_second_trigger_stops_and_escalates_and_writes_nothing_further(tmp_path):
+def test_a_second_trigger_stops_and_escalates_and_ships_nothing(tmp_path):
+    """Risk r10: below the bars after the one heal -> a failed result, nothing shipped."""
     builders, measurer = only("onnx_int8", 0.75, healed_acc=0.8)
-    with pytest.raises(CliError, match="stop_escalate") as err:
-        run(tmp_path, builders=builders, measurer=measurer)
-    assert "second heal trigger" in err.value.message
-    run_dir = tmp_path / "run"
-    assert outputs(run_dir) == dict.fromkeys(outputs(run_dir), False)
+    run_dir, err = run_no_qualifying(tmp_path, builders=builders, measurer=measurer)
+    assert "second heal trigger" in err.message
+    manifest, _decision = assert_ships_nothing(run_dir)
+    assert "second heal trigger" in manifest["reason"]
+    assert _read(run_dir, Q.MEASUREMENTS_FILE)["healed"]["onnx_int8"]["available"] is True
     log = [json.loads(line) for line in (run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE).open()]
     assert [e["event"] for e in log] == ["heal_trigger", "heal_result"]
     assert log[1]["shippable"] is False  # the failed result is recorded, nothing else is
@@ -697,7 +756,7 @@ def test_a_torchao_build_failure_is_recorded_unavailable_with_the_error(tmp_path
     ckpt = _ckpt(tmp_path / "ckpt")
     with pytest.raises(Q.FormatUnavailable, match="fbgemm-gpu-genai"):
         builders["torch_int4_wo"]("torch_int4_wo", ckpt, tmp_path / "q4")
-    out, run_dir, _ = run(
+    run_dir, _err = run_no_qualifying(
         tmp_path / "r", builders=builders, formats=("torch_int8_wo", "torch_int4_wo")
     )
     meas = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]
@@ -705,7 +764,7 @@ def test_a_torchao_build_failure_is_recorded_unavailable_with_the_error(tmp_path
         assert meas[fmt]["available"] is False
         assert "torchao build failed" in meas[fmt]["reason"]
         assert "fbgemm-gpu-genai" in meas[fmt]["reason"]
-    assert out["chosen_format"] == "bf16"
+    assert_ships_nothing(run_dir)
 
 
 def test_a_torchao_build_without_a_memory_cap_is_refused_not_recorded_unavailable(tmp_path):
@@ -945,7 +1004,7 @@ def test_an_unverifiable_quant_artifact_is_unavailable_in_the_stage(tmp_path):
     builders = FakeBuilders(formats=("bf16",))
     builders["torch_int4_wo"] = lambda fmt, ck, out: out.mkdir(parents=True) or out
     measurer = FakeMeasurer()
-    _out, run_dir, _ = run(
+    run_dir, _err = run_no_qualifying(
         tmp_path, builders=builders, measurer=measurer, formats=("torch_int4_wo",)
     )
     meas = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]["torch_int4_wo"]
@@ -1448,11 +1507,9 @@ def test_a_healed_build_below_the_agreement_bar_is_not_shippable(tmp_path):
     """AC2: a healed build below 0.97 agreement stops; no deployable output is written."""
     builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
     measurer.shifts = {("onnx_int8", True): 1}  # healed accuracy fine, agreement 0.9
-    with pytest.raises(CliError, match="not shippable") as err:
-        run(tmp_path, builders=builders, measurer=measurer)
-    assert "stop_escalate" in err.value.message
-    run_dir = tmp_path / "run"
-    assert outputs(run_dir) == dict.fromkeys(outputs(run_dir), False)
+    run_dir, err = run_no_qualifying(tmp_path, builders=builders, measurer=measurer)
+    assert "not shippable" in err.message
+    assert_ships_nothing(run_dir)
     result = _log(run_dir)[-1]
     assert result["event"] == "heal_result"
     assert result["shippable"] is False
@@ -1542,3 +1599,108 @@ def test_a_spent_round_for_one_format_does_not_spend_another_formats(tmp_path):
     out, trainer = _rerun(tmp_path, path, run_dir)
     assert out["heal"]["heal_round"] == 1
     assert len(trainer.plans) == 1
+
+
+# --------------------------------------------------------------------- t17: probe OOV (r14)
+
+
+class ProbeRefusingMeasurer(FakeMeasurer):
+    """As FakeMeasurer; *fmt*'s server refuses every probe record as out-of-vocabulary."""
+
+    def __init__(self, fmt, **kw):
+        super().__init__(**kw)
+        self.fmt = fmt
+        self.sets = []
+
+    def __call__(self, fmt, artifact, fold_records):
+        self.sets.append((fmt, sorted(fold_records)))
+        out = super().__call__(fmt, artifact, fold_records)
+        if fmt == self.fmt:
+            for row in out["predictions"].get(Q.PROBE_FOLD, []):
+                row["error"] = "request failed: HTTP Error 422: out_of_vocabulary"
+        return out
+
+
+def _probe(n=4):
+    return [replace(_rec(500 + i), id=f"probe-{i}") for i in range(n)]
+
+
+def test_the_pruned_build_counts_oov_refusals_on_the_probe_set(tmp_path):
+    """Risk r14: OOV refusals are counted on the probe set (disjoint from the kept-id
+    prompts), not only on fit/selection; only the pruned comparison build is asked it."""
+    profile = {**PROFILE, PRUNED4: (0.95, 100.0, 0.01), PRUNED8: (0.95, 100.0, 0.01)}
+    measurer = ProbeRefusingMeasurer(PRUNED4, profile=profile)
+    out, run_dir, _pruned = _comparison_run(tmp_path, measurer=measurer, probe=_probe())
+    report = out["pruned_vocabulary_comparison"]
+    assert report["probe"]["count"] == 4
+    assert report["probe"]["measured"] is True
+    side = report["pruned"]
+    assert side["probe_oov_refusals"] == 4
+    assert side["oov_refusals_by_fold"] == {"fit": 0, "selection": 0, "probe": 4}
+    assert report["full_vocabulary"]["probe_oov_refusals"] is None
+    asked = dict(measurer.sets)
+    assert Q.PROBE_FOLD in asked[PRUNED4]
+    assert all(Q.PROBE_FOLD not in sets for fmt, sets in measurer.sets if fmt != PRUNED4)
+    # the probe is private: no probe record id is written anywhere in the quant outputs
+    for path in (run_dir / Q.QUANT_REL).rglob("*.json"):
+        assert "probe-0" not in path.read_text(), path
+
+
+def test_without_a_probe_set_the_comparison_says_so(tmp_path):
+    out, _run_dir, _pruned = _comparison_run(tmp_path)
+    report = out["pruned_vocabulary_comparison"]
+    assert report["probe"]["measured"] is False
+    assert report["pruned"]["probe_oov_refusals"] is None
+
+
+def test_a_probe_record_in_the_kept_id_prompts_is_refused(tmp_path):
+    """Risk r14: the probe set must be disjoint from the prompts the kept ids came from."""
+    clash = [_rec(25)]  # a selection-fold record
+    with pytest.raises(CliError, match="prompt set"):
+        _comparison_run(tmp_path, probe=clash)
+
+
+def test_a_sealed_probe_record_is_refused_before_anything_runs(tmp_path):
+    class Sealed:
+        ids = frozenset({"probe-1"})
+
+    builders, probe, sealed = FakeBuilders(), _probe(), [Sealed()]
+    with pytest.raises(CliError, match="sealed"):
+        run(tmp_path, builders=builders, probe=probe, sealed=sealed)
+    assert builders.calls == []
+
+
+# --------------------------------------------------------------------- t17: edge reference (r11)
+
+
+def test_the_shipped_builds_selection_predictions_are_kept_with_its_bundle(tmp_path):
+    """Risk r11: the deployed build's own selection-fold predictions are written, with the
+    sha256 attestation of the bundle that produced them, for the edge stage to compare."""
+    from jev_factory.backbones.pointer import quantized as qz
+
+    builders = FakeBuilders(formats=("bf16",))
+
+    def real_int4(fmt, ck, out):
+        _write_artifact(out, 4)
+        return out
+
+    builders["torch_int4_wo"] = real_int4
+    out, run_dir, _trainer = run(tmp_path, builders=builders, formats=("torch_int4_wo",))
+    doc = _read(run_dir, Q.DEPLOYED_PREDICTIONS_FILE)
+    assert doc["format"] == out["chosen_format"] == "torch_int4_wo"
+    assert doc["fold"] == "selection"
+    assert {r["fold"] for r in doc["predictions"]} == {"selection"}
+    assert len(doc["predictions"]) == 20
+    att = qz.bundle_attestation(out["deployed_artifact"])
+    assert doc["bundle"] == {"files": att["files"], "manifest_sha256": att["manifest_sha256"]}
+    manifest = _read(run_dir, Q.MANIFEST_FILE)
+    assert manifest["shipped_format"] == "torch_int4_wo"
+    assert any(p.endswith(Q.DEPLOYED_PREDICTIONS_FILE) for p in manifest["outputs"])
+
+
+def test_a_healed_build_keeps_the_healed_predictions(tmp_path):
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    out, run_dir, _trainer = run(tmp_path, builders=builders, measurer=measurer)
+    doc = _read(run_dir, Q.DEPLOYED_PREDICTIONS_FILE)
+    assert doc["artifact"] == out["deployed_artifact"]
+    assert Q.HEAL_DIR in Path(doc["artifact"]).parts

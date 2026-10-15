@@ -6,24 +6,27 @@ The board (AGX Orin or Orin Nano) serves the deployed bundle with the documented
 
 What is measured, on the **selection fold and the probe set only**: per-call latency (median and
 p95), the server's resident memory and ``MemAvailable`` (sampled from ``GET /v1/stats`` around
-every call), and prediction agreement with the final's student predictions. Nothing from the
+every call), and prediction agreement with the quant stage's own **selection-fold** predictions
+of the shipped build (risk r11: the final's student answers cover only test and held-out, which
+edge never reads, so they cannot overlap). Nothing from the
 sealed sides is read: a record whose id is in a sealed side (``test`` or ``held_out``), whose
 split is ``test``, or a fold other than ``selection``/``probe`` exits non-zero before any request.
 
 Refusals, all before the first question: ``/v1/bundle`` differs from the deployed artifact's
-per-file sha256s (the final's bundle); ``/v1/stats`` reports no cgroup memory cap; the
-teacher-label lock exists (one GPU job at a time, and a labelling run owns the box).
+per-file sha256s (the final's bundle); the quant stage's ``deployed_predictions.json`` is
+missing or was produced by a different bundle (manifest sha256); ``/v1/stats`` reports no cgroup
+memory cap, or (given ``expected_cap``) a cap other than the expected one; the teacher-label lock
+exists (one GPU job at a time, and a labelling run owns the box).
 
 The manifest records the board model, the L4T release and the cap. The probe set is private: only
 its sha256 and count are written, and probe record ids are hashed in the predictions file.
 
-Assumptions about the final (t14 extends it later; consumed defensively): the student's answers
-are ``<run>/distill/final/predictions/student.json``, a list of rows with ``record_id`` and
-``questions: {qid: {kind, distribution, p_true, error}}``; agreement is over the
-``(record_id, qid)`` keys both files hold (empty overlap is reported, not hidden). The expected
-bundle is read from the deployed artifact on disk (``quant_manifest.json`` ``deployed_artifact``),
-or from ``final.json`` ``deployed.bundle`` (``{"files": {...}, "manifest_sha256": ...}``) if the
-final ever records one. Dry-run by default; stdlib only.
+The reference answers are ``<run>/distill/quant/deployed_predictions.json`` (``predictions``: rows
+with ``record_id`` and ``questions: {qid: {kind, distribution, p_true, error}}``, and ``bundle``:
+the attestation of the build that answered); agreement is over the ``(record_id, qid)`` keys
+both hold (an empty overlap is reported, not hidden). The expected bundle is ``final.json``
+``deployed.bundle`` when the final recorded one, else the deployed artifact on disk
+(``quant_manifest.json`` ``deployed_artifact``). Dry-run by default; stdlib only.
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ import os
 import time
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +56,8 @@ EDGE_REL = "distill/edge"
 MANIFEST_FILE = "edge_manifest.json"
 PREDICTIONS_FILE = "edge_predictions.json"
 FINAL_REL = "distill/final"
-FINAL_STUDENT_PREDICTIONS = f"{FINAL_REL}/predictions/student.json"
+#: The shipped build's selection-fold predictions, written by the quant stage.
+REFERENCE_PREDICTIONS = f"{dquant.QUANT_REL}/{dquant.DEPLOYED_PREDICTIONS_FILE}"
 FINAL_FILE = "final.json"
 #: The teacher-label stage holds this file while it runs (the wiring task makes it write it).
 TEACHER_LOCK_REL = "distill/teacher/teacher-label.lock"
@@ -226,14 +231,22 @@ def check_bundle(served: Mapping[str, Any], expected: Mapping[str, Any]) -> None
         raise _refuse("/v1/bundle manifest_sha256 differs from the final's bundle")
 
 
-def memory_cap(stats: Mapping[str, Any]) -> dict[str, Any]:
-    """The cgroup cap from ``/v1/stats``; refuse when there is none."""
+def memory_cap(stats: Mapping[str, Any], expected: int | None = None) -> dict[str, Any]:
+    """The cgroup cap from ``/v1/stats``; refuse when there is none, or (given *expected*,
+    the cap the operator configured) when it differs from it."""
     cgroup = stats.get("cgroup") if isinstance(stats.get("cgroup"), Mapping) else {}
     effective = cgroup.get("effective_memory_max")
     if isinstance(effective, bool) or not isinstance(effective, int) or effective <= 0:
         raise _refuse(
             "/v1/stats reports no cgroup memory cap",
             "serve under `systemd-run --user -p MemoryMax=<cap>` so the figures mean something",
+        )
+    if expected is not None and effective != expected:
+        raise _refuse(
+            f"/v1/stats reports a cgroup memory cap of {effective} bytes; the run expects "
+            f"{expected}",
+            "serve under `systemd-run --user -p MemoryMax=<the configured cap>` "
+            "(distill_edge_memory_cap), or change the run config",
         )
     return {
         "effective_memory_max": effective,
@@ -265,28 +278,45 @@ def _decisions(rows: Sequence[Mapping[str, Any]]) -> dict[tuple[str, str], Any]:
 
 
 def agreement(
-    edge_rows: Sequence[Mapping[str, Any]], final_rows: Sequence[Mapping[str, Any]]
+    edge_rows: Sequence[Mapping[str, Any]], reference_rows: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:
     """Argmax agreement over the (record, question) keys both prediction sets answered."""
-    edge, final = _decisions(edge_rows), _decisions(final_rows)
-    shared = [k for k in edge if k in final and edge[k] is not None and final[k] is not None]
-    agree = sum(1 for k in shared if edge[k] == final[k])
+    edge, ref = _decisions(edge_rows), _decisions(reference_rows)
+    shared = [k for k in edge if k in ref and edge[k] is not None and ref[k] is not None]
+    agree = sum(1 for k in shared if edge[k] == ref[k])
     return {
         "n_compared": len(shared),
         "n_agree": agree,
         "agreement": agree / len(shared) if shared else None,
         "n_edge_questions": len(edge),
-        "n_final_questions": len(final),
+        "n_reference_questions": len(ref),
     }
 
 
-def _final_rows(run_dir: Path) -> list[Mapping[str, Any]]:
-    path = run_dir / FINAL_STUDENT_PREDICTIONS
+def reference_rows(run_dir: Path | str, expected: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The quant stage's selection-fold predictions of the shipped build; refused when absent
+    or produced by a bundle other than *expected* (manifest sha256, then per-file sha256s)."""
+    path = Path(run_dir) / REFERENCE_PREDICTIONS
     if not path.is_file():
-        return []
-    doc = _read_json(path, "final student predictions")
-    rows = doc if isinstance(doc, list) else doc.get("predictions", [])
-    return [r for r in rows if isinstance(r, Mapping)]
+        raise _refuse(
+            f"{path}: no selection-fold predictions of the shipped build to compare with",
+            "rerun the distill quantize stage (it writes them)",
+        )
+    doc = _read_json(path, "quant deployed predictions")
+    bundle = doc.get("bundle") if isinstance(doc, Mapping) else None
+    want = expected.get("manifest_sha256")
+    if not isinstance(bundle, Mapping) or (
+        want is not None and bundle.get("manifest_sha256") != want
+    ):
+        raise _refuse(
+            f"{path}: the reference predictions come from a different bundle than the one "
+            "the final measured",
+            "compare against predictions of the same sha256 bundle: rerun quantize",
+        )
+    if dict(bundle.get("files") or {}) != dict(expected["files"]):
+        raise _refuse(f"{path}: the reference bundle's file sha256s differ from the final's")
+    rows = doc.get("predictions") or []
+    return [r for r in rows if isinstance(r, Mapping) and r.get("fold", "selection") == "selection"]
 
 
 def _read_json(path: Path, what: str) -> Any:
@@ -304,8 +334,8 @@ def _write_json(path: Path, payload: Any) -> None:
 # --------------------------------------------------------------------- the run
 
 
-def _sample(base_url: str, peaks: dict[str, Any]) -> None:
-    stats = _get_json(base_url, STATS_PATH)
+def _sample(get: Callable[[str], Mapping[str, Any]], peaks: dict[str, Any]) -> None:
+    stats = get(STATS_PATH)
     rss, avail = stats.get("rss_bytes"), stats.get("mem_available_bytes")
     if isinstance(rss, int):
         peaks["rss_bytes_peak"] = max(peaks["rss_bytes_peak"] or 0, rss)
@@ -335,8 +365,13 @@ def run_edge(
     client: Any = None,
     clock: Clock = time.perf_counter,
     now: Callable[[], str] = _now,
+    expected_cap: int | None = None,
+    get: Callable[[str], Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Plan (dry-run) or run the edge measurement; write the manifest and predictions."""
+    """Plan (dry-run) or run the edge measurement; write the manifest and predictions.
+
+    *expected_cap* is the cgroup cap (bytes) the board's server must report; *get* answers
+    ``GET /v1/bundle`` and ``/v1/stats`` (default: HTTP on the localhost *base_url*)."""
     run_dir = Path(run_dir)
     try:
         require_localhost(base_url)
@@ -349,6 +384,7 @@ def run_edge(
         "label": label,
         "base_url": base_url,
         "served_model": served_model,
+        "expected_cap": expected_cap,
         "folds": {
             FOLD_SELECTION: {"count": len(folds[FOLD_SELECTION]), "file": Path(selection).name},
             FOLD_PROBE: {
@@ -359,11 +395,13 @@ def run_edge(
     }
     if not apply:
         return {**base, "dry_run": True}
+    get = get or (lambda path: _get_json(base_url, path))
     expected = expected_bundle(run_dir)
-    served = _get_json(base_url, BUNDLE_PATH)
+    reference = reference_rows(run_dir, expected)
+    served = get(BUNDLE_PATH)
     check_bundle(served, expected)
-    first = _get_json(base_url, STATS_PATH)
-    cap = memory_cap(first)
+    first = get(STATS_PATH)
+    cap = memory_cap(first, expected_cap)
     client = client or SystemOneClient(base_url, model=served_model)
     peaks: dict[str, Any] = {"rss_bytes_peak": None, "mem_available_bytes_min": None, "samples": 0}
     predictions: list[dict[str, Any]] = []
@@ -377,24 +415,33 @@ def run_edge(
             latencies.append(elapsed)
             predictions.append(_row_for(fold, rec, result, elapsed))
             raw_ids.append(rec.id)
-            _sample(base_url, peaks)
-    return _finish(base, run_dir, first, cap, served, peaks, latencies, predictions, raw_ids, now())
+            _sample(get, peaks)
+    measured = _Measured(first, cap, served, peaks, latencies, predictions, raw_ids, reference)
+    return _finish(base, run_dir, measured, now())
 
 
-def _finish(
-    base: dict[str, Any],
-    run_dir: Path,
-    stats: Mapping[str, Any],
-    cap: Mapping[str, Any],
-    served: Mapping[str, Any],
-    peaks: Mapping[str, Any],
-    latencies: Sequence[float],
-    predictions: list[dict[str, Any]],
-    raw_ids: Sequence[str],
-    date: str,
-) -> dict[str, Any]:
-    # agreement is computed on raw ids; the written file hashes probe ids
-    raw_rows = [{**row, "record_id": rid} for row, rid in zip(predictions, raw_ids)]
+@dataclass(frozen=True)
+class _Measured:
+    """What one edge run measured, for :func:`_finish`."""
+
+    stats: Mapping[str, Any]
+    cap: Mapping[str, Any]
+    served: Mapping[str, Any]
+    peaks: Mapping[str, Any]
+    latencies: Sequence[float]
+    predictions: list[dict[str, Any]]
+    raw_ids: Sequence[str]
+    reference: Sequence[Mapping[str, Any]]
+
+
+def _finish(base: dict[str, Any], run_dir: Path, m: _Measured, date: str) -> dict[str, Any]:
+    stats, cap, served, peaks, predictions = m.stats, m.cap, m.served, m.peaks, m.predictions
+    # agreement is on the selection fold, with raw ids; the written file hashes probe ids
+    raw_rows = [
+        {**row, "record_id": rid}
+        for row, rid in zip(predictions, m.raw_ids)
+        if row.get("fold") == FOLD_SELECTION
+    ]
     out_dir = run_dir / EDGE_REL / base["label"]
     manifest = {
         **base,
@@ -406,11 +453,15 @@ def _finish(
         },
         "cap": dict(cap),
         "bundle": {"files": served.get("files"), "manifest_sha256": served.get("manifest_sha256")},
-        "latency": bench.latency_summary(latencies),
+        "latency": bench.latency_summary(m.latencies),
         "memory": dict(peaks),
         "n_records": len(predictions),
         "n_failed": sum(1 for p in predictions if p["error"] or bench._has_error(p)),
-        "agreement": agreement(raw_rows, _final_rows(run_dir)),
+        "agreement": {
+            **agreement(raw_rows, m.reference),
+            "reference": REFERENCE_PREDICTIONS,
+            "fold": FOLD_SELECTION,
+        },
         "predictions_file": PREDICTIONS_FILE,
     }
     _write_json(out_dir / PREDICTIONS_FILE, predictions)
