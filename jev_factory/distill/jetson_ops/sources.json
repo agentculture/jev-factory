@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "sources": [
+    {
+      "id": "jetson-containers-nv",
+      "repo_url": "https://github.com/NVIDIA-AI-IOT/jetson-containers",
+      "commit": "c8bad15f98fc00fa1c7bfc645135892496479036",
+      "paths": [
+        "**"
+      ],
+      "licences": {
+        "code": "MIT",
+        "docs": "MIT"
+      },
+      "attribution": "Contains material from NVIDIA-AI-IOT/jetson-containers (https://github.com/NVIDIA-AI-IOT/jetson-containers), Copyright (c) 2026 NVIDIA CORPORATION. All rights reserved. MIT License: the copyright notice and permission notice are retained."
+    },
+    {
+      "id": "jetson-ai-lab",
+      "repo_url": "https://github.com/OriNachum/jetson-generative-ai-playground",
+      "commit": "045025a971a04a0d1770221ae7b8bde251355c83",
+      "paths": [
+        "**"
+      ],
+      "licences": {
+        "code": "MIT",
+        "docs": "MIT"
+      },
+      "attribution": "Contains material from the Jetson AI Lab site source (https://github.com/OriNachum/jetson-generative-ai-playground), Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved. MIT License: the copyright notice and permission notice are retained."
+    },
+    {
+      "id": "jetson-device-skills",
+      "repo_url": "https://github.com/NVIDIA-AI-IOT/jetson-device-skills",
+      "commit": "20137897aef549cc2fa36a18c10e45da94967c3e",
+      "paths": [
+        "skills/**",
+        "agents/**"
+      ],
+      "licences": {
+        "code": "Apache-2.0",
+        "docs": "CC-BY-4.0"
+      },
+      "attribution": "Contains material from NVIDIA-AI-IOT/jetson-device-skills (https://github.com/NVIDIA-AI-IOT/jetson-device-skills), Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. Documentation is licensed CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/); source code is licensed Apache-2.0. Changes: text was selected, trimmed and recombined into training records."
+    },
+    {
+      "id": "jetson-bsp-skills",
+      "repo_url": "https://github.com/NVIDIA-AI-IOT/jetson-bsp-skills",
+      "commit": "fdfafef0416be1eb3852b68fc802a9752f33fb28",
+      "paths": [
+        "skills/**",
+        "references/**",
+        "context/**"
+      ],
+      "licences": {
+        "code": "Apache-2.0",
+        "docs": "CC-BY-4.0"
+      },
+      "attribution": "Contains material from NVIDIA-AI-IOT/jetson-bsp-skills (https://github.com/NVIDIA-AI-IOT/jetson-bsp-skills), Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. Documentation is licensed CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/); source code is licensed Apache-2.0. Changes: text was selected, trimmed and recombined into training records."
+    },
+    {
+      "id": "lobes-cli",
+      "repo_url": "https://github.com/agentculture/lobes-cli",
+      "commit": "55b59e3244821eaf67f3f02bb1ee6407d03b5019",
+      "paths": [
+        "docs/**",
+        "docs/evidence/**"
+      ],
+      "licences": {
+        "code": "Apache-2.0",
+        "docs": "Apache-2.0"
+      },
+      "attribution": "Contains material from agentculture/lobes-cli (https://github.com/agentculture/lobes-cli), licensed Apache-2.0."
+    },
+    {
+      "id": "nvsh",
+      "repo_url": "https://github.com/agentculture/nvsh",
+      "commit": "2c696a00a606fceea1a87bc98d74ce35084455c7",
+      "paths": [
+        "nvsh/ops/table.py"
+      ],
+      "licences": {
+        "code": "Apache-2.0",
+        "docs": "Apache-2.0"
+      },
+      "attribution": "Contains material from agentculture/nvsh (https://github.com/agentculture/nvsh), device-CLI verbs, licensed Apache-2.0."
+    }
+  ]
+}
