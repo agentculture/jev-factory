@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-15T16:29:32Z",
-  "updated": "2026-10-15T17:41:18Z",
+  "updated": "2026-10-15T18:07:07Z",
   "targets": [
     {
       "id": "c1",
@@ -866,6 +866,14 @@
       "text": "the pruned-vocabulary comparison's OOV refusal rate must be measured on the probe set (disjoint from the kept-id prompts), or the comparison (c38) is uninformative; t17 wires the probe set into compare_pruned",
       "kind": "unknown_nonblocking",
       "task_id": "t17",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r15",
+      "text": "heal mix weights (bf16_student 0.5 / clef 0.5) and KL-only heal loss are agent placeholders; the operator decides them with the other pre-lock knobs (park v2) before preregister --apply",
+      "kind": "unknown_nonblocking",
+      "task_id": "t23",
       "resolved": false,
       "resolution": ""
     }

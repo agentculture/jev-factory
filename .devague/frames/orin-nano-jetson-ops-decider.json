@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-15T05:25:25Z",
-  "updated": "2026-10-15T17:41:18Z",
+  "updated": "2026-10-15T18:07:07Z",
   "claims": [
     {
       "id": "c1",
@@ -895,6 +895,28 @@
       "skipped_check": "",
       "refs": [
         "t11"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l7",
+      "code": "assumption-for-measurement",
+      "what": "t14 scores the bf16 student raw unless bf16_calibration is passed, and measures quant-vs-bf16 agreement on the test headline pool; neither choice was checked against the quant stage's calibration or the plan",
+      "skipped_check": "",
+      "refs": [
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l8",
+      "code": "assumption-for-measurement",
+      "what": "t12's heal QAT uses a hand-written round-to-nearest fake quant (not torchao's quantizer), trains LoRA and head but not norms, and its in-env path never ran on a real 2610 checkpoint; the 0.5/0.5 bf16-student/Clef mix is a placeholder",
+      "skipped_check": "a real heal round on the Spark with the built int4 artifact",
+      "refs": [
+        "t12"
       ],
       "origin": "llm",
       "status": "proposed"
