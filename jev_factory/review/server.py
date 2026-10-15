@@ -33,6 +33,7 @@ from jev_factory.distill.corrections import read_corrections
 from jev_factory.domain.model import Domain
 from jev_factory.review import core
 from jev_factory.review import corrections as corr_review
+from jev_factory.review import drafts as drafts_review
 from jev_factory.review import gold as gold_review
 
 HOST = "127.0.0.1"
@@ -40,6 +41,7 @@ AUTH_HEADER = "X-Review-Key"
 MAX_BODY = 1 << 20
 PAGE = Path(__file__).with_name("page.html")
 GOLD_PAGE = Path(__file__).with_name("gold_page.html")
+DRAFTS_PAGE = Path(__file__).with_name("drafts_page.html")
 _KEY_SLOT = "__JEV_REVIEW_KEY__"
 _CSP = (
     "default-src 'none'; script-src 'unsafe-inline' https://unpkg.com; "
@@ -282,6 +284,116 @@ class GoldApp:
         }
 
 
+class DraftsApp:
+    """The drafts-mode review (``jev review --drafts --serve``), independent of HTTP.
+
+    Every decision is one append-only entry in the draft-review ledger bound to the
+    record's current sha256; the drafted file is never written (``apply_ledger`` makes the
+    reviewed file). A malformed ledger, records or evidence file raises
+    :class:`DraftReviewError` before anything is written.
+    """
+
+    def __init__(
+        self, records: Path, evidence: Path | None = None, ledger_file: Path | None = None
+    ) -> None:
+        self.records = records
+        self.evidence = evidence
+        self.ledger_file = ledger_file or drafts_review.ledger_path(records)
+        self.token = secrets.token_hex(16)
+        self.page = DRAFTS_PAGE.read_text(encoding="utf-8").replace(_KEY_SLOT, self.token).encode()
+        self._lock = threading.Lock()
+
+    def _load(self) -> tuple[list[Any], list[dict[str, Any]], dict[str, dict[str, str]]]:
+        try:
+            drafted = gold_review.read_drafted(self.records)
+        except gold_review.GoldLedgerError as exc:
+            raise drafts_review.DraftReviewError(str(exc)) from None
+        ledger = drafts_review.read_ledger(self.ledger_file)
+        return drafted, ledger, drafts_review.read_evidence(self.evidence)
+
+    def state(self) -> dict[str, Any]:
+        drafted, ledger, evidence = self._load()
+        resolved = drafts_review.resolve(ledger, drafted)
+        items = []
+        for record in drafted:
+            res = resolved[record.id]
+            effective = drafts_review.apply_ledger([record], _only(ledger, record.id))
+            final = effective[0] if effective else record
+            items.append(
+                {
+                    "id": record.id,
+                    "sha256": gold_review.record_sha256(record),
+                    "status": res.status,
+                    "edits": res.edits,
+                    "notes": res.notes,
+                    "split": record.split,
+                    "source": record.source,
+                    "group": record.group,
+                    "gold_provenance": record.gold_provenance,
+                    "state": record.state,
+                    "questions": {q: x.to_json() for q, x in record.questions.items()},
+                    "original_gold": {q: g.to_json() for q, g in record.gold.items()},
+                    "gold": {q: g.to_json() for q, g in final.gold.items()},
+                    "evidence": evidence.get(record.id),
+                }
+            )
+        return {
+            "mode": "drafts",
+            "records_file": str(self.records),
+            "evidence_file": str(self.evidence) if self.evidence else None,
+            "ledger_file": str(self.ledger_file),
+            "items": items,
+            "splits": sorted({i["split"] for i in items}),
+            "sources": sorted({i["source"] for i in items}),
+            "counts": drafts_review.counts(resolved),
+            "orphans": drafts_review.orphans(ledger, drafted),
+        }
+
+    def _entry(self, payload: Mapping[str, Any]) -> tuple[dict[str, Any], Any]:
+        drafted, _ledger, _evidence = self._load()
+        record = next((r for r in drafted if r.id == payload.get("record_id")), None)
+        if record is None:
+            raise drafts_review.DraftReviewError(f"no record {payload.get('record_id')!r}")
+        seen = payload.get("record_sha256")
+        if seen is not None and seen != gold_review.record_sha256(record):
+            raise drafts_review.DraftReviewError(
+                f"{record.id}: the record changed since the page loaded; reload"
+            )
+        edit = None
+        if payload.get("action") == "edit":
+            edit = (str(payload.get("question_id") or ""), str(payload.get("label") or ""))
+        entry = drafts_review.make_entry(
+            record,
+            str(payload.get("action")),
+            reviewer=_text(payload.get("reviewer")),
+            note=_text(payload.get("note")) or "",
+            edit=edit,
+        )
+        return entry, record
+
+    def check(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Validate a decision without recording it."""
+        try:
+            self._entry(payload)
+        except gold_review.GoldLedgerError as exc:
+            return {"problems": [str(exc)]}
+        return {"problems": []}
+
+    def decide(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            entry, _record = self._entry(payload)
+            drafts_review.append_entry(self.ledger_file, entry)
+        return {
+            "recorded": True,
+            "action": entry["action"],
+            "record_sha256": entry["record_sha256"],
+        }
+
+
+def _only(ledger: list[dict[str, Any]], record_id: str) -> list[dict[str, Any]]:
+    return [e for e in ledger if e["record_id"] == record_id]
+
+
 def _text(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
@@ -306,7 +418,7 @@ class _ReviewHandler(BaseHTTPRequestHandler):
     """The review site's request handler; :func:`make_handler` binds it to one app."""
 
     server_version = "jev-review"
-    review_app: ReviewApp | CorrectionsApp | GoldApp
+    review_app: ReviewApp | CorrectionsApp | GoldApp | DraftsApp
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 (stdlib name)
         """Quiet: the review site logs nothing per request."""
@@ -382,7 +494,9 @@ class _ReviewHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 
 
-def make_handler(app: ReviewApp | CorrectionsApp | GoldApp) -> type[BaseHTTPRequestHandler]:
+def make_handler(
+    app: ReviewApp | CorrectionsApp | GoldApp | DraftsApp,
+) -> type[BaseHTTPRequestHandler]:
     class Handler(_ReviewHandler):
         review_app = app
 
@@ -394,6 +508,8 @@ def local_url(port: int) -> str:
     return urlunsplit(("http", f"{HOST}:{port}", "/", "", ""))
 
 
-def make_server(app: ReviewApp | CorrectionsApp | GoldApp, port: int) -> ThreadingHTTPServer:
+def make_server(
+    app: ReviewApp | CorrectionsApp | GoldApp | DraftsApp, port: int
+) -> ThreadingHTTPServer:
     """A server for *app* on the loopback interface (*port* 0 picks a free one)."""
     return ThreadingHTTPServer((HOST, port), make_handler(app))

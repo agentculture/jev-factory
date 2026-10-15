@@ -386,10 +386,115 @@ def _render_gold(result: dict[str, Any], rows: list[dict[str, Any]], applied: bo
     return "\n".join(lines)
 
 
+def _serve_drafts(app: Any, port: int, json_mode: bool) -> int:
+    from jev_factory.review import server
+
+    try:
+        httpd = server.make_server(app, port)
+    except OSError as exc:
+        raise CliError(
+            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", "pass a free --port"
+        ) from None
+    url = server.local_url(httpd.server_address[1])
+    ledger = app.ledger_file
+    emit_result({"url": url, "ledger": str(ledger)} if json_mode else url, json_mode=json_mode)
+    sys.stdout.flush()
+    emit_diagnostic(f"serving the drafts review at {url} (Ctrl-C to stop)")
+    emit_diagnostic(f"decisions are appended to {ledger}; {app.records} is not changed")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        emit_diagnostic("stopped")
+    finally:
+        httpd.server_close()
+    return 0
+
+
+def _drafts_entries(records: list[Any], args: argparse.Namespace) -> list[dict[str, Any]]:
+    from jev_factory.review import drafts
+
+    by_id = {r.id: r for r in records}
+    entries = []
+    for rid, action, edit in _gold_decisions(args):
+        if rid not in by_id:
+            raise CliError(EXIT_USER_ERROR, f"no record {rid!r}", "check the record id")
+        try:
+            entries.append(
+                drafts.make_entry(
+                    by_id[rid], action, reviewer=args.reviewer, note=args.note or "", edit=edit
+                )
+            )
+        except ValueError as exc:
+            raise CliError(EXIT_USER_ERROR, str(exc), "fix the decision") from None
+    return entries
+
+
+def _drafts_mode(args: argparse.Namespace, json_mode: bool) -> int:
+    """Review drafted records of every split; ``--apply`` appends to the draft ledger."""
+    from jev_factory.review import drafts, gold
+
+    path = Path(args.drafts)
+    if not path.is_file():
+        raise CliError(EXIT_ENV_ERROR, f"drafted records file not found: {path}", "check the path")
+    evidence = Path(args.evidence) if args.evidence else None
+    if evidence is not None and not evidence.is_file():
+        raise CliError(EXIT_ENV_ERROR, f"evidence file not found: {evidence}", "check the path")
+    ledger_file = Path(args.review_file) if args.review_file else drafts.ledger_path(path)
+    if args.serve:
+        from jev_factory.review import server
+
+        app = server.DraftsApp(path, evidence, ledger_file)
+        return _serve_drafts(app, args.port, json_mode)
+    try:
+        records = gold.read_drafted(path)
+        ledger = drafts.read_ledger(ledger_file)
+        drafts.read_evidence(evidence)
+        entries = _drafts_entries(records, args)
+        after = [*ledger, *entries]
+        resolved = drafts.resolve(after, records)
+        reviewed = drafts.apply_ledger(records, after)
+    except ValueError as exc:
+        raise CliError(EXIT_USER_ERROR, str(exc), "fix or restore the file") from None
+    out = Path(args.reviewed_out) if args.reviewed_out else None
+    if args.apply:
+        for entry in entries:
+            drafts.append_entry(ledger_file, entry)
+        if out is not None:
+            gold.write_drafted(out, reviewed)
+    result = {
+        "records": str(path),
+        "ledger": str(ledger_file),
+        "total": len(records),
+        "counts": drafts.counts(resolved),
+        "decisions": len(entries),
+        "applied": bool(args.apply and entries),
+        "reviewed_records": len(reviewed),
+        "reviewed_out": str(out) if out and args.apply else None,
+        "orphans": drafts.orphans(after, records),
+    }
+    lines = [
+        f"records: {path}",
+        f"ledger: {ledger_file}",
+        f"{result['total']} record(s): "
+        + ", ".join(f"{n} {k}" for k, n in result["counts"].items()),
+        f"the reviewed file would hold {len(reviewed)} record(s)",
+    ]
+    lines.extend(f"orphan ledger entry: {o}" for o in result["orphans"])
+    lines.append(f"{'recorded' if args.apply else 'would record'} {len(entries)} decision(s)")
+    if result["reviewed_out"]:
+        lines.append(f"wrote the reviewed drafts to {out}")
+    if (entries or out) and not args.apply:
+        lines.append("dry run: nothing was written; pass --apply to record and write")
+    emit_result(result if json_mode else "\n".join(lines), json_mode=json_mode)
+    return 0
+
+
 def cmd_review(args: argparse.Namespace) -> int:
     json_mode = bool(args.json)
     if args.serve and args.apply:
         raise CliError(EXIT_USER_ERROR, "--serve and --apply are separate steps", "pick one")
+    if args.drafts:
+        return _drafts_mode(args, json_mode)
     if args.gold:
         return _gold_mode(args, json_mode)
     if args.corrections:
@@ -448,10 +553,32 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--decide/--edit with --apply append to <stem>.gold-ledger.jsonl.",
     )
     p.add_argument(
-        "--decide", action="append", metavar="ID=ACTION", help="With --gold: approve or reject."
+        "--drafts",
+        metavar="FILE",
+        help="Review drafted records of every split (JSONL) one at a time: --serve for the "
+        "site, or --decide ID=keep|drop|note / --edit with --apply to append to "
+        "<stem>.draft-ledger.jsonl.",
     )
     p.add_argument(
-        "--edit", action="append", metavar="ID:QID=LABEL", help="With --gold: correct the gold."
+        "--evidence", metavar="FILE", help="With --drafts: evidence JSONL {id, group, quote, why}."
+    )
+    p.add_argument(
+        "--reviewed-out",
+        dest="reviewed_out",
+        metavar="FILE",
+        help="With --drafts --apply: write the reviewed drafts (dropped removed, edits applied).",
+    )
+    p.add_argument(
+        "--decide",
+        action="append",
+        metavar="ID=ACTION",
+        help="With --gold: approve or reject. With --drafts: keep, drop or note.",
+    )
+    p.add_argument(
+        "--edit",
+        action="append",
+        metavar="ID:QID=LABEL",
+        help="With --gold or --drafts: correct the gold.",
     )
     p.add_argument("--reviewer", help="With --gold: who decides (default operator).")
     p.add_argument("--note", help="With --gold: a note stored with each decision.")

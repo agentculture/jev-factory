@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jev review - drafts</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6b6a64; --line:#d9d6cc;
+    --ok:#1a7f37; --bad:#b42318; --edit:#9a6700; --card:#fff; --ev:#eef3fb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161614; --fg:#ecebe6; --muted:#9b9a92;
+    --line:#3a3a35; --ok:#56d364; --bad:#ff7b72; --edit:#e3b341; --card:#1f1f1c; --ev:#1b2433; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, sans-serif; }
+  main { max-width: 1280px; margin: 0 auto; padding: 14px 18px 40px; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .top { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:8px 0; font-size:13px; }
+  .pill { border:1px solid var(--line); border-radius:999px; padding:1px 10px; }
+  .progress { height:7px; background:var(--line); border-radius:4px; overflow:hidden; margin-bottom:10px; }
+  .progress > div { height:100%; background:var(--ok); }
+  .cols { display:grid; grid-template-columns: minmax(0,3fr) minmax(0,2fr); gap:14px; align-items:start; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
+  .ev { background:var(--ev); }
+  pre.state { white-space:pre-wrap; word-break:break-word; max-height:62vh; overflow:auto; margin:8px 0 0;
+    font:16px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .quote { border-left:4px solid var(--muted); padding:2px 12px; margin:6px 0 12px; font-size:16px; white-space:pre-wrap; }
+  .q { border-top:1px solid var(--line); padding-top:10px; margin-top:10px; }
+  .opt { display:block; width:100%; text-align:left; border:1px solid transparent; background:none; color:var(--fg);
+    padding:5px 8px; border-radius:6px; font:inherit; }
+  .opt.gold { background: color-mix(in srgb, var(--ok) 20%, transparent); font-weight:600; }
+  .opt.changed { outline:2px solid var(--edit); }
+  .opt.editable { cursor:pointer; border-color:var(--line); }
+  .editing { box-shadow: 0 0 0 2px var(--edit); }
+  .status { font-weight:700; text-transform:uppercase; font-size:12px; }
+  .kept { color:var(--ok); } .dropped { color:var(--bad); } .edited { color:var(--edit); }
+  button, select { font:inherit; padding:4px 11px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+  #error { color:var(--bad); font-weight:600; white-space:pre-wrap; }
+  input[type=text] { font:inherit; padding:4px 8px; flex:1; min-width:180px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
+  kbd { border:1px solid var(--line); border-radius:3px; padding:0 4px; font-size:12px; }
+  .note { font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>jev review - drafted records</h1>
+  <div class="muted" id="files"></div>
+  <div id="error" role="alert"></div>
+  <div class="top" id="counts"></div>
+  <div class="progress"><div id="progress" style="width:0"></div></div>
+  <div class="top">
+    <label>split <select id="f-split"></select></label>
+    <label>source <select id="f-source"></select></label>
+    <label>status <select id="f-status"></select></label>
+    <span class="muted" id="position"></span>
+  </div>
+  <div id="view"></div>
+  <p class="muted">Keys: <kbd>k</kbd> keep, <kbd>d</kbd> drop, <kbd>e</kbd> edit gold (then <kbd>1</kbd>-<kbd>9</kbd> picks an
+    option; <kbd>e</kbd> again for the next question, <kbd>Esc</kbd> leaves), <kbd>n</kbd> note (<kbd>Enter</kbd> saves),
+    <kbd>j</kbd>/<kbd>&rarr;</kbd> next, <kbd>&larr;</kbd> previous, <kbd>u</kbd> next unreviewed.
+    Every decision is appended to the draft ledger at once; the drafted file is not changed.</p>
+</main>
+<script>
+"use strict";
+const KEY = "__JEV_REVIEW_KEY__";
+const STATUSES = ["unreviewed", "kept", "edited", "dropped"];
+let state = null;
+let currentId = null;
+let editQ = -1; // index of the question being edited, -1 for none
+
+async function api(path, body) {
+  const init = { headers: { "X-Review-Key": KEY } };
+  if (body) { init.method = "POST"; init.body = JSON.stringify(body); }
+  const res = await fetch(path, init);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+function el(tag, props, ...kids) {
+  const node = document.createElement(tag);
+  Object.assign(node, props || {});
+  for (const k of kids) node.append(k);
+  return node;
+}
+function showError(msg) { document.getElementById("error").textContent = msg || ""; }
+function filt(id) { return document.getElementById(id).value; }
+
+function visible() {
+  if (!state) return [];
+  const [sp, so, st] = [filt("f-split"), filt("f-source"), filt("f-status")];
+  return state.items.filter(i => (!sp || i.split === sp) && (!so || i.source === so) && (!st || i.status === st));
+}
+function currentIndex(list) {
+  const i = list.findIndex(x => x.id === currentId);
+  return i < 0 ? 0 : i;
+}
+function fillSelect(id, label, values) {
+  const sel = document.getElementById(id);
+  const keep = sel.value;
+  sel.replaceChildren(el("option", { value: "", textContent: "all " + label }));
+  for (const v of values) sel.append(el("option", { value: v, textContent: v }));
+  sel.value = values.includes(keep) ? keep : "";
+}
+
+async function load() {
+  try {
+    state = await api("/api/state");
+    showError("");
+    fillSelect("f-split", "splits", state.splits);
+    fillSelect("f-source", "sources", state.sources);
+    fillSelect("f-status", "statuses", STATUSES);
+    if (currentId === null) {
+      const first = state.items.find(i => i.status === "unreviewed") || state.items[0];
+      currentId = first ? first.id : null;
+    }
+  } catch (err) {
+    state = null;
+    showError("Cannot read the drafts, evidence or ledger (nothing was written): " + err.message);
+  }
+  render();
+}
+
+function goldLabel(g) { return g && g.label !== undefined && g.label !== null ? g.label : "(no label)"; }
+
+function questionBlock(item, qid, n) {
+  const q = item.questions[qid];
+  const now = goldLabel(item.gold[qid]);
+  const was = goldLabel(item.original_gold[qid]);
+  const editing = editQ === n;
+  const box = el("div", { className: "q" + (editing ? " editing" : "") });
+  box.append(el("div", {}, el("strong", { textContent: qid }),
+    el("span", { className: "muted", textContent: "  (" + q.type + ")" + (now !== was ? "  edited from " + was : "") })));
+  if (q.instructions) box.append(el("div", { className: "muted", textContent: q.instructions }));
+  q.criteria.forEach(([name, text], k) => {
+    const isGold = name === now;
+    const label = (isGold ? "→ " : "   ") + (editing ? (k + 1) + ". " : "") + name + (text ? ": " + text : "");
+    const opt = el("button", { className: "opt" + (isGold ? " gold" : "") + (isGold && now !== was ? " changed" : "") + (editing ? " editable" : ""),
+      textContent: label });
+    opt.onclick = () => { if (editing) setGold(item, qid, name); };
+    box.append(opt);
+  });
+  return box;
+}
+
+function evidenceCard(item) {
+  const card = el("div", { className: "card ev" });
+  card.append(el("strong", { textContent: "Evidence" }));
+  if (!item.evidence) {
+    card.append(el("p", { className: "muted", textContent: "No evidence line for this record." }));
+  } else {
+    card.append(el("div", { className: "quote", textContent: item.evidence.quote }));
+    card.append(el("strong", { textContent: "Why" }));
+    card.append(el("p", { textContent: item.evidence.why }));
+  }
+  card.append(el("div", { className: "note", textContent: "source group: " + (item.group || (item.evidence && item.evidence.group) || "(none)") }));
+  if (item.notes.length) {
+    card.append(el("strong", { textContent: "Notes" }));
+    for (const n of item.notes) card.append(el("div", { className: "note", textContent: n.at + "  " + n.note }));
+  }
+  return card;
+}
+
+function render() {
+  const view = document.getElementById("view");
+  view.replaceChildren();
+  const counts = document.getElementById("counts");
+  counts.replaceChildren();
+  if (!state) return;
+  document.getElementById("files").textContent = state.records_file + "  |  evidence " + (state.evidence_file || "none") + "  |  ledger " + state.ledger_file;
+  const total = state.items.length;
+  for (const k of STATUSES) counts.append(el("span", { className: "pill", textContent: k + " " + (state.counts[k] || 0) }));
+  const done = total - (state.counts.unreviewed || 0);
+  document.getElementById("progress").style.width = total ? (100 * done / total) + "%" : "0";
+  const list = visible();
+  if (!list.length) {
+    document.getElementById("position").textContent = "";
+    view.append(el("p", { textContent: total ? "No record matches the filters." : "No records in the file." }));
+    return;
+  }
+  const idx = currentIndex(list);
+  const item = list[idx];
+  currentId = item.id;
+  document.getElementById("position").textContent = "showing " + (idx + 1) + " of " + list.length + " (" + total + " in file; " + done + " reviewed)";
+  const left = el("div", {});
+  const card = el("div", { className: "card" });
+  card.append(el("div", {},
+    el("strong", { textContent: item.id }),
+    el("span", { className: "muted", textContent: "  split " + item.split + "  |  source " + item.source + "  |  gold " + item.gold_provenance + "  |  " }),
+    el("span", { className: "status " + item.status, textContent: item.status })));
+  card.append(el("pre", { className: "state", textContent: item.state }));
+  Object.keys(item.questions).forEach((qid, n) => card.append(questionBlock(item, qid, n)));
+  const note = el("input", { type: "text", placeholder: "note (n; Enter saves a note on its own)", id: "note" });
+  note.onkeydown = ev => { if (ev.key === "Enter") { saveNote(item); } else if (ev.key === "Escape") { note.blur(); } };
+  card.append(el("div", { className: "actions" },
+    el("button", { textContent: "Keep (k)", onclick: () => decide(item, "keep", {}, true) }),
+    el("button", { textContent: "Drop (d)", onclick: () => decide(item, "drop", {}, true) }),
+    el("button", { textContent: "Edit gold (e)", onclick: () => toggleEdit(item) }),
+    note,
+    el("button", { textContent: "Prev", onclick: () => move(-1) }),
+    el("button", { textContent: "Next", onclick: () => move(1) })));
+  left.append(card);
+  const cols = el("div", { className: "cols" }, left, evidenceCard(item));
+  view.append(cols);
+  if (state.orphans.length) view.append(el("p", { className: "muted", textContent: "Ledger entries matching no current record: " + state.orphans.join(", ") }));
+}
+
+function move(step) {
+  const list = visible();
+  if (!list.length) return;
+  const i = Math.min(Math.max(currentIndex(list) + step, 0), list.length - 1);
+  currentId = list[i].id;
+  editQ = -1;
+  render();
+}
+function nextUnreviewed() {
+  const list = visible();
+  const n = list.length;
+  const start = currentIndex(list);
+  for (let k = 1; k <= n; k++) {
+    const i = (start + k) % n;
+    if (list[i].status === "unreviewed") { currentId = list[i].id; break; }
+  }
+  editQ = -1;
+  render();
+}
+function toggleEdit(item) {
+  const n = Object.keys(item.questions).length;
+  editQ = editQ + 1 >= n ? -1 : editQ + 1;
+  render();
+}
+
+async function send(item, action, extra) {
+  const noteBox = document.getElementById("note");
+  const body = Object.assign({ record_id: item.id, record_sha256: item.sha256, action }, extra);
+  if (action !== "note" && noteBox && noteBox.value.trim() && !body.note) body.note = noteBox.value;
+  try { await api("/api/decision", body); } catch (err) { showError(err.message); return false; }
+  return true;
+}
+async function decide(item, action, extra, advance) {
+  if (!(await send(item, action, extra))) return;
+  editQ = -1;
+  await load();
+  if (advance) {
+    const after = visible();
+    const i = after.findIndex(x => x.id === item.id);
+    const target = after.slice(i + 1).find(x => x.status === "unreviewed") || after[i + 1] || after[i];
+    if (target) { currentId = target.id; render(); }
+  }
+}
+async function setGold(item, qid, label) {
+  if (label === goldLabel(item.gold[qid])) return;
+  await decide(item, "edit", { question_id: qid, label }, false);
+}
+async function saveNote(item) {
+  const text = document.getElementById("note").value.trim();
+  if (!text) return;
+  if (await send(item, "note", { note: text })) { await load(); }
+}
+
+document.addEventListener("keydown", ev => {
+  if (ev.target.matches("input, select, textarea") || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  const list = visible();
+  if (!state || !list.length) return;
+  const item = list[currentIndex(list)];
+  const qids = Object.keys(item.questions);
+  if (editQ >= 0 && /^[1-9]$/.test(ev.key)) {
+    const q = item.questions[qids[editQ]];
+    const pick = q.criteria[Number(ev.key) - 1];
+    if (pick) setGold(item, qids[editQ], pick[0]);
+  } else if (ev.key === "Escape") { editQ = -1; render(); }
+  else if (ev.key === "k") decide(item, "keep", {}, true);
+  else if (ev.key === "d") decide(item, "drop", {}, true);
+  else if (ev.key === "e") toggleEdit(item);
+  else if (ev.key === "n") { ev.preventDefault(); document.getElementById("note").focus(); }
+  else if (ev.key === "j" || ev.key === "ArrowRight") move(1);
+  else if (ev.key === "ArrowLeft") move(-1);
+  else if (ev.key === "u") nextUnreviewed();
+});
+for (const id of ["f-split", "f-source", "f-status"]) document.getElementById(id).onchange = () => { editQ = -1; render(); };
+load();
+</script>
+</body>
+</html>

@@ -239,7 +239,8 @@ new entry, whose source defaults to `operator-review-<date>`.
 `--corrections FILE` reviews distillery corrections instead of a domain seed;
 see `jev-factory explain review corrections`. `--gold FILE` records the
 operator's approval of drafted human-gold test records; see
-`jev-factory explain review gold`.
+`jev-factory explain review gold`. `--drafts FILE` reviews drafted records of every
+split one at a time; see `jev-factory explain review drafts`.
 
 ## Usage
 
@@ -312,6 +313,44 @@ unreadable file, a corrupted ledger or an unknown id is a user error (exit 1).
     jev-factory review --gold <file>
     jev-factory review --gold <file> --decide <id>=approve --apply
     jev-factory review --gold <file> --edit <id>:<qid>=<label> --apply
+"""
+
+_REVIEW_DRAFTS = """\
+# jev-factory review --drafts <file>
+
+Operator review of drafted records of every split (JSONL of distill records), one
+record at a time, with the evidence that produced each one. `--evidence FILE` is a
+JSONL of `{id, group, quote, why}` lines. Decisions are `keep`, `drop`, `edit` (correct
+a question's gold label) and `note` (a remark that stays out of the records). They go to
+an append-only ledger, `<file stem>.draft-ledger.jsonl` beside the drafts unless
+`--review-file` names another: one line per decision with the record id, the record's
+sha256, the action, the reviewer and an ISO time. The drafted file itself is never
+changed by a decision. A record's status is its latest non-note entry for its current
+sha256 (unreviewed, kept, edited, dropped); a malformed ledger is an error and nothing
+is written.
+
+- Default (dry run): lists the status counts and what the given decisions would record.
+- `--serve`: starts the local site on 127.0.0.1 (`--port`, default 18765, `0` for a free
+  one): the state text, the questions with the drafted gold highlighted, the evidence
+  quote and why, source group and split, progress counts and filters by split, source
+  and status. Keys: k keep, d drop, e edit gold, n note, j or the arrow keys to move,
+  u next unreviewed. Every call needs the per-run token and a loopback Host header.
+- `--decide ID=keep|drop|note`, `--edit ID:QID=LABEL`, `--reviewer`, `--note`: decisions
+  from the command line.
+- `--apply`: appends the decisions to the ledger.
+- `--reviewed-out FILE` (with `--apply`): writes the reviewed draft file, with dropped
+  records removed and edits applied.
+
+An edited test record has a new sha256, so an earlier gold approval no longer matches
+it: its approval still goes through `jev-factory review --gold`. A missing file is an
+environment error (exit 2); an unreadable file, a corrupted ledger or an unknown id is
+a user error (exit 1).
+
+## Usage
+
+    jev-factory review --drafts <file> --evidence <file> --serve
+    jev-factory review --drafts <file> --decide <id>=keep --apply
+    jev-factory review --drafts <file> --apply --reviewed-out <reviewed.jsonl>
 """
 
 _DECIDE = """\
@@ -467,6 +506,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("distill",): _DISTILL,
     ("review", "corrections"): _REVIEW_CORRECTIONS,
     ("review", "gold"): _REVIEW_GOLD,
+    ("review", "drafts"): _REVIEW_DRAFTS,
     ("domain",): _DOMAIN,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
