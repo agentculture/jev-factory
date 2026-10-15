@@ -120,7 +120,7 @@ def test_schema_covers_bars_rule_grid_and_references():
     assert reg.bars["quant"]["ece_max"] == 0.10
     assert set(reg.knob_grid) >= set(dp.KNOB_NAMES)
     assert reg.knob_grid["teacher_filter"] == ["all", "agrees_with_gold"]
-    assert set(reg.reference_rows) == {"clef", "stock_v21"}
+    assert set(reg.reference_rows) == {"clef", "stock"}
     assert reg.selection_rule["order"]
 
 

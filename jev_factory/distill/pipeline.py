@@ -152,8 +152,8 @@ STAGE_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
     "benchmark": (
         "distill_teacher_url",
         "distill_teacher_model",
-        "distill_v21_url",
-        "distill_v21_model",
+        "distill_stock_url",
+        "distill_stock_model",
     ),
     "train": (
         "distill_pin_cache",
@@ -186,8 +186,8 @@ STAGE_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
     "final": (
         "distill_teacher_url",
         "distill_teacher_model",
-        "distill_v21_url",
-        "distill_v21_model",
+        "distill_stock_url",
+        "distill_stock_model",
         "distill_decider_repo",
         "distill_student_python",
         "distill_student_lockfile",
@@ -216,7 +216,7 @@ class Services:
     teacher_client: Any = None
     #: ``(record) -> {qid: target}`` for corrections-draft (default: the alternative teacher).
     drafter: Callable[[Any], dict[str, dict[str, Any]]] | None = None
-    #: ``{"clef"|"stock_v21": Target}`` for benchmark (default: the configured URLs).
+    #: ``{"clef"|"stock": Target}`` for benchmark (default: the configured URLs).
     benchmark_targets: Mapping[str, Any] | None = None
     #: ``{name: client}`` for benchmark (default: SystemOneClient per target).
     benchmark_clients: Mapping[str, Any] | None = None
@@ -230,7 +230,7 @@ class Services:
     measurer: Any = None
     #: quantize: the heal trainer (default: the module's own).
     trainer: Any = None
-    #: final: ``{name: FinalModel}`` for clef, stock_v21 and student (default: from config).
+    #: final: ``{name: FinalModel}`` for clef, stock and student (default: from config).
     final_models: Mapping[str, Any] | None = None
     #: upload: the hub client module (default: huggingface_hub, imported on upload).
     hub: Any = None
@@ -566,7 +566,7 @@ def stage_assemble(workdir: Path, knobs: dict[str, Any]) -> None:
 
 
 def stage_benchmark(workdir: Path, knobs: dict[str, Any]) -> None:
-    """Zero-shot benchmark of Clef and stock v21 on the fit and selection folds."""
+    """Zero-shot benchmark of Clef and the stock model on the fit and selection folds."""
     from jev_factory.distill import benchmark as bench
 
     ctx = _ctx()
@@ -577,8 +577,8 @@ def stage_benchmark(workdir: Path, knobs: dict[str, Any]) -> None:
             "clef": bench.Target(
                 "clef", str(req("distill_teacher_url")), str(req("distill_teacher_model"))
             ),
-            "stock_v21": bench.Target(
-                "stock_v21", str(req("distill_v21_url")), str(req("distill_v21_model"))
+            "stock": bench.Target(
+                "stock", str(req("distill_stock_url")), str(req("distill_stock_model"))
             ),
         }
     result = bench.run_benchmark(
@@ -744,8 +744,10 @@ def _final_models(ctx: DistillContext) -> Mapping[str, Any]:
                 report.CLEF, str(req("distill_teacher_url")), str(req("distill_teacher_model"))
             )
         ),
-        report.V21: dfinal.FinalModel(
-            bench.Target(report.V21, str(req("distill_v21_url")), str(req("distill_v21_model")))
+        report.STOCK: dfinal.FinalModel(
+            bench.Target(
+                report.STOCK, str(req("distill_stock_url")), str(req("distill_stock_model"))
+            )
         ),
         report.STUDENT: _student_final_model(ctx),
     }
@@ -763,7 +765,7 @@ def _final_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, An
 
 
 def stage_final(workdir: Path, knobs: dict[str, Any]) -> None:
-    """Score Clef, stock v21 and the deployed student once, on test and held-out."""
+    """Score Clef, the stock model and the deployed student once, on test and held-out."""
     ctx = _ctx()
     dfinal.run_final(**_final_kwargs(ctx, knobs), models=_final_models(ctx), apply=True)
 

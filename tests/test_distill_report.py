@@ -58,7 +58,7 @@ def _good(recs):
     """Clef 38/40, v21 20/40 at 0.6 (ECE 0.1), student 36/40 well calibrated."""
     return {
         "clef": _rows(recs, 38, 0.9, 0.2),
-        "stock_v21": _rows(recs, 20, 0.6, 0.4),
+        "stock": _rows(recs, 20, 0.6, 0.4),
         "student": _rows(recs, 36, 0.97, 0.45),
     }
 
@@ -66,7 +66,7 @@ def _good(recs):
 def _runtime(student_s=0.1, clef_s=1.0, hosts=("box", "box", "box")):
     out = {}
     for (name, median), host in zip(
-        (("clef", clef_s), ("stock_v21", 0.2), ("student", student_s)), hosts
+        (("clef", clef_s), ("stock", 0.2), ("student", student_s)), hosts
     ):
         out[name] = {
             "host": host,
@@ -83,8 +83,8 @@ def _build(test, preds, *, prereg=None, runtime=None, quant=None, cal=None, held
     return R.build_report(
         records_by_side={"test": test, "held_out": list(held_out)},
         predictions=preds,
-        calibrations=cal or {"clef": None, "stock_v21": None, "student": None},
-        calibration_sources={"clef": "raw", "stock_v21": "served", "student": "quant"},
+        calibrations=cal or {"clef": None, "stock": None, "student": None},
+        calibration_sources={"clef": "raw", "stock": "served", "student": "quant"},
         runtime=runtime or _runtime(),
         prereg=prereg or dp.validate(dp.example_doc()),
         quant_manifest=quant or QUANT_OK,
@@ -132,7 +132,7 @@ def test_headline_is_human_gold_from_clean_sources_and_overlap_is_reported_apart
     preds = _good(clean)
     for recs in (overlap, evaluated):
         preds["clef"] += _rows(recs, len(recs), 0.9, 0.2)
-        preds["stock_v21"] += _rows(recs, len(recs), 0.9, 0.2)
+        preds["stock"] += _rows(recs, len(recs), 0.9, 0.2)
         preds["student"] += _rows(recs, 0, 0.9, 0.1)  # all wrong: must not touch the gate
     rep = _build(clean + overlap + evaluated, preds)
     assert rep["sources"][OVERLAP]["status"] == "overlapping"
@@ -153,7 +153,7 @@ def test_typed_decisions_agreement_is_reported_not_gated():
     typed = [_rec(i, TYPED, "model-generated") for i in range(12)]
     preds = _good(clean)
     preds["clef"] += _rows(typed, 12, 0.9, 0.2)
-    preds["stock_v21"] += _rows(typed, 12, 0.9, 0.2)
+    preds["stock"] += _rows(typed, 12, 0.9, 0.2)
     preds["student"] += _rows(typed, 0, 0.9, 0.1)
     rep = _build(clean + typed, preds)
     block = rep["sides"]["test"]["pools"][R.MODEL_GENERATED]
@@ -167,9 +167,9 @@ def test_typed_decisions_agreement_is_reported_not_gated():
 def test_the_three_models_are_resampled_jointly():
     recs = [_rec(i) for i in range(40)]
     preds = _good(recs)
-    preds["student"] = [dict(r) for r in preds["stock_v21"]]  # identical to v21, item by item
+    preds["student"] = [dict(r) for r in preds["stock"]]  # identical to stock, item by item
     rep = _build(recs, preds)
-    diff = rep["sides"]["test"]["pools"][R.HEADLINE]["stats"]["accuracy_diff_student_v21"]
+    diff = rep["sides"]["test"]["pools"][R.HEADLINE]["stats"]["accuracy_diff_student_stock"]
     # Unpaired resampling would give a spread; paired draws give exactly zero every time.
     assert diff["ci_low"] == 0.0
     assert diff["ci_high"] == 0.0
@@ -196,7 +196,7 @@ def test_higher_accuracy_with_higher_ece_than_v21_is_a_regression():
     preds["student"] = _rows(recs, 30, 1.0, 0.0)  # 0.75 accuracy, every answer at p = 1
     doc = dp.example_doc()
     doc["bars"]["test"]["ece_max"] = 1.0
-    doc["bars"]["test"]["ece_no_worse_than_v21"] = False
+    doc["bars"]["test"]["ece_no_worse_than_stock"] = False
     rep = _build(recs, preds, prereg=dp.validate(doc))
     assert rep["regression"] is True
     assert rep["sides"]["test"]["pools"][R.HEADLINE]["regression"]["regression"] is True
@@ -269,7 +269,7 @@ def test_each_models_calibration_is_applied_and_recorded():
     preds = _good(recs)
     cal = {"temperature_by_kind": {"choice": 5.0}, "vector_by_kind": {}}
     raw = _build(recs, preds)
-    hot = _build(recs, preds, cal={"clef": None, "stock_v21": None, "student": cal})
+    hot = _build(recs, preds, cal={"clef": None, "stock": None, "student": cal})
     key = "student.ece"
     pool = R.HEADLINE
     assert (
@@ -285,7 +285,7 @@ def test_clef_calibrated_row_is_reported_beside_raw_clef():
     rep = _build(
         recs,
         _good(recs),
-        cal={"clef": None, "stock_v21": None, "student": None, "clef_calibrated": cal},
+        cal={"clef": None, "stock": None, "student": None, "clef_calibrated": cal},
     )
     stats = rep["sides"]["test"]["pools"][R.HEADLINE]["stats"]
     assert "clef_calibrated.ece" in stats
@@ -298,7 +298,7 @@ def test_held_out_is_reported_but_not_gated():
     held = [_rec(100 + i) for i in range(20)]
     preds = _good(test)
     preds["clef"] += _rows(held, 20, 0.9, 0.2)
-    preds["stock_v21"] += _rows(held, 20, 0.9, 0.2)
+    preds["stock"] += _rows(held, 20, 0.9, 0.2)
     preds["student"] += _rows(held, 0, 0.9, 0.1)
     rep = _build(test, preds, held_out=held)
     assert rep["sides"]["held_out"]["c42"]["gated"] is False

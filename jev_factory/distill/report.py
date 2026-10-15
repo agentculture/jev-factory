@@ -1,4 +1,4 @@
-"""The distill final report: a paired gate over Clef, stock v21 and the deployed student.
+"""The distill final report: a paired gate over Clef, the stock reference and the deployed student.
 
 Built from the single final measurement (:mod:`jev_factory.distill.final`), never from a new
 one. Every item of a pool is one gold-bearing question ``(record id, qid)``; the three models
@@ -19,9 +19,9 @@ Pools, per sealed side (``test`` and ``held_out``):
 Every bar is read from the locked distill pre-registration (``bars.test`` for c42,
 ``bars.quant`` for c43) and carries its value, n and CI. c43 (quant drop vs its own bf16,
 heal count, recalibrated ECE) is read from ``distill/quant/quant_manifest.json``, not
-re-measured. A bar that cannot be computed (no items, no v21-to-Clef gap) is a miss with the
+re-measured. A bar that cannot be computed (no items, no stock-to-Clef gap) is a miss with the
 reason; a miss is recorded as a miss and the report is still written. Student accuracy above
-v21 with ECE above v21 is flagged as a regression. Latency (median/p95) and peak memory are
+stock with ECE above stock is flagged as a regression. Latency (median/p95) and peak memory are
 reported for all three models with the host they ran on, so "same box" is checkable.
 Given the fitted decision gate (deviation d4, ``distill/gate/gate.json``), the student's
 calibrated final predictions are gated per kind and their coverage and selective accuracy
@@ -47,9 +47,9 @@ from jev_factory.distill import train as dtrain
 from jev_factory.distill.records import JEV_BENCH_SOURCE, Record
 
 CLEF = "clef"
-V21 = "stock_v21"
+STOCK = "stock"
 STUDENT = "student"
-MODELS = (CLEF, V21, STUDENT)
+MODELS = (CLEF, STOCK, STUDENT)
 #: The extra row when Clef has a calibration of its own (reported, never gated).
 CLEF_CALIBRATED = "clef_calibrated"
 
@@ -217,11 +217,11 @@ def _diff(a: float | None, b: float | None) -> float | None:
     return None if a is None or b is None else a - b
 
 
-def gap_closure(student: float | None, v21: float | None, clef: float | None) -> float | None:
-    """Share of the v21-to-Clef accuracy gap the student closes; ``None`` without a gap."""
-    if student is None or v21 is None or clef is None or clef - v21 <= 0:
+def gap_closure(student: float | None, stock: float | None, clef: float | None) -> float | None:
+    """Share of the stock-to-Clef accuracy gap the student closes; ``None`` without a gap."""
+    if student is None or stock is None or clef is None or clef - stock <= 0:
         return None
-    return (student - v21) / (clef - v21)
+    return (student - stock) / (clef - stock)
 
 
 def joint_stats(
@@ -236,13 +236,13 @@ def joint_stats(
             stats[name] = model_stats([units[i] for i in indices], threshold)
             for metric, value in stats[name].items():
                 out[f"{name}.{metric}"] = value
-        if {CLEF, V21, STUDENT} <= set(stats):
-            s, v, c = stats[STUDENT], stats[V21], stats[CLEF]
-            out["accuracy_diff_student_v21"] = _diff(s["accuracy"], v["accuracy"])
-            out["accuracy_diff_clef_v21"] = _diff(c["accuracy"], v["accuracy"])
+        if {CLEF, STOCK, STUDENT} <= set(stats):
+            s, v, c = stats[STUDENT], stats[STOCK], stats[CLEF]
+            out["accuracy_diff_student_stock"] = _diff(s["accuracy"], v["accuracy"])
+            out["accuracy_diff_clef_stock"] = _diff(c["accuracy"], v["accuracy"])
             out["gap_closure"] = gap_closure(s["accuracy"], v["accuracy"], c["accuracy"])
-            out["ece_diff_student_v21"] = _diff(s["ece"], v["ece"])
-            out["confident_wrong_diff_student_v21"] = _diff(
+            out["ece_diff_student_stock"] = _diff(s["ece"], v["ece"])
+            out["confident_wrong_diff_student_stock"] = _diff(
                 s["confident_wrong"], v["confident_wrong"]
             )
         return out
@@ -356,11 +356,11 @@ def c42_bars(
     runtime: Mapping[str, Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     """Every ``bars.test`` bar, computed from one pool's paired-bootstrap statistics."""
-    diff = stats.get("accuracy_diff_student_v21")
+    diff = stats.get("accuracy_diff_student_stock")
     gap = stats.get("gap_closure")
-    s_ece, v_ece = stats.get(f"{STUDENT}.ece"), stats.get(f"{V21}.ece")
+    s_ece, v_ece = stats.get(f"{STUDENT}.ece"), stats.get(f"{STOCK}.ece")
     s_cw = stats.get(f"{STUDENT}.confident_wrong")
-    v_cw = stats.get(f"{V21}.confident_wrong")
+    v_cw = stats.get(f"{STOCK}.confident_wrong")
     lat = latency_ratio(runtime)
 
     def value(stat: Mapping[str, Any] | None) -> float | None:
@@ -381,22 +381,22 @@ def c42_bars(
             gap,
             None if value(gap) is None else value(gap) >= bars["gap_closure_min"],
             reason=(
-                "no v21-to-Clef accuracy gap to close"
-                if value(gap) is None and value(stats.get("accuracy_diff_clef_v21")) is not None
+                "no stock-to-Clef accuracy gap to close"
+                if value(gap) is None and value(stats.get("accuracy_diff_clef_stock")) is not None
                 else None
             ),
         ),
         _bar("ece_max", bars["ece_max"], s_ece, _le(value(s_ece), bars["ece_max"])),
     ]
     for name, mine, theirs in (
-        ("ece_no_worse_than_v21", s_ece, v_ece),
-        ("confident_wrong_no_worse_than_v21", s_cw, v_cw),
+        ("ece_no_worse_than_stock", s_ece, v_ece),
+        ("confident_wrong_no_worse_than_stock", s_cw, v_cw),
     ):
         if bars[name]:
             out.append(
                 _bar(
                     name,
-                    {"v21": value(theirs)},
+                    {"stock": value(theirs)},
                     mine,
                     _le(value(mine), value(theirs)),
                 )
@@ -440,19 +440,19 @@ def _verdict(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def regression(stats: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
-    """Student accuracy above v21 with ECE above v21 is a regression, not a win."""
+    """Student accuracy above stock with ECE above stock is a regression, not a win."""
 
     def v(key: str) -> float | None:
         return (stats.get(key) or {}).get("value")
 
-    acc_s, acc_v = v(f"{STUDENT}.accuracy"), v(f"{V21}.accuracy")
-    ece_s, ece_v = v(f"{STUDENT}.ece"), v(f"{V21}.ece")
+    acc_s, acc_v = v(f"{STUDENT}.accuracy"), v(f"{STOCK}.accuracy")
+    ece_s, ece_v = v(f"{STUDENT}.ece"), v(f"{STOCK}.ece")
     flagged = None not in (acc_s, acc_v, ece_s, ece_v) and acc_s > acc_v and ece_s > ece_v
     return {
         "regression": bool(flagged),
-        "rule": "student accuracy > v21 accuracy and student ECE > v21 ECE",
+        "rule": "student accuracy > stock accuracy and student ECE > stock ECE",
         "student": {"accuracy": acc_s, "ece": ece_s},
-        "stock_v21": {"accuracy": acc_v, "ece": ece_v},
+        "stock": {"accuracy": acc_v, "ece": ece_v},
     }
 
 

@@ -1,4 +1,4 @@
-"""Distill final: score Clef, stock v21 and the deployed student once, on test and held-out.
+"""Distill final: score Clef, the stock model and the deployed student once, on test and held-out.
 
 The one place the sealed sides' text is read. One invocation scores **all three** models on
 ``test.jsonl`` and ``held_out.jsonl`` (the dataset's sealed sides), one model served at a time
@@ -11,13 +11,13 @@ next starts; one GPU job), under :class:`jev_factory.measure.once.OnceLedger`:
 * the ledger lock is held for the whole run, and one record per side is appended once
   something was scored (``measured``, or ``failed-mid-run`` when a later model failed); a run
   in which nothing was scored writes no record (nvsh P71), so it never blocks the real run;
-* a partial invocation (not exactly Clef, stock v21 and the student) is refused: the three
+* a partial invocation (not exactly Clef, the stock model and the student) is refused: the three
   are measured together, never as separate measurements.
 
 The sealed files are read as bytes and must hash to what :func:`dataset.load_sealed` reports.
 
 Calibration at final, each recorded beside the row it produced: Clef raw (as served), plus a
-``clef_calibrated`` row when a Clef calibration file is given; stock v21 as served (its
+``clef_calibrated`` row when a Clef calibration file is given; the stock model as served (its
 upstream temperatures); the student with ``distill/quant/calibration.json``, whose sha256 must
 match the quant manifest. The deployed artifact is the one ``format_decision.json`` chose.
 
@@ -236,7 +236,7 @@ def run_final(
     gate = fitted_gate(run_dir, student["calibration_sha256"])
     calibrations: dict[str, dict[str, Any]] = {
         dreport.CLEF: {"source": CAL_RAW, "sha256": None, "calibration": None},
-        dreport.V21: {"source": CAL_SERVED, "sha256": None, "calibration": None},
+        dreport.STOCK: {"source": CAL_SERVED, "sha256": None, "calibration": None},
         dreport.STUDENT: {
             "source": STUDENT_CALIBRATION_REL,
             "sha256": student["calibration_sha256"],

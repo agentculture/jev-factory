@@ -7,7 +7,7 @@ One stage, three steps, all reading the **locked** distill pre-registration
 1. **Train.** Every combination of the registered trainer knobs (:func:`grid_candidates`:
    ``alpha``, per-kind ``temperature``, ``epochs``, ``lr``, ``init_mode``) is planned with
    :func:`jev_factory.backbones.pointer.train_distill.plan_train` on assemble's
-   ``train_set.jsonl``, from the verified v21 checkpoint in the pin cache. Dry-run by default;
+   ``train_set.jsonl``, from the verified stock checkpoint in the pin cache. Dry-run by default;
    with ``apply`` each plan runs through ``train_distill.run_train`` and so through
    :func:`jev_factory.factory.gpu.run_gpu_stage` (residency guard, memory cap, floor
    watchdog), one candidate at a time.
@@ -404,7 +404,7 @@ def _verify_pins(cache_dir: Path | str | None, pins: dpins.StudentPins | None) -
     if cache_dir is None or not isinstance(pins, dpins.StudentPins):
         raise _refuse(
             "distill training needs verified student pins (a pin cache and StudentPins)",
-            "pass cache_dir and pins; verify_pins checks revisions and the v21 hashes",
+            "pass cache_dir and pins; verify_pins checks revisions and the stock hashes",
         )
     return dpins.verify_pins(Path(cache_dir), pins)
 
@@ -424,8 +424,8 @@ def check_raw_readout(checkpoint: Path | str) -> None:
     """Refuse a checkpoint whose served config would pre-scale its answers.
 
     The trainer saves ``temperature: 1.0`` and an empty ``temperature_by_kind``; anything
-    else (such as v21's own upstream calibration) would be applied by the server before the
-    fit, so the fitted calibration would compound it.
+    else (such as the stock model's own upstream calibration) would be applied by the server
+    before the fit, so the fitted calibration would compound it.
     """
     path = Path(checkpoint) / SERVED_CONFIG
     if not path.is_file():

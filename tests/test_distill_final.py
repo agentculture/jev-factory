@@ -90,7 +90,7 @@ def env(tmp_path):
 
 
 def _models(log, *, fail_start=None, p=None):
-    p = p or {"clef": 0.9, "stock_v21": 0.6, "student": 0.8}
+    p = p or {"clef": 0.9, "stock": 0.6, "student": 0.8}
     out = {}
     for name in F.MODELS:
 
@@ -183,11 +183,11 @@ def test_a_second_final_is_refused_without_a_deviation_id(env, apply):
 
 def test_a_final_for_only_some_of_the_models_is_refused(env):
     models = _models([])
-    del models["stock_v21"], models["clef"]
+    del models["stock"], models["clef"]
     with pytest.raises(CliError) as exc:
         _run(env, models)
     assert exc.value.code != 0
-    assert "missing ['clef', 'stock_v21']" in exc.value.message
+    assert "missing ['clef', 'stock']" in exc.value.message
     assert _ledger(env) == []
     _run(env, _models([]))
     student_only = {"student": _models([])["student"]}
@@ -237,8 +237,8 @@ def test_the_calibration_each_row_used_is_recorded(env, tmp_path):
     assert cals["student"]["source"] == F.STUDENT_CALIBRATION_REL
     assert cals["student"]["sha256"] == dp.sha256_file(env["qdir"] / "calibration.json")
     assert cals["student"]["calibration"]["temperature_by_kind"] == {"choice": 1.5}
-    assert cals["stock_v21"]["source"] == F.CAL_SERVED
-    assert cals["stock_v21"]["calibration"] is None
+    assert cals["stock"]["source"] == F.CAL_SERVED
+    assert cals["stock"]["calibration"] is None
     assert cals["clef"]["source"] == F.CAL_RAW
     assert cals["clef"]["calibration"] is None
     assert cals[R.CLEF_CALIBRATED]["sha256"] == dp.sha256_file(clef_cal)

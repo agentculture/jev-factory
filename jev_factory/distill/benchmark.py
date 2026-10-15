@@ -1,4 +1,4 @@
-"""Zero-shot benchmark of the teacher (Clef) and stock v21 on the fit/selection folds (t16).
+"""Zero-shot benchmark of the teacher (Clef) and the stock model on the fit/selection folds (t16).
 
 Each model is served in turn (one GPU job at a time): ``start`` brings the server up, every
 record of the requested folds is sent through :class:`SystemOneClient`, the answers are kept

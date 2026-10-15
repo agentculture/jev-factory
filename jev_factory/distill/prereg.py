@@ -34,15 +34,15 @@ KNOB_NAMES: tuple[str, ...] = (
     "lr",
 )
 TEACHER_FILTERS = ("all", "agrees_with_gold")
-REFERENCE_ROWS = ("clef", "stock_v21")
+REFERENCE_ROWS = ("clef", "stock")
 
 #: bar name -> (kind, bound); kind "rate" in [0, 1], "pos" > 0, "flag" must be bool.
 TEST_BARS: dict[str, str] = {
     "accuracy_diff_ci_lower_min": "rate",
     "gap_closure_min": "rate",
     "ece_max": "rate",
-    "ece_no_worse_than_v21": "flag",
-    "confident_wrong_no_worse_than_v21": "flag",
+    "ece_no_worse_than_stock": "flag",
+    "confident_wrong_no_worse_than_stock": "flag",
     "latency_ratio_max": "pos",
 }
 QUANT_BARS: dict[str, str] = {
@@ -144,8 +144,9 @@ HEAL_SOURCE = (
     "heal = 1 epoch, lr 5e-5, continuing from the model's own checkpoint on the frozen "
     "train set (a plain continued fine-tune, not QAT)"
 )
-#: v21's ``lora_targets`` (train_config.json and strands_decider_config.json agree).
-V21_LORA_TARGETS = (
+#: The stock model's ``lora_targets`` (hobson-v21's train_config.json and
+#: strands_decider_config.json agree).
+STOCK_LORA_TARGETS = (
     "q_proj",
     "k_proj",
     "v_proj",
@@ -188,9 +189,9 @@ def example_doc() -> dict[str, Any]:
         ("reverse_score_prob", 0.5, TRAIN_CONFIG, "reverse_score_prob"),
         ("lora_r", 16, TRAIN_CONFIG, "lora_r"),
         ("lora_alpha", 32, TRAIN_CONFIG, "lora_alpha"),
-        # train_config.json has no lora_dropout; the model config carries v21's value.
+        # train_config.json has no lora_dropout; the model config carries the stock value.
         ("lora_dropout", 0.05, DECIDER_CONFIG, "lora_dropout"),
-        ("lora_targets", list(V21_LORA_TARGETS), TRAIN_CONFIG, "lora_targets"),
+        ("lora_targets", list(STOCK_LORA_TARGETS), TRAIN_CONFIG, "lora_targets"),
     ]
     return {
         "schema_version": SCHEMA_VERSION,
@@ -199,8 +200,8 @@ def example_doc() -> dict[str, Any]:
                 "accuracy_diff_ci_lower_min": 0.0,
                 "gap_closure_min": 0.5,
                 "ece_max": 0.10,
-                "ece_no_worse_than_v21": True,
-                "confident_wrong_no_worse_than_v21": True,
+                "ece_no_worse_than_stock": True,
+                "confident_wrong_no_worse_than_stock": True,
                 "latency_ratio_max": 0.2,
             },
             "quant": {
@@ -250,7 +251,7 @@ def example_doc() -> dict[str, Any]:
         },
         "reference_rows": {
             "clef": {"model": "Clef 27B", "role": "teacher"},
-            "stock_v21": {
+            "stock": {
                 "model": "StrandsAgents/strands-decider-2B-hobson-v21",
                 "role": "stock baseline",
             },
