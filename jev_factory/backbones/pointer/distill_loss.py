@@ -236,7 +236,7 @@ def distill_loss_torch(logits: Any, batch: dict[str, Any], *, alpha: float) -> d
     _check_alpha(alpha)
     torch = _torch()
     device = logits.device
-    b, k = logits.shape
+    _, k = logits.shape
     n_opt = batch["n_options"].to(device)
     valid = torch.arange(k, device=device).unsqueeze(0) < n_opt.unsqueeze(1)
 

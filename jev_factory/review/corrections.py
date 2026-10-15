@@ -184,7 +184,7 @@ def plan(corrections: Iterable[Correction], records: Sequence[Mapping[str, Any]]
     """Status counts of the latest decisions, with a conflict per stale or orphan decision."""
     by_key = current(corrections)
     decided = latest(records)
-    out = Plan(counts={s: 0 for s in ("proposed", "approved", "edited", "rejected")})
+    out = Plan(counts=dict.fromkeys(("proposed", "approved", "edited", "rejected"), 0))
     for key, correction in by_key.items():
         record = decided.get(key)
         if record is not None and is_stale(correction, record):

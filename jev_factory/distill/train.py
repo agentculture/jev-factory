@@ -253,16 +253,18 @@ def _fit_kind(fit_rows, selection_rows) -> dict[str, Any]:
     with_vector, temp_only = ece[VARIANT_VECTOR], ece["temperature"]
     keep = bool(vector) and with_vector is not None and temp_only is not None
     keep = keep and with_vector < temp_only
+    if closed:
+        vector_skipped = None
+    elif not fit:
+        vector_skipped = "no fit rows"
+    else:
+        vector_skipped = "open label set: rows offer different labels"
     return {
         "temperature": temperature,
         "vector": _unwrap(vector) if keep else {},
         "vector_fitted": _unwrap(vector),
         "vector_kept": keep,
-        "vector_skipped": (
-            None
-            if closed
-            else "no fit rows" if not fit else "open label set: rows offer different labels"
-        ),
+        "vector_skipped": vector_skipped,
         "fit_examples": len(fit),
         "selection_examples": len(sel),
         "selection_ece": ece,

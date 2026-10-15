@@ -310,12 +310,7 @@ def _nonempty_list(name: str, value: Any) -> list[Any]:
     return value
 
 
-def _grid(doc: Any) -> dict[str, Any]:
-    if not isinstance(doc, dict):
-        raise _err("knob_grid must be an object")
-    missing = [n for n in KNOB_NAMES if n not in doc]
-    if missing:
-        raise _err(f"knob_grid missing: {', '.join(missing)}")
+def _check_numeric_grid(doc: dict[str, Any]) -> None:
     for name in ("alpha", "teacher_weak_floor"):
         if not all(_is_num(v) and 0.0 <= v <= 1.0 for v in _nonempty_list(name, doc[name])):
             raise _err(f"knob_grid.{name} values must be numbers in [0, 1]")
@@ -324,17 +319,29 @@ def _grid(doc: Any) -> dict[str, Any]:
             raise _err(f"knob_grid.{name} values must be positive numbers")
     if not all(_is_int(v) and v >= 1 for v in _nonempty_list("epochs", doc["epochs"])):
         raise _err("knob_grid.epochs values must be positive integers")
-    if not all(_nonempty_str(v) for v in _nonempty_list("data_mix", doc["data_mix"])):
-        raise _err("knob_grid.data_mix values must be non-empty strings")
-    tf = _nonempty_list("teacher_filter", doc["teacher_filter"])
-    if not all(v in TEACHER_FILTERS for v in tf):
-        raise _err(f"knob_grid.teacher_filter values must be in {list(TEACHER_FILTERS)}")
-    temp = doc["temperature"]
+
+
+def _check_temperature_grid(temp: Any) -> None:
     if not isinstance(temp, dict) or not temp:
         raise _err("knob_grid.temperature must map each question kind to a list")
     for kind, vals in temp.items():
         if not all(_is_num(v) and v > 0 for v in _nonempty_list(f"temperature.{kind}", vals)):
             raise _err(f"knob_grid.temperature.{kind} values must be positive numbers")
+
+
+def _grid(doc: Any) -> dict[str, Any]:
+    if not isinstance(doc, dict):
+        raise _err("knob_grid must be an object")
+    missing = [n for n in KNOB_NAMES if n not in doc]
+    if missing:
+        raise _err(f"knob_grid missing: {', '.join(missing)}")
+    _check_numeric_grid(doc)
+    if not all(_nonempty_str(v) for v in _nonempty_list("data_mix", doc["data_mix"])):
+        raise _err("knob_grid.data_mix values must be non-empty strings")
+    tf = _nonempty_list("teacher_filter", doc["teacher_filter"])
+    if not all(v in TEACHER_FILTERS for v in tf):
+        raise _err(f"knob_grid.teacher_filter values must be in {list(TEACHER_FILTERS)}")
+    _check_temperature_grid(doc["temperature"])
     return dict(doc)
 
 
@@ -351,7 +358,11 @@ def _gate(doc: Any) -> dict[str, Any] | None:
         raise _err(f"gate.min_coverage must map exactly {list(GATE_KINDS)} to a rate")
     if not all(_is_num(v) and 0.0 < v <= 1.0 for v in cov.values()):
         raise _err("gate.min_coverage values must be numbers in (0, 1]")
-    grid = doc.get("grid")
+    _check_gate_grid(doc.get("grid"))
+    return dict(doc)
+
+
+def _check_gate_grid(grid: Any) -> None:
     if not isinstance(grid, dict) or sorted(grid) != sorted(GATE_THRESHOLDS):
         raise _err(f"gate.grid must carry exactly {list(GATE_THRESHOLDS)}")
     for name in GATE_THRESHOLDS:
@@ -360,7 +371,6 @@ def _gate(doc: Any) -> dict[str, Any] | None:
             raise _err(f"gate.grid.{name} must be a non-empty list")
         if not all(v is None or (_is_num(v) and 0.0 <= v <= 1.0) for v in values):
             raise _err(f"gate.grid.{name} values must be null or numbers in [0, 1]")
-    return dict(doc)
 
 
 def _references(doc: Any) -> dict[str, dict[str, Any]]:

@@ -149,25 +149,49 @@ def outcomes(
     for rec in records:
         row = by_id.get(rec.id) or {}
         answers = row.get("questions") or {}
-        for qid, q in rec.questions.items():
+        for qid in rec.questions:
             gold = dtrain._gold_label(rec, qid)
             if gold is None:
                 continue
-            ans = answers.get(qid)
-            probs = None
-            if ans is not None and not ans.get("error") and not row.get("error"):
-                probs = dtrain._answer_probs(rec, qid, ans)
-            if probs is None:
-                out[(rec.id, qid)] = (False, None)
-                continue
-            item = dtrain.QItem(q.type, q.names, probs, gold)
-            if calibration:
-                item = dtrain.calibrate_item(item, calibration)
-            label, conf = core_metrics.top_candidate(
-                {name: item.probs[name] for name in item.labels}
-            )
-            out[(rec.id, qid)] = (label == gold, conf)
+            out[(rec.id, qid)] = _outcome(rec, qid, gold, row, answers.get(qid), calibration)
     return out
+
+
+def _answered_probs(
+    rec: Record, qid: str, row: Mapping[str, Any], ans: Mapping[str, Any] | None
+) -> dict[str, float] | None:
+    """The answer's probabilities, or ``None`` when the question or its row errored or is absent."""
+    if ans is not None and not ans.get("error") and not row.get("error"):
+        return dtrain._answer_probs(rec, qid, ans)
+    return None
+
+
+def _calibrated_item(
+    rec: Record, qid: str, probs: Any, gold: Any, calibration: Mapping[str, Any] | None
+) -> Any:
+    """The question's item, calibrated when *calibration* is given."""
+    q = rec.questions[qid]
+    item = dtrain.QItem(q.type, q.names, probs, gold)
+    if calibration:
+        item = dtrain.calibrate_item(item, calibration)
+    return item
+
+
+def _outcome(
+    rec: Record,
+    qid: str,
+    gold: Any,
+    row: Mapping[str, Any],
+    ans: Mapping[str, Any] | None,
+    calibration: Mapping[str, Any] | None,
+) -> Unit:
+    """One gold-bearing question's ``(correct, top probability or None)``."""
+    probs = _answered_probs(rec, qid, row, ans)
+    if probs is None:
+        return (False, None)
+    item = _calibrated_item(rec, qid, probs, gold, calibration)
+    label, conf = core_metrics.top_candidate({name: item.probs[name] for name in item.labels})
+    return (label == gold, conf)
 
 
 def _mean(values: Sequence[float]) -> float | None:
@@ -243,24 +267,43 @@ def paired_bootstrap(
     point = stat(range(n))
     draws: dict[str, list[float]] = {name: [] for name in point}
     if n > 1:
-        rng = random.Random(seed)  # nosec B311 - bootstrap resampling, not security
-        for _ in range(resamples):
-            sample = stat([rng.randrange(n) for _ in range(n)])
-            for name, value in sample.items():
-                if value is not None:
-                    draws.setdefault(name, []).append(value)
+        _resample(n, stat, draws, seed=seed, resamples=resamples)
     out: dict[str, dict[str, Any]] = {}
     for name, value in point.items():
-        values = sorted(draws.get(name, []))
-        if n == 1:
-            lo = hi = value
-        elif values:
-            lo = values[int(round(0.025 * (len(values) - 1)))]
-            hi = values[int(round(0.975 * (len(values) - 1)))]
-        else:
-            lo = hi = None
+        lo, hi = _percentile_ci(n, value, sorted(draws.get(name, [])))
         out[name] = {"n": n, "value": value, "ci_low": lo, "ci_high": hi}
     return out
+
+
+def _resample(
+    n: int,
+    stat: Callable[[Sequence[int]], Mapping[str, float | None]],
+    draws: dict[str, list[float]],
+    *,
+    seed: int,
+    resamples: int,
+) -> None:
+    """Append every non-``None`` statistic of *resamples* seeded index draws to *draws*."""
+    rng = random.Random(seed)  # nosec B311 - bootstrap resampling, not security
+    for _ in range(resamples):
+        sample = stat([rng.randrange(n) for _ in range(n)])
+        for name, value in sample.items():
+            if value is not None:
+                draws.setdefault(name, []).append(value)
+
+
+def _percentile_ci(
+    n: int, value: float | None, values: Sequence[float]
+) -> tuple[float | None, float | None]:
+    """The 2.5th/97.5th percentile of sorted *values* (the point value itself when n == 1)."""
+    if n == 1:
+        return value, value
+    if values:
+        return (
+            values[int(round(0.025 * (len(values) - 1)))],
+            values[int(round(0.975 * (len(values) - 1)))],
+        )
+    return None, None
 
 
 # --------------------------------------------------------------------- bars
@@ -443,16 +486,11 @@ def gate_units(
             gold = dtrain._gold_label(rec, qid)
             if gold is None or q.type not in out:
                 continue
-            ans = answers.get(qid)
-            probs = None
-            if ans is not None and not ans.get("error") and not row.get("error"):
-                probs = dtrain._answer_probs(rec, qid, ans)
+            probs = _answered_probs(rec, qid, row, answers.get(qid))
             if probs is None:
                 out[q.type].append(((False, False), True))
                 continue
-            item = dtrain.QItem(q.type, q.names, probs, gold)
-            if calibration:
-                item = dtrain.calibrate_item(item, calibration)
+            item = _calibrated_item(rec, qid, probs, gold, calibration)
             th = dgate.KindThresholds.from_json(thresholds.get(q.type))
             out[q.type].append((dgate.unit(dtrain._pred_item(item), th), False))
     return out

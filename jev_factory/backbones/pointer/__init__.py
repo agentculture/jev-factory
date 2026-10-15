@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from jev_factory.backbones.base import Backbone
 from jev_factory.backbones.pointer.layout import (
     FORMAT,
     REQUIRED_FILES,
@@ -72,7 +73,7 @@ def _description(domain: Any, name: str) -> str:
     raise CliError(EXIT_USER_ERROR, f"{name!r} is not a candidate of domain {domain.name!r}")
 
 
-class PointerBackbone:
+class PointerBackbone(Backbone):
     """The :class:`~jev_factory.backbones.base.Backbone` for Strands Decider."""
 
     name = "pointer"

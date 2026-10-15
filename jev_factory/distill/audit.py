@@ -105,6 +105,29 @@ def _summary(
     }
 
 
+def _score_group(
+    recs: Sequence[Record], by_key: Mapping[tuple[str, str], Mapping[str, Any]]
+) -> tuple[list[tuple[float, bool, float]], int, int]:
+    """(confidence, correct, log loss) per labelled question, plus teacher-error and unlabelled
+    counts, over one source's records."""
+    scored: list[tuple[float, bool, float]] = []
+    errs = unl = 0
+    for rec in recs:
+        for qid, question in rec.questions.items():
+            row = by_key.get((rec.id, qid))
+            if row is None:
+                unl += 1
+                continue
+            probs = None if row.get("teacher_error") else _teacher_probs(question, row)
+            if probs is None:
+                errs += 1
+                continue
+            gold = _gold_index(rec, qid)
+            pred = argmax(probs)
+            scored.append((probs[pred], pred == gold, -math.log(max(probs[gold], LOG_EPSILON))))
+    return scored, errs, unl
+
+
 def build_table(
     records: Sequence[Record], label_rows: Sequence[Mapping[str, Any]], *, floor: float
 ) -> dict[str, Any]:
@@ -118,21 +141,7 @@ def build_table(
 
     sources: list[dict[str, Any]] = []
     for (source, prov), recs in sorted(groups.items()):
-        scored: list[tuple[float, bool, float]] = []
-        errs = unl = 0
-        for rec in recs:
-            for qid, question in rec.questions.items():
-                row = by_key.get((rec.id, qid))
-                if row is None:
-                    unl += 1
-                    continue
-                probs = None if row.get("teacher_error") else _teacher_probs(question, row)
-                if probs is None:
-                    errs += 1
-                    continue
-                gold = _gold_index(rec, qid)
-                pred = argmax(probs)
-                scored.append((probs[pred], pred == gold, -math.log(max(probs[gold], LOG_EPSILON))))
+        scored, errs, unl = _score_group(recs, by_key)
         entry = _summary(source, prov, scored, errs, unl)
         weak = entry["flaggable"] and entry["n"] > 0 and entry["accuracy"] < floor
         entry["teacher_weak"] = bool(weak) if entry["flaggable"] and entry["n"] else None
