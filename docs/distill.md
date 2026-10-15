@@ -204,7 +204,8 @@ Details that matter when operating them:
   approved human-gold test records.
 - **Draft review (t25).** `jev review --drafts FILE [--evidence FILE]` goes
   through drafted records of every split one at a time: `keep`, `drop`, `edit`
-  or `note`, either on the `--serve` page or with `--decide` / `--edit` and
+  (a label or per-option probabilities), `add_option` (for example `escalate`),
+  `restore` or `note` (deviation d7), either on the `--serve` page or with `--decide` / `--edit` and
   `--apply`, into `<records stem>.draft-ledger.jsonl`. `--reviewed-out FILE`
   writes the reviewed drafts (dropped removed, edits applied). An edited test
   record still needs its gold approval through `--gold`.

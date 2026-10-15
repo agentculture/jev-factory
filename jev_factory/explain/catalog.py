@@ -322,20 +322,24 @@ _REVIEW_DRAFTS = """\
 Operator review of drafted records of every split (JSONL of distill records), one
 record at a time, with the evidence that produced each one. `--evidence FILE` is a
 JSONL of `{id, group, quote, why}` lines. Decisions are `keep`, `drop`, `edit` (correct
-a question's gold label) and `note` (a remark that stays out of the records). They go to
+a question's gold: a label, or per-option probabilities whose highest is the label),
+`add_option` (a choice option the draft missed, such as `escalate`), `restore` (undo the
+edits and added options of one question, or of the whole record) and `note` (a remark
+that stays out of the records). They go to
 an append-only ledger, `<file stem>.draft-ledger.jsonl` beside the drafts unless
 `--review-file` names another: one line per decision with the record id, the record's
 sha256, the action, the reviewer and an ISO time. The drafted file itself is never
-changed by a decision. A record's status is its latest non-note entry for its current
-sha256 (unreviewed, kept, edited, dropped); a malformed ledger is an error and nothing
-is written.
+changed by a decision. Entries count for the record's current sha256 only. Status is
+dropped after a drop, edited while the ledger changes the record (an edit implies keep),
+kept after a keep, else unreviewed; a malformed ledger is an error and nothing is
+written.
 
 - Default (dry run): lists the status counts and what the given decisions would record.
 - `--serve`: starts the local site on 127.0.0.1 (`--port`, default 18765, `0` for a free
   one): the state text, the questions with the drafted gold highlighted, the evidence
   quote and why, source group and split, progress counts and filters by split, source
-  and status. Keys: k keep, d drop, e edit gold, n note, j or the arrow keys to move,
-  u next unreviewed. Every call needs the per-run token and a loopback Host header.
+  and status. Keys: k keep, d drop, e edit gold (percentages per option, add an option,
+  restore the drafted gold), n note, j or the arrow keys to move, u next unreviewed. Every call needs the per-run token and a loopback Host header.
 - `--decide ID=keep|drop|note`, `--edit ID:QID=LABEL`, `--reviewer`, `--note`: decisions
   from the command line.
 - `--apply`: appends the decisions to the ledger.

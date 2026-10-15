@@ -153,6 +153,26 @@
   .editing .opt:hover { border-color: var(--ink-2); }
   .editing { border-left: 3px solid var(--st-edited); padding-left: 12px; margin-left: -15px; }
 
+  .restore { border: 1px solid var(--hair); background: var(--surface); color: var(--ink-2); border-radius: 6px; padding: 1px 8px; font-size: 13px; cursor: pointer; }
+  .restore:hover { border-color: var(--ink-2); color: var(--ink); }
+  .restore.wide { padding: 7px; font-size: 14px; }
+  .opt.has-p { grid-template-columns: 1.9em minmax(0, 1fr) 9.5em; }
+  .pbar { position: relative; height: 1.4em; display: flex; align-items: center; align-self: center; background: var(--sunk); border-radius: 3px; overflow: hidden; }
+  .pbar i { position: absolute; inset: 0 auto 0 0; background: var(--focus); opacity: 0.35; }
+  .pbar b { position: relative; font-size: 12.5px; padding-left: 6px; font-variant-numeric: tabular-nums; }
+  .pcell { display: inline-flex; gap: 4px; align-items: center; justify-self: end; color: var(--ink-3); }
+  .pin { width: 4.5em; border: 1px solid var(--hair); border-radius: 6px; padding: 3px 6px; background: var(--surface); color: var(--ink); font: inherit; text-align: right; }
+  .was.added { border-style: solid; }
+  .etools { margin-top: 10px; display: grid; gap: 8px; }
+  .etools .hint { margin: 0; font-size: 13.5px; color: var(--ink-3); }
+  .erow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .erow input { border: 1px solid var(--hair); border-radius: 6px; padding: 6px 8px; background: var(--surface); color: var(--ink); font: inherit; }
+  .erow .oname { width: 12em; font-family: var(--mono); font-size: 14px; }
+  .erow .odesc { flex: 1; min-width: 12em; }
+  .small { border: 1px solid var(--hair); background: var(--surface); color: var(--ink); border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 14px; }
+  .small.primary { background: var(--focus); border-color: var(--focus); color: #fff; font-weight: 700; }
+  .small:hover { border-color: var(--ink-2); }
+
   .side { display: grid; gap: 16px; }
   .ev-tag { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 700; }
   .ev-tag .sw { width: 10px; height: 10px; }
@@ -260,8 +280,8 @@
   <div id="view"></div>
 
   <p class="keys">
-    <kbd>k</kbd> keep &nbsp; <kbd>d</kbd> drop &nbsp; <kbd>e</kbd> edit gold, then <kbd>1</kbd>–<kbd>9</kbd> picks an option
-    (<kbd>e</kbd> again moves to the next question, <kbd>Esc</kbd> stops) &nbsp; <kbd>n</kbd> write a note, <kbd>Enter</kbd> saves it &nbsp;
+    <kbd>k</kbd> keep &nbsp; <kbd>d</kbd> drop &nbsp; <kbd>e</kbd> edit gold, then <kbd>1</kbd>–<kbd>9</kbd> picks an option or type percentages
+    (<kbd>e</kbd> again moves to the next question, <kbd>Esc</kbd> stops; &#8634; restores the drafted gold) &nbsp; <kbd>n</kbd> write a note, <kbd>Enter</kbd> saves it &nbsp;
     <kbd>j</kbd> or <kbd>&rarr;</kbd> next &nbsp; <kbd>&larr;</kbd> previous &nbsp; <kbd>u</kbd> next unreviewed.
     Every decision is appended to the draft ledger straight away; the drafted file never changes.
   </p>
@@ -460,30 +480,121 @@ function optionWord(q, name) {
   if (q.type === "score") return "level " + name;
   return name;
 }
+function softOf(g, q) {
+  if (!g) return null;
+  if (q.type === "noul" && g.probability_true !== undefined && g.probability_true !== null && g.probability_true > 0 && g.probability_true < 1)
+    return { "true": g.probability_true, "false": 1 - g.probability_true };
+  if (g.probabilities) return g.probabilities;
+  return null;
+}
+function startingProbs(item, qid) {
+  const q = item.questions[qid];
+  const soft = softOf(item.gold[qid], q);
+  const label = goldLabel(item.gold[qid]);
+  const out = {};
+  for (const [name] of q.criteria) out[name] = soft ? Math.round((soft[name] || 0) * 100) : (name === label ? 100 : 0);
+  return out;
+}
+function isChanged(item, qid) {
+  return JSON.stringify(item.gold[qid]) !== JSON.stringify(item.original_gold[qid]) || ((item.added || {})[qid] || []).length > 0;
+}
 function questionBlock(item, qid, n) {
   const q = item.questions[qid];
   const now = goldLabel(item.gold[qid]);
   const was = goldLabel(item.original_gold[qid]);
+  const soft = softOf(item.gold[qid], q);
+  const added = new Set(((item.added || {})[qid] || []).map(o => o[0]));
+  const changed = isChanged(item, qid);
   const editing = editQ === n;
   const box = el("div", { className: "q" + (editing ? " editing" : "") });
   box.append(el("div", { className: "q-head" }, el("strong", { textContent: qid }),
     el("span", { className: "q-kind", textContent: q.type === "noul" ? "true or false" : q.type === "score" ? "ordered score" : "choice" }),
-    now !== was ? el("span", { className: "q-edited", textContent: "edited from " + was }) : null));
+    changed ? el("span", { className: "q-edited", textContent: now !== was ? "edited from " + was : "edited" }) : null,
+    changed ? el("button", { type: "button", className: "restore", title: "Undo every change to this question: gold, probabilities and added options", onclick: () => restore(item, qid) }, "↺ Restore drafted") : null));
   if (q.instructions) box.append(el("div", { className: "q-kind", textContent: q.instructions }));
   const opts = el("div", { className: "opts" });
+  const probs = editing ? startingProbs(item, qid) : null;
+  const inputs = {};
   q.criteria.forEach(([name, text], k) => {
     const isGold = name === now;
     const wasGold = now !== was && name === was;
-    const cls = "opt" + (isGold ? (now !== was ? " changed" : " gold") : "") + (wasGold ? " drafted" : "");
-    const mark = el("span", { className: "mk", textContent: isGold ? (now !== was ? "✎" : "✓") : String(k + 1) });
+    const cls = "opt" + (isGold ? (changed ? " changed" : " gold") : "") + (wasGold ? " drafted" : "");
+    const mark = el("span", { className: "mk", textContent: isGold ? (changed ? "✎" : "✓") : String(k + 1) });
     const body = el("span", {}, el("span", { className: "nm", textContent: optionWord(q, name) }), text ? el("span", { className: "ds" }, " ", inlineMd(text)) : null,
-      wasGold ? el("span", { className: "was", textContent: "drafted gold" }) : null);
-    const opt = el("button", { type: "button", className: cls, "aria-label": (isGold ? "gold: " : "option " + (k + 1) + ": ") + name }, mark, body);
+      wasGold ? el("span", { className: "was", textContent: "drafted gold" }) : null,
+      added.has(name) ? el("span", { className: "was added", textContent: "you added" }) : null);
+    let tail = null;
+    if (editing) {
+      const inp = el("input", { type: "number", min: "0", max: "100", step: "5", value: String(probs[name]), className: "pin", "aria-label": "probability of " + name + " in percent" });
+      inp.onclick = ev => ev.stopPropagation();
+      inp.onkeydown = ev => { ev.stopPropagation(); if (ev.key === "Enter") saveProbs(item, qid, inputs); };
+      inp.oninput = () => sumLine(inputs);
+      inputs[name] = inp;
+      tail = el("span", { className: "pcell" }, inp, "%");
+    } else if (soft) {
+      const v = Math.round((soft[name] || 0) * 100);
+      tail = el("span", { className: "pbar", title: v + "%" }, el("i", { style: "width:" + v + "%" }), el("b", { textContent: v + "%" }));
+    }
+    const opt = el("div", { className: cls + (tail ? " has-p" : ""), tabIndex: editing ? 0 : -1,
+      "aria-label": (isGold ? "gold: " : "option " + (k + 1) + ": ") + name }, mark, body, tail);
     opt.onclick = () => { if (editing) setGold(item, qid, name); };
     opts.append(opt);
   });
   box.append(opts);
+  if (editing) box.append(editTools(item, qid, q, inputs));
   return box;
+}
+function sumLine(inputs) {
+  const line = document.getElementById("psum");
+  if (!line) return;
+  const total = Object.values(inputs).reduce((a, i) => a + (Number(i.value) || 0), 0);
+  line.textContent = "Sum " + total + "%" + (total === 100 ? "" : " (saved scaled to 100%)");
+}
+function editTools(item, qid, q, inputs) {
+  const tools = el("div", { className: "etools" });
+  tools.append(el("p", { className: "hint", textContent: "Click an option for a sure answer (100%), or spread the percentages and save. The highest becomes the label." }),
+    el("div", { className: "erow" },
+      el("button", { type: "button", className: "small primary", onclick: () => saveProbs(item, qid, inputs) }, "Save probabilities"),
+      el("span", { id: "psum", className: "hint" })));
+  if (q.type === "choice") {
+    const name = el("input", { type: "text", placeholder: "option_name", className: "oname", "aria-label": "new option name" });
+    const desc = el("input", { type: "text", placeholder: "one-line description", className: "odesc", "aria-label": "new option description" });
+    for (const i of [name, desc]) i.onkeydown = ev => { ev.stopPropagation(); if (ev.key === "Enter") addOption(item, qid, name.value, desc.value); };
+    const quick = el("div", { className: "erow" }, el("span", { className: "hint", textContent: "Quick add:" }));
+    for (const [n, d] of QUICK_OPTIONS) {
+      if (q.criteria.some(c => c[0] === n)) continue;
+      quick.append(el("button", { type: "button", className: "small", title: d, onclick: () => addOption(item, qid, n, d) }, "+ " + n));
+    }
+    tools.append(el("div", { className: "erow add" }, name, desc,
+      el("button", { type: "button", className: "small", onclick: () => addOption(item, qid, name.value, desc.value) }, "Add option")), quick);
+  }
+  setTimeout(() => sumLine(inputs), 0);
+  return tools;
+}
+const QUICK_OPTIONS = [
+  ["escalate", "hand the decision to the operator; do not act"],
+  ["do_not_proceed", "stop: the plan is not safe or not workable as proposed"],
+  ["need_more_info", "ask for the missing facts before deciding"],
+];
+async function saveProbs(item, qid, inputs) {
+  const raw = Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, Math.max(0, Number(i.value) || 0)]));
+  const total = Object.values(raw).reduce((a, b) => a + b, 0);
+  if (!total) { showError("Give at least one option a probability above 0."); return; }
+  const probabilities = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, Math.round((v / total) * 10000) / 10000]));
+  const label = Object.entries(probabilities).sort((a, b) => b[1] - a[1])[0][0];
+  const keep = editQ;
+  await decide(item, "edit", { question_id: qid, label, probabilities }, false);
+  editQ = keep; render();
+}
+async function addOption(item, qid, name, description) {
+  name = String(name || "").trim(); description = String(description || "").trim();
+  if (!name || !description) { showError("A new option needs a snake_case name and a one-line description."); return; }
+  const keep = editQ;
+  await decide(item, "add_option", { question_id: qid, name, description }, false);
+  editQ = keep; render();
+}
+async function restore(item, qid) {
+  await decide(item, "restore", { question_id: qid }, false);
 }
 function inlineMd(text) {
   const frag = document.createDocumentFragment();
@@ -572,7 +683,8 @@ function dock(item) {
     el("div", { className: "btns" },
       el("button", { type: "button", className: "act keep", onclick: () => decide(item, "keep", {}, true) }, "Keep", el("kbd", { textContent: "k" })),
       el("button", { type: "button", className: "act drop", onclick: () => decide(item, "drop", {}, true) }, "Drop", el("kbd", { textContent: "d" })),
-      el("button", { type: "button", className: "act edit", "aria-pressed": String(editQ >= 0), onclick: () => toggleEdit(item) }, "Edit gold", el("kbd", { textContent: "e" }))),
+      el("button", { type: "button", className: "act edit", "aria-pressed": String(editQ >= 0), onclick: () => toggleEdit(item) }, editQ >= 0 ? "Next question" : "Edit gold", el("kbd", { textContent: "e" }))),
+    item.status === "edited" ? el("button", { type: "button", className: "restore wide", onclick: () => restore(item, ""), title: "Undo every edit and added option on this record; keep or drop stays as it was" }, "↺ Restore the drafted record") : null,
     el("div", { className: "note-row" }, note),
     el("div", { className: "nav" },
       el("button", { type: "button", onclick: () => move(-1), textContent: "Previous" }),
@@ -761,8 +873,11 @@ async function decide(item, action, extra, advance) {
   }
 }
 async function setGold(item, qid, label) {
-  if (label === goldLabel(item.gold[qid])) return;
+  const g = item.gold[qid];
+  if (label === goldLabel(g) && !softOf(g, item.questions[qid])) return;
+  const keep = editQ;
   await decide(item, "edit", { question_id: qid, label }, false);
+  editQ = keep; render();
 }
 async function saveNote(item) {
   const text = document.getElementById("note").value.trim();

@@ -319,21 +319,21 @@ class DraftsApp:
         items = []
         for record in drafted:
             res = resolved[record.id]
-            effective = drafts_review.apply_ledger([record], _only(ledger, record.id))
-            final = effective[0] if effective else record
+            final = drafts_review.effective(record, res)
             items.append(
                 {
                     "id": record.id,
                     "sha256": gold_review.record_sha256(record),
                     "status": res.status,
                     "edits": res.edits,
+                    "added": res.added,
                     "notes": res.notes,
                     "split": record.split,
                     "source": record.source,
                     "group": record.group,
                     "gold_provenance": record.gold_provenance,
                     "state": record.state,
-                    "questions": {q: x.to_json() for q, x in record.questions.items()},
+                    "questions": {q: x.to_json() for q, x in final.questions.items()},
                     "original_gold": {q: g.to_json() for q, g in record.gold.items()},
                     "gold": {q: g.to_json() for q, g in final.gold.items()},
                     "evidence": evidence.get(record.id),
@@ -352,7 +352,7 @@ class DraftsApp:
         }
 
     def _entry(self, payload: Mapping[str, Any]) -> tuple[dict[str, Any], Any]:
-        drafted, _ledger, _evidence = self._load()
+        drafted, ledger, _evidence = self._load()
         record = next((r for r in drafted if r.id == payload.get("record_id")), None)
         if record is None:
             raise drafts_review.DraftReviewError(f"no record {payload.get('record_id')!r}")
@@ -361,15 +361,17 @@ class DraftsApp:
             raise drafts_review.DraftReviewError(
                 f"{record.id}: the record changed since the page loaded; reload"
             )
-        edit = None
-        if payload.get("action") == "edit":
-            edit = (str(payload.get("question_id") or ""), str(payload.get("label") or ""))
+        action = str(payload.get("action"))
+        current = drafts_review.effective(
+            record, drafts_review.resolve(_only(ledger, record.id), [record])[record.id]
+        )
         entry = drafts_review.make_entry(
             record,
-            str(payload.get("action")),
+            action,
             reviewer=_text(payload.get("reviewer")),
             note=_text(payload.get("note")) or "",
-            edit=edit,
+            current=current,
+            **_draft_payload(action, payload),
         )
         return entry, record
 
@@ -390,6 +392,22 @@ class DraftsApp:
             "action": entry["action"],
             "record_sha256": entry["record_sha256"],
         }
+
+
+def _draft_payload(action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    """The edit / option / restore part of a drafts decision, from the page's JSON."""
+    qid = str(payload.get("question_id") or "")
+    if action == "edit":
+        probs = payload.get("probabilities")
+        if probs is not None and not drafts_review.is_probabilities(probs):
+            raise drafts_review.DraftReviewError("probabilities must map option names to numbers")
+        return {"edit": (qid, str(payload.get("label") or ""), probs)}
+    if action == "add_option":
+        name, description = str(payload.get("name") or ""), str(payload.get("description") or "")
+        return {"option": (qid, name.strip(), description)}
+    if action == "restore":
+        return {"restore": qid}
+    return {}
 
 
 def _only(ledger: list[dict[str, Any]], record_id: str) -> list[dict[str, Any]]:

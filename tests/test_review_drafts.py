@@ -303,3 +303,107 @@ def test_explain_review_drafts_exists(capsys):
     """Criterion 3: the catalog documents the verb mode."""
     assert cli_main(["explain", "review", "drafts"]) == 0
     assert "--drafts" in capsys.readouterr().out
+
+
+def test_soft_gold_added_options_and_restore_through_the_site(site, paths):
+    """d7: probabilities, an added escalation option and a restore are ledger entries."""
+    records, _ = paths
+    before = records.read_bytes()
+    add = _decision(
+        "r1", "add_option", question_id="q1", name="escalate", description="hand it to the operator"
+    )
+    assert site.call("POST", "/api/decision", add)[0] == 200
+    soft = _decision(
+        "r1", "edit", question_id="q1", label="escalate",
+        probabilities={"a": 0.2, "b": 0.0, "escalate": 0.8},
+    )  # fmt: skip
+    assert site.call("POST", "/api/decision", soft)[0] == 200
+    _, state = site.call("GET", "/api/state")
+    item = state["items"][0]
+    assert item["status"] == "edited"
+    assert [c[0] for c in item["questions"]["q1"]["criteria"]] == ["a", "b", "escalate"]
+    assert item["gold"]["q1"]["probabilities"] == {"a": 0.2, "b": 0.0, "escalate": 0.8}
+    assert item["added"] == {"q1": [["escalate", "hand it to the operator"]]}
+    assert (
+        site.call("POST", "/api/decision", _decision("r1", "restore", question_id="q1"))[0] == 200
+    )
+    _, state = site.call("GET", "/api/state")
+    item = state["items"][0]
+    assert item["status"] == "kept"  # the edit implied keep; the restore undid the change only
+    assert item["gold"]["q1"] == item["original_gold"]["q1"]
+    assert [c[0] for c in item["questions"]["q1"]["criteria"]] == ["a", "b"]
+    assert records.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"label": "a", "probabilities": {"a": 0.4, "b": 0.6}},  # label is not the argmax
+        {"label": "a", "probabilities": {"a": 0.5, "b": 0.2}},  # does not sum to 1
+        {"label": "a", "probabilities": {"a": 1.0, "zzz": 0.0}},  # unknown option
+        {"label": "a", "probabilities": {"a": "high"}},  # not a number
+    ],
+)
+def test_a_bad_soft_gold_is_refused(site, paths, extra):
+    records, _ = paths
+    body = _decision("r1", "edit", question_id="q1", **extra)
+    assert site.call("POST", "/api/decision", body)[0] == 400
+    assert not drafts.ledger_path(records).exists()
+
+
+@pytest.mark.parametrize(
+    "name, description",
+    [("a", "dup"), ("Escalate", "caps"), ("escalate", ""), ("two words", "x")],
+)
+def test_a_bad_added_option_is_refused(site, paths, name, description):
+    records, _ = paths
+    body = _decision("r1", "add_option", question_id="q1", name=name, description=description)
+    assert site.call("POST", "/api/decision", body)[0] == 400
+    assert not drafts.ledger_path(records).exists()
+
+
+def test_status_rules_after_edits_keeps_drops_and_restores(paths):
+    """Edited while it differs; keep after an edit stays edited; drop wins; restore all."""
+    records, _ = paths
+    recs = gold.read_drafted(records)
+    r1 = recs[0]
+
+    def status(ledger):
+        return drafts.resolve(ledger, recs)["r1"].status
+
+    edit = drafts.make_entry(r1, "edit", edit=("q1", "b"))
+    keep = drafts.make_entry(r1, "keep")
+    drop = drafts.make_entry(r1, "drop")
+    back = drafts.make_entry(r1, "edit", edit=("q1", "a"))
+    everything = drafts.make_entry(r1, "restore", restore="")
+    assert status([edit, keep]) == "edited"
+    assert status([edit, drop]) == "dropped"
+    assert status([drop, edit]) == "edited"  # an edit implies keep
+    assert status([edit, back]) == "kept"  # editing back to the draft is no change
+    assert status([edit, everything]) == "kept"
+    assert status([keep, everything]) == "kept"
+    assert status([everything]) == "unreviewed"
+    reviewed = drafts.apply_ledger(recs, [edit, everything])
+    assert reviewed[0] == r1
+
+
+def test_soft_gold_reaches_the_reviewed_records(paths):
+    records, _ = paths
+    recs = gold.read_drafted(records)
+    r1 = recs[0]
+    option = drafts.make_entry(r1, "add_option", option=("q1", "escalate", "hand it over"))
+    grown = drafts.effective(r1, drafts.resolve([option], recs)["r1"])
+    soft = drafts.make_entry(
+        r1, "edit", edit=("q1", "escalate", {"escalate": 0.7, "a": 0.3}), current=grown
+    )
+    with pytest.raises(drafts.DraftReviewError, match="not in"):
+        drafts.make_entry(r1, "edit", edit=("q1", "escalate", {"escalate": 1.0}))
+    out = drafts.apply_ledger(recs, [option, soft])[0]
+    assert out.questions["q1"].names == ("a", "b", "escalate")
+    assert out.gold["q1"] == Gold(
+        label="escalate", probabilities={"a": 0.3, "b": 0.0, "escalate": 0.7}
+    )
+    path = records.with_name("l.jsonl")  # the entries round-trip through the file format
+    for entry in (option, soft):
+        drafts.append_entry(path, entry)
+    assert drafts.apply_ledger(recs, drafts.read_ledger(path))[0] == out
