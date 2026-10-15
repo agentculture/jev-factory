@@ -102,8 +102,8 @@ _FACTORY: dict[str, Annotation] = {
     verb_name(("review",)): Annotation(read_only=False, args=(ArgSpec(name="domain", kind="str"),)),
     **{verb_name(("run", stage)): Annotation(read_only=False) for stage in stage_names()},
     # ``distill <stage>`` has --apply, so it is mutating (dry-run by default). The stage is a
-    # positional, not a subcommand, so the distillery adds one candidate, not fourteen.
-    # The stage grounds deterministically against the distill stage list.
+    # positional, not a subcommand, so the distillery adds one candidate, not fifteen.
+    # The stage grounds deterministically against the distill stage list (edge included).
     verb_name(("distill",)): Annotation(
         read_only=False, args=(ArgSpec(name="stage", kind="str", ground=DISTILL_STAGE),)
     ),

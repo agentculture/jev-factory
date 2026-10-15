@@ -250,6 +250,18 @@ def test_a_gate_fitted_on_another_calibration_is_refused(tmp_path):
     assert not (tmp_path / "out" / "model").exists()
 
 
+def test_a_quant_manifest_with_no_shipped_format_is_refused(tmp_path):
+    """Risk r10: bundle refuses when quantize recorded a failed 'no qualifying format'."""
+    run, prereg_path, ds = make_run(tmp_path, fmt="int8")
+    manifest = run / "distill" / "quant" / "quant_manifest.json"
+    doc = json.loads(manifest.read_text())
+    doc.update(status="failed", chosen_format=None, shipped_format=None, shippable=False)
+    manifest.write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(CliError, match="no shipped format"):
+        B.build_bundles(run, tmp_path / "out", prereg_path=prereg_path, dataset_dir=ds)
+    assert not (tmp_path / "out" / "model").exists()
+
+
 def test_dataset_bundle_keeps_only_apache_or_mit_rows_with_their_licence(tmp_path):
     _, out, summary = build(tmp_path)
     rows = [json.loads(x) for x in (out / "dataset" / "train.jsonl").read_text().splitlines()]

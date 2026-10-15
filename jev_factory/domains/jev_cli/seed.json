@@ -80,6 +80,7 @@
       "quantize",
       "gate",
       "final",
+      "edge",
       "bundle",
       "upload"
     ]
@@ -3477,6 +3478,58 @@
       },
       "class": "symptom",
       "source": "agent-draft-2026-10-14"
+    },
+    {
+      "id": "jcs-op-199",
+      "kind": "explicit",
+      "text": "Dry-run the distill edge stage for my Orin Nano run in ../work/nano-r1.",
+      "expect": {
+        "operation": "jev.distill",
+        "args": {
+          "stage": "edge"
+        }
+      },
+      "class": "imperative",
+      "source": "agent-draft-2026-10-15 (t17; pending operator review)"
+    },
+    {
+      "id": "jcs-op-200",
+      "kind": "explicit",
+      "text": "How fast and how big is the shipped student on the board? Measure it, plan first.",
+      "expect": {
+        "operation": "jev.distill",
+        "args": {
+          "stage": "edge"
+        }
+      },
+      "class": "question",
+      "source": "agent-draft-2026-10-15 (t17; pending operator review)"
+    },
+    {
+      "id": "jcs-op-201",
+      "kind": "explicit",
+      "text": "distill edge --knob label=agx --apply",
+      "expect": {
+        "operation": "jev.distill",
+        "args": {
+          "stage": "edge"
+        }
+      },
+      "class": "terse",
+      "source": "agent-draft-2026-10-15 (t17; pending operator review)"
+    },
+    {
+      "id": "jcs-op-202",
+      "kind": "explicit",
+      "text": "the distill final finished clean, so measure the shipped quant on the Nano now",
+      "expect": {
+        "operation": "jev.distill",
+        "args": {
+          "stage": "edge"
+        }
+      },
+      "class": "symptom",
+      "source": "agent-draft-2026-10-15 (t17; pending operator review)"
     }
   ]
 }

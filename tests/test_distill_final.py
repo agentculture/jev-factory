@@ -363,6 +363,37 @@ def test_the_student_needs_the_quant_calibration_it_was_shipped_with(env):
     assert _ledger(env) == []
 
 
+def _no_shipped_format(qdir):
+    """What quant writes when no quantized build qualifies (risk r10): a failed result."""
+    (qdir / "calibration.json").unlink()
+    (qdir / "format_decision.json").write_text(json.dumps({"format": None}), encoding="utf-8")
+    (qdir / "quant_manifest.json").write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "outcome": "no qualifying format",
+                "reason": "no qualifying format: every build is over the size budget",
+                "chosen_format": None,
+                "shipped_format": None,
+                "shippable": False,
+                "deployed_artifact": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_a_quant_manifest_with_no_shipped_format_is_refused(env, apply):
+    """Risk r10: the final refuses when quantize recorded no shipped format."""
+    _no_shipped_format(env["qdir"])
+    models = _models(env, [])
+    with pytest.raises(CliError, match="no shipped format") as exc:
+        _run(env, models, apply=apply)
+    assert "bf16 fallback" in exc.value.remediation
+    assert _ledger(env) == []
+
+
 def test_a_changed_quant_calibration_is_refused(env):
     (env["qdir"] / "calibration.json").write_text(json.dumps(STUDENT_CAL), encoding="utf-8")
     models = _models(env, [])

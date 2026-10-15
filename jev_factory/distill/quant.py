@@ -35,9 +35,13 @@ pre-registration (:func:`jev_factory.distill.prereg.require_locked`).
    selection question; calibrated selection ECE <= ``bars.quant.ece_max``; selection
    accuracy within :data:`HEAL_MARGIN_POINTS` of the bf16 winner (if none is, the closest
    one goes to the heal); then the lowest measured peak memory, the lower median latency and
-   :data:`FORMATS` order. bf16 is a valid outcome when no quantized format qualifies; the
-   decision says why. ``format_decision.json`` cites every measurement it used (value plus
-   the sha256 of ``measurements.json``).
+   :data:`FORMATS` order. When no quantized format qualifies (none built under the 10^9-byte
+   budget, or none survives safety and calibration), there is **no bf16 fallback** (operator
+   decision on risk r10): the stage records a failed ``no qualifying format`` result
+   (``quant_manifest.json`` ``status: failed``, ``shipped_format: null``; no
+   ``calibration.json``), ships nothing and exits non-zero; ``final`` and ``bundle`` refuse
+   such a manifest. ``format_decision.json`` cites every measurement it used (value plus the
+   sha256 of ``measurements.json``).
 3. **Agreement (c17, h10).** Every quantized build's argmax agreement with the bf16
    student is computed on the **fit and selection** predictions only (never test or
    held-out; any other fold in a measurement is ignored) and must reach the pre-registered
@@ -62,21 +66,27 @@ pre-registration (:func:`jev_factory.distill.prereg.require_locked`).
    (``heal.method``), and the manifest carries it. The healed checkpoint is re-quantized
    and re-measured; its agreement is against the **original** bf16 student's predictions.
    A healed build that still loses too much, misses the ECE bar or agrees below the bar is
-   not shippable: a ``heal_result`` with ``shippable: false`` is appended and the stage
-   raises ``stop_escalate``. A format whose heal round is spent is refused another without
+   not shippable: a ``heal_result`` with ``shippable: false`` is appended, the same failed
+   ``no qualifying format`` result is recorded (nothing ships) and the stage raises
+   ``stop_escalate``. A format whose heal round is spent is refused another without
    a deviation id (each further round needs a deviation id not used before for it).
 5. **Recalibrate.** The deployed build's per-kind temperature is refitted on its own
    fit-fold predictions with :func:`jev_factory.distill.train.fit_calibration` (vector kept
    only if it lowers selection-fold ECE) and written to ``distill/quant/calibration.json``.
    ``quant_manifest.json`` carries the chosen format, the heal count, the quant-vs-bf16
-   delta and the sha256 of every output.
+   delta and the sha256 of every output. ``deployed_predictions.json`` keeps the shipped
+   build's own **selection-fold** predictions with the sha256s of the bundle that produced
+   them (``/v1/bundle``'s attestation): the edge stage compares a board's answers with them.
 
 6. **Pruned-vocabulary comparison (decision c38, h9).** When a builder for a
    :data:`PRUNED_FORMATS` name is registered (:func:`default_builders` registers both), the
    run's train, fit and selection prompts are written to ``prompt_set.jsonl`` (never test
    or held-out) and the pruned build at the bits of the full-vocabulary torchao build it is
-   compared with is built from the winner and measured the same way. Its weight bytes,
-   selection-fold accuracy and ``out_of_vocabulary`` refusal count are reported beside the
+   compared with is built from the winner and measured the same way, plus on the operator's
+   **probe set** when one is given (risk r14: probe records are disjoint from the kept-id
+   prompts, so out-of-vocabulary refusals show there; a probe record whose id is in the prompt
+   set or a sealed side is refused). Its weight bytes, selection-fold accuracy and
+   ``out_of_vocabulary`` refusal counts (per fold, the probe's apart) are reported beside the
    full-vocabulary build's in ``measurements.json`` and ``quant_manifest.json``
    (``pruned_vocabulary_comparison``). It is never a candidate: it is not in
    :data:`FORMATS`, the rule never sees it, and a choice naming it is refused.
@@ -125,6 +135,10 @@ STOP_VERDICT = "stop_escalate"
 HEAL_KEYS = ("epochs", "lr", "init_mode")
 HEAL_SET_FILE = "heal_set.jsonl"
 HEAL_SPEC_FILE = "heal_spec.json"
+DEPLOYED_PREDICTIONS_FILE = "deployed_predictions.json"
+#: The outcome recorded when no quantized build qualifies; nothing ships (risk r10).
+NO_QUALIFYING = "no qualifying format"
+PROBE_FOLD = "probe"
 #: The folds agreement with the bf16 student is computed on (never test or held-out).
 AGREEMENT_FOLDS: tuple[str, ...] = dtrain.FOLDS
 POOLED = "fit+selection"
@@ -190,7 +204,8 @@ FORMAT_RULE = {
     "accuracy": f"selection accuracy within {HEAL_MARGIN_POINTS} points of the bf16 winner; "
     "if none is, the closest goes to one heal round",
     "footprint": "lowest measured peak memory, then lower median latency, then FORMATS order",
-    "fallback": "bf16 when no quantized format survives safety and calibration",
+    "no_fallback": f"{NO_QUALIFYING} when no quantized format survives: the stage records a "
+    "failed result and ships nothing (never bf16)",
 }
 
 _EPS = 1e-9
@@ -709,8 +724,8 @@ def _measure_all(
     formats: Sequence[str],
     reference: Mapping[str, Any] | None = None,
     **kw: Any,
-) -> tuple[dict[str, dict[str, Any]], Mapping[str, Any]]:
-    """Measure bf16 and *formats*; return the measurements and bf16's raw predictions.
+) -> tuple[dict[str, dict[str, Any]], dict[str, Mapping[str, Any]]]:
+    """Measure bf16 and *formats*; return the measurements and each format's raw predictions.
 
     Each available quant's ``agreement_vs_bf16`` is against *reference* (the bf16
     student's predictions; default: this round's bf16).
@@ -736,7 +751,7 @@ def _measure_all(
                 None if out[fmt]["drop_points"] is None else -out[fmt]["drop_points"]
             )
             out[fmt]["agreement_vs_bf16"] = agreement_vs_bf16(reference, predictions[fmt])
-    return out, predictions[BF16]
+    return out, predictions
 
 
 # --------------------------------------------------------------------- pruned comparison (c38)
@@ -796,7 +811,7 @@ def write_prompt_set(
         raise FormatUnavailable(f"the prompt set is unusable: {exc.message}") from exc
 
 
-def _reference_full(measured: Mapping[str, Mapping[str, Any]], chosen: str) -> str | None:
+def _reference_full(measured: Mapping[str, Mapping[str, Any]], chosen: str | None) -> str | None:
     """The full-vocabulary torchao build the pruned one is compared with."""
     if chosen in TORCH_FORMATS:
         return chosen
@@ -814,6 +829,24 @@ def _pruned_artifact(builder: Builder, fmt: str, checkpoint: Path, out: Path, pr
     return artifact, manifest
 
 
+def _refuse_probe_in_prompts(
+    probe: Sequence[Record], train_file: Path, fold_records: Mapping[str, Sequence[Record]]
+) -> None:
+    """The probe set must be disjoint from the kept-id prompts (train, fit, selection)."""
+    if not probe:
+        return
+    prompt_ids = {r.id for f in dtrain.FOLDS for r in fold_records[f]}
+    if Path(train_file).is_file():
+        prompt_ids |= {b["id"] for b in _train_bodies(train_file)}
+    clash = sorted({r.id for r in probe} & prompt_ids)
+    if clash:
+        raise _refuse(
+            f"{len(clash)} probe record(s) are in the pruned build's prompt set",
+            "the probe set measures out-of-vocabulary refusals on prompts the kept ids "
+            "were not taken from; remove the overlapping records from the probe set",
+        )
+
+
 def _measure_pruned(
     fmt: str,
     checkpoint: Path,
@@ -822,19 +855,25 @@ def _measure_pruned(
     measurer: Measurer,
     fold_records: Mapping[str, Sequence[Record]],
     train_file: Path,
+    probe: Sequence[Record] = (),
     **kw: Any,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """Build and measure the pruned comparison; return its measurement and prompt set."""
+    """Build and measure the pruned comparison (and on the probe set); return its measurement
+    and prompt set."""
     if fmt not in builders:
         return _unavailable(fmt, f"no builder registered for {fmt}"), None
+    _refuse_probe_in_prompts(probe, train_file, fold_records)
     prompt_set = size = None
+    sets: dict[str, list[Record]] = {f: list(fold_records[f]) for f in dtrain.FOLDS}
+    if probe:
+        sets[PROBE_FOLD] = list(probe)
     try:
         prompt_set = write_prompt_set(out_dir / PROMPT_SET_FILE, train_file, fold_records)
         artifact, manifest = _pruned_artifact(
             builders[fmt], fmt, checkpoint, out_dir / fmt, Path(prompt_set["path"])
         )
         size = size_record(artifact)
-        measured = measurer(fmt, artifact, {f: list(fold_records[f]) for f in dtrain.FOLDS})
+        measured = measurer(fmt, artifact, sets)
     except FormatUnavailable as exc:
         return _unavailable(fmt, exc.reason, size=size), prompt_set
     entry = {
@@ -849,13 +888,18 @@ def _measure_pruned(
 def _side_by_side(m: Mapping[str, Any] | None) -> dict[str, Any] | None:
     if m is None:
         return None
+    oov = m.get("oov_refusals") or {}
+    by_fold = dict(oov.get("by_fold") or {})
     return {
         "format": m["format"],
         "available": m["available"],
         "reason": m.get("reason"),
         "weight_bytes": (m.get("size") or {}).get("weight_bytes"),
         "selection_accuracy": m.get("accuracy"),
-        "oov_refusals": (m.get("oov_refusals") or {}).get("total"),
+        "oov_refusals": oov.get("total"),
+        "oov_refusals_by_fold": by_fold,
+        # None: the build was not asked the probe set (no probe given, or not this build)
+        "probe_oov_refusals": by_fold.get(PROBE_FOLD),
     }
 
 
@@ -869,17 +913,21 @@ def compare_pruned(
     measurer: Measurer,
     fold_records: Mapping[str, Sequence[Record]],
     train_file: Path,
+    probe: Sequence[Record] = (),
     **kw: Any,
 ) -> dict[str, Any] | None:
     """The c38 comparison: the pruned build beside its full-vocabulary build; ``None`` when
-    no pruned builder is registered. Reported only; it never changes *chosen*."""
+    no pruned builder is registered. Reported only; it never changes *chosen*.
+
+    The pruned build is also asked *probe* (records disjoint from the kept-id prompts), so its
+    out-of-vocabulary refusals are counted where they can happen (risk r14)."""
     registered = [f for f in PRUNED_FORMATS if f in builders]
     if not registered:
         return None
     reference = _reference_full(measured, chosen)
     fmt = qz.format_name(TORCH_FORMATS[reference], pruned=True) if reference else registered[0]
     entry, prompt_set = _measure_pruned(
-        fmt, checkpoint, out_dir, builders, measurer, fold_records, train_file, **kw
+        fmt, checkpoint, out_dir, builders, measurer, fold_records, train_file, probe, **kw
     )
     return {
         "decision": COMPARISON_NOTE,
@@ -888,6 +936,16 @@ def compare_pruned(
         "shipped_format": chosen,
         "checkpoint": str(checkpoint),
         "fold": "selection",
+        "probe": {
+            "count": len(probe),
+            "measured": bool(probe),
+            "note": (
+                "the pruned build only: the full-vocabulary build has no out-of-vocabulary " "path"
+                if probe
+                else "no probe set given: out-of-vocabulary refusals are counted on "
+                "the fit and selection folds only"
+            ),
+        },
         "prompt_set": prompt_set,
         "pruned": _side_by_side(entry),
         "full_vocabulary": _side_by_side(measured.get(reference) if reference else None),
@@ -934,12 +992,12 @@ def choose_format(
     step("calibration", lambda m: m["ece"] is not None and m["ece"] <= ece_max + _EPS)
     if not alive:
         return {
-            "format": BF16,
+            "format": None,
             "heal": False,
             "trail": trail,
-            "reason": "no quantized format survived the "
+            "reason": f"{NO_QUALIFYING}: no quantized format survived the "
             + next(t["step"] for t in trail if not t["survivors"])
-            + " step; the deployed build stays bf16",
+            + " step; nothing ships (there is no bf16 fallback)",
         }
     within = [
         m
@@ -1335,8 +1393,11 @@ def _heal_round(
     measured: Mapping[str, Mapping[str, Any]],
     bf16_predictions: Mapping[str, Any],
     trainer: Trainer,
-) -> tuple[dict[str, Any], dict[str, dict[str, Any]], Path]:
-    """One heal round of *fmt*: heal set, trigger, train, re-quantize, re-measure, verdict."""
+) -> _Healed:
+    """One heal round of *fmt*: heal set, trigger, train, re-quantize, re-measure, verdict.
+
+    A healed build that is not shippable is returned with its ``problem`` (the caller records
+    the failed ``no qualifying format`` result); nothing past the heal log is written here."""
     round_ = _check_heal_allowed(fmt, reasons, hr.heal_log, hr.train_file, hr.deviation_id)
     root = heal_root(hr.out_dir, fmt, round_)
     protected = protected_digests(hr.fold_records, hr.sealed)
@@ -1357,7 +1418,7 @@ def _heal_round(
     healed_checkpoint = Path(plan["output_dir"])
     dtrain.check_raw_readout(healed_checkpoint)
     method = healed_method(healed_checkpoint)
-    healed, _ = _measure_all(
+    healed, healed_predictions = _measure_all(
         healed_checkpoint,
         root / BUILDS_DIR,
         hr.builders,
@@ -1383,10 +1444,20 @@ def _heal_round(
             "problem": problem,
         },
     )
-    if problem:
-        raise _stop(problem)
     record = {**trigger, "healed_checkpoint": str(healed_checkpoint), "method": method}
-    return record, healed, healed_checkpoint
+    return _Healed(record, healed, healed_predictions, healed_checkpoint, problem)
+
+
+@dataclass(frozen=True)
+class _Healed:
+    """What a heal round produced: its record, measurements, predictions and its verdict."""
+
+    record: dict[str, Any]
+    measured: dict[str, dict[str, Any]]
+    predictions: Mapping[str, Mapping[str, Any]]
+    checkpoint: Path
+    #: why the healed build is not shippable (``None``: it is)
+    problem: str | None = None
 
 
 def _heal_plans(hr: _HealRun, formats: Sequence[str]) -> dict[str, Any]:
@@ -1412,8 +1483,12 @@ def run_quant(
     limits: GpuLimits = GpuLimits(),
     formats: Sequence[str] = tuple(FORMATS),
     bootstrap: Bootstrap = Bootstrap(),
+    probe: Sequence[Record] = (),
 ) -> dict[str, Any]:
-    """Plan (dry-run) or run the format spike, the heal round and the recalibration."""
+    """Plan (dry-run) or run the format spike, the heal round and the recalibration.
+
+    *probe* (the operator's private probe set, never a sealed record) is asked of the pruned
+    comparison build only, to count its out-of-vocabulary refusals (risk r14)."""
     prereg_path, run_dir = Path(prereg_path), Path(run_dir)
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
     bars = quant_bars(reg)
@@ -1426,6 +1501,7 @@ def run_quant(
     winner = read_winner(run_dir)
     dtrain.check_raw_readout(winner["checkpoint"])
     fold_records = dtrain._folds(folds, sealed)
+    probe = bench.check_records(probe, sealed=sealed, origin="probe set") if probe else []
     out_dir = run_dir / QUANT_REL
     kw = {
         "threshold": dtrain._threshold(reg),
@@ -1463,7 +1539,7 @@ def run_quant(
     if not apply:
         return _dry_run(base, formats, hr.builders, _heal_plans(hr, formats))
     _check_apply_inputs(hooks.measurer, hr.builders)
-    measured, bf16_predictions = _measure_all(
+    measured, predictions = _measure_all(
         winner["checkpoint"],
         out_dir / BUILDS_DIR,
         hr.builders,
@@ -1473,8 +1549,11 @@ def run_quant(
         **kw,
     )
     choice = choose_format(measured, ece_max=float(bars["ece_max"]), formats=formats)
+    if choice["format"] is None:
+        _fail(base=base, out_dir=out_dir, measured=measured, healed=None, choice=choice)
     reasons = heal_reasons(choice["format"], measured, choice, minimum)
     deployed_checkpoint = winner["checkpoint"]
+    deployed_predictions = predictions[choice["format"]]
     heal_record: dict[str, Any] | None = None
     healed: dict[str, dict[str, Any]] | None = None
     if reasons:
@@ -1484,9 +1563,14 @@ def run_quant(
             memory_floor=limits.memory_floor,
             timeout=limits.timeout,
         )
-        heal_record, healed, deployed_checkpoint = _heal_round(
-            hr, choice["format"], reasons, measured, bf16_predictions, trainer
-        )
+        heal = _heal_round(hr, choice["format"], reasons, measured, predictions[BF16], trainer)
+        if heal.problem:
+            failed = {**choice, "reason": f"{NO_QUALIFYING}: {heal.problem}"}
+            _fail(
+                base=base, out_dir=out_dir, measured=measured, healed=heal.measured, choice=failed
+            )
+        heal_record, healed, deployed_checkpoint = heal.record, heal.measured, heal.checkpoint
+        deployed_predictions = heal.predictions[choice["format"]]
     comparison = compare_pruned(
         measured,
         choice["format"],
@@ -1496,6 +1580,7 @@ def run_quant(
         measurer=hr.measurer,
         fold_records=fold_records,
         train_file=hr.train_file,
+        probe=probe,
         **kw,
     )
     return _finish(
@@ -1508,7 +1593,96 @@ def run_quant(
         heal_log=hr.heal_log,
         deployed_checkpoint=deployed_checkpoint,
         comparison=comparison,
+        deployed_predictions=deployed_predictions,
     )
+
+
+def _write_measurements(
+    base: Mapping[str, Any],
+    out_dir: Path,
+    measured: Mapping[str, Mapping[str, Any]],
+    healed: Mapping[str, Mapping[str, Any]] | None,
+    comparison: Mapping[str, Any] | None,
+) -> Path:
+    path = out_dir / MEASUREMENTS_FILE
+    _write_json(
+        path,
+        {
+            "prereg_sha256": base["prereg_sha256"],
+            "fold": "selection",
+            "agreement_folds": list(AGREEMENT_FOLDS),
+            "formats": measured,
+            "healed": healed,
+            "pruned_vocabulary_comparison": comparison,
+        },
+    )
+    return path
+
+
+def _fail(
+    *,
+    base: Mapping[str, Any],
+    out_dir: Path,
+    measured: Mapping[str, Mapping[str, Any]],
+    healed: Mapping[str, Mapping[str, Any]] | None,
+    choice: Mapping[str, Any],
+) -> None:
+    """Record the failed ``no qualifying format`` result, ship nothing and stop (risk r10).
+
+    ``measurements.json``, ``format_decision.json`` (``format: null``) and
+    ``quant_manifest.json`` (``status: failed``, ``shipped_format: null``) are written so the
+    failure is on the record; no ``calibration.json`` and no deployed predictions are."""
+    stale = [out_dir / CALIBRATION_FILE, out_dir / DEPLOYED_PREDICTIONS_FILE]
+    for path in stale:  # a deployable output of an earlier run must not outlive this verdict
+        path.unlink(missing_ok=True)
+    measurements_path = _write_measurements(base, out_dir, measured, healed, None)
+    decision = {
+        "decision": "deployed_format",
+        "outcome": NO_QUALIFYING,
+        "format": None,
+        "reason": choice["reason"],
+        "rule": FORMAT_RULE,
+        "trail": choice["trail"],
+        "unavailable": {f: m["reason"] for f, m in measured.items() if not m["available"]},
+        "cited": _cited(measured, measurements_path),
+        "prereg_sha256": base["prereg_sha256"],
+    }
+    decision_path = out_dir / DECISION_FILE
+    _write_json(decision_path, decision)
+    _write_json(
+        out_dir / MANIFEST_FILE,
+        {
+            **base,
+            "dry_run": False,
+            "status": "failed",
+            "outcome": NO_QUALIFYING,
+            "reason": choice["reason"],
+            "chosen_format": None,
+            "shipped_format": None,
+            "shippable": False,
+            "deployed_artifact": None,
+            "outputs": _outputs([measurements_path, decision_path, out_dir / HEAL_LOG_FILE]),
+        },
+    )
+    raise _stop(choice["reason"])
+
+
+def _deployed_predictions_doc(
+    fmt: str, artifact: Any, predictions: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The shipped build's selection-fold predictions and the bundle that produced them."""
+    try:
+        att = qz.bundle_attestation(artifact)
+        bundle = {"files": dict(att["files"]), "manifest_sha256": att["manifest_sha256"]}
+    except (OSError, ValueError, KeyError, CliError):
+        bundle = None
+    return {
+        "format": fmt,
+        "artifact": str(artifact),
+        "bundle": bundle,
+        "fold": "selection",
+        "predictions": list(predictions.get("selection") or []),
+    }
 
 
 def _finish(
@@ -1522,22 +1696,17 @@ def _finish(
     heal_log: Path,
     deployed_checkpoint: Path,
     comparison: Mapping[str, Any] | None = None,
+    deployed_predictions: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     fmt = choice["format"]
     _refuse_comparison_candidates([fmt])
     final = (healed or measured)[fmt]
     final_bf16 = (healed or measured)[BF16]
-    measurements_path = out_dir / MEASUREMENTS_FILE
+    measurements_path = _write_measurements(base, out_dir, measured, healed, comparison)
+    predictions_path = out_dir / DEPLOYED_PREDICTIONS_FILE
     _write_json(
-        measurements_path,
-        {
-            "prereg_sha256": base["prereg_sha256"],
-            "fold": "selection",
-            "agreement_folds": list(AGREEMENT_FOLDS),
-            "formats": measured,
-            "healed": healed,
-            "pruned_vocabulary_comparison": comparison,
-        },
+        predictions_path,
+        _deployed_predictions_doc(fmt, final["artifact"], deployed_predictions or {}),
     )
     cited = _cited(measured, measurements_path)
     if healed:
@@ -1575,6 +1744,7 @@ def _finish(
         "dry_run": False,
         "status": "done",
         "chosen_format": fmt,
+        "shipped_format": fmt,
         "deployed_checkpoint": str(deployed_checkpoint),
         "deployed_artifact": final["artifact"],
         "deployed_size": final.get("size"),
@@ -1596,7 +1766,9 @@ def _finish(
             if comparison is None
             else {k: comparison[k] for k in comparison if k != "measurement"}
         ),
-        "outputs": _outputs([measurements_path, decision_path, calibration_path, heal_log]),
+        "outputs": _outputs(
+            [measurements_path, decision_path, calibration_path, predictions_path, heal_log]
+        ),
     }
     _write_json(out_dir / MANIFEST_FILE, manifest)
     return {**manifest, "decision": decision, "calibration": final["calibration"]}

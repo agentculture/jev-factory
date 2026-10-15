@@ -225,3 +225,20 @@ def test_distill_seed_is_pending_review_dry_run_and_apply_across_stages(domain, 
     assert any("--apply" in t for t in texts)
     assert any("dry" in t or "plan first" in t for t in texts)
     assert set(corpus.world["distill_stages"]) <= set(world()["distill_stages"])
+
+
+def test_edge_seed_entries_are_new_and_pending_operator_review(domain, corpus) -> None:
+    """t17 AC2: new jev.distill edge entries are marked pending operator review."""
+    rows = [
+        e
+        for e in _by(corpus, "operation")
+        if e["expect"]["operation"] == "jev.distill" and e["expect"]["args"]["stage"] == "edge"
+    ]
+    assert len(rows) >= 3
+    assert len({e["class"] for e in rows}) >= 3
+    for e in rows:
+        assert e["source"].startswith("agent-draft-2026-10-15")
+        assert "pending operator review" in e["source"]
+        grounded = domain.ground("jev.distill", e["expect"]["args"], world=corpus.world)
+        assert isinstance(grounded, Grounded), e["id"]
+    assert "edge" in corpus.world["distill_stages"]

@@ -19,7 +19,15 @@ jobs under ``jobs/`` as it always has.
 Stages, in data-dependency order (:data:`STAGE_ORDER`)::
 
     preregister, dataset, contamination, teacher-label, audit, corrections-draft, assemble,
-    benchmark, train, quantize, gate, final, bundle, upload
+    benchmark, train, quantize, gate, final, edge, bundle, upload
+
+Gates wired here (t17): teacher-label holds the teacher-label lock for its whole run (released in
+a ``finally``), so final and edge refuse while it labels; benchmark reproduces the stock model's
+JevBench w4096 result and measures it on the probe set and the fit/selection folds, and train
+refuses (fail closed) without that reproduction record unless a deviation id is given; final
+needs the contamination stage's report and reads the gold ledger, the probe set and the bf16
+calibration; edge measures the shipped quant on a board through a 127.0.0.1 tunnel against the
+quant stage's selection-fold predictions of the same bundle.
 
 Running a stage goes through :func:`run`: without ``apply`` nothing is written (:func:`plan`
 reports what the stage reads and writes, whether it is stale, the run-config keys it needs that
@@ -95,6 +103,12 @@ BUNDLE_DIR = "bundle"
 BUNDLE_MODEL = "bundle/model"
 BUNDLE_DATASET = "bundle/dataset"
 UPLOAD_FILE = "upload/upload.json"
+STOCK_REPRODUCTION = "benchmark/stock_reproduction.json"
+STOCK_MEASUREMENTS = "benchmark/stock_measurements.json"
+QUANT_MEASUREMENTS = "quant/measurements.json"
+QUANT_PREDICTIONS = "quant/deployed_predictions.json"
+SELECT_CALIBRATION = "select/calibration.json"
+EDGE_DIR = "edge"
 
 STAGE_ORDER = (
     "preregister",
@@ -109,6 +123,7 @@ STAGE_ORDER = (
     "quantize",
     "gate",
     "final",
+    "edge",
     "bundle",
     "upload",
 )
@@ -133,6 +148,7 @@ DEFAULT_KNOBS: dict[str, dict[str, Any]] = {
     "quantize": {"formats": None},
     "gate": {},
     "final": {"clef_calibration": None},
+    "edge": {"label": "nano", "served_model": "distill-edge-student"},
     "bundle": {},
     "upload": {"model_repo": None, "dataset_repo": None},
 }
@@ -147,6 +163,8 @@ STAGE_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         "distill_teacher_revision",
         "distill_teacher_build_id",
         "distill_teacher_engine",
+        "distill_teacher_key_env",
+        "distill_teacher_model_header",
     ),
     "corrections-draft": ("distill_alt_teacher_url", "distill_alt_teacher_model"),
     "benchmark": (
@@ -154,6 +172,9 @@ STAGE_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         "distill_teacher_model",
         "distill_stock_url",
         "distill_stock_model",
+        "distill_jevbench_tasks",
+        "distill_probe_set",
+        "distill_base_revision",
     ),
     "train": (
         "distill_pin_cache",
@@ -176,6 +197,7 @@ STAGE_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         "distill_student_port",
         "train_memory_max",
         "train_memory_floor",
+        "distill_probe_set",
     ),
     "gate": (
         "distill_decider_repo",
@@ -192,13 +214,17 @@ STAGE_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         "distill_student_python",
         "distill_student_lockfile",
         "distill_student_port",
+        "distill_agx_url",
+        "distill_gold_ledger",
+        "distill_probe_set",
     ),
+    "edge": ("distill_edge_url", "distill_edge_memory_cap", "distill_probe_set"),
     "upload": ("hub_prefix",),
 }
 
 #: Stages with no side effect beyond their own outputs still dry-run; these call a module's
 #: own dry run (``apply=False``) in :func:`plan`, which reads and never writes.
-_MODULE_PLANS = ("train", "quantize", "gate", "final", "upload")
+_MODULE_PLANS = ("train", "quantize", "gate", "final", "edge", "upload")
 
 
 # ---------------------------------------------------------------------------
@@ -230,8 +256,13 @@ class Services:
     measurer: Any = None
     #: quantize: the heal trainer (default: the module's own).
     trainer: Any = None
-    #: final: ``{name: FinalModel}`` for clef, stock and student (default: from config).
+    #: final: ``{name: FinalModel}`` for clef, stock, student_bf16 and student (default: from
+    #: config; student is the shipped quant pre-served on the AGX Orin at distill_agx_url).
     final_models: Mapping[str, Any] | None = None
+    #: edge: ``ask(record) -> CallResult`` on the board (default: SystemOneClient on the URL).
+    edge_client: Any = None
+    #: edge: ``get(path) -> JSON`` for ``/v1/bundle`` and ``/v1/stats`` (default: HTTP GET).
+    edge_get: Callable[[str], Mapping[str, Any]] | None = None
     #: upload: the hub client module (default: huggingface_hub, imported on upload).
     hub: Any = None
     #: Environment secrets are read from (default: os.environ).
@@ -417,13 +448,12 @@ def stage_contamination(workdir: Path, knobs: dict[str, Any]) -> None:
     contamination.write_report(report, workdir)
 
 
-def stage_teacher_label(workdir: Path, knobs: dict[str, Any]) -> None:
-    """Soft-label the train side with the teacher, resumable from its response cache."""
+def _teacher_config(ctx: DistillContext, knobs: Mapping[str, Any]) -> Any:
+    """The teacher's provenance and how to reach it (the key by env-var NAME only)."""
     from jev_factory.distill import teacher
 
-    ctx = _ctx()
-    req = ctx.config.require
-    cfg = teacher.TeacherConfig(
+    req, get = ctx.config.require, ctx.config.get
+    return teacher.TeacherConfig(
         base_url=str(req("distill_teacher_url")),
         model=str(req("distill_teacher_model")),
         repo_id=str(req("distill_teacher_repo")),
@@ -431,12 +461,38 @@ def stage_teacher_label(workdir: Path, knobs: dict[str, Any]) -> None:
         build_id=str(req("distill_teacher_build_id")),
         engine=str(req("distill_teacher_engine")),
         joint=bool(knobs["joint"]),
+        auth_env=get("distill_teacher_key_env") or None,
+        model_header=get("distill_teacher_model_header") or None,
     )
+
+
+def stage_teacher_label(workdir: Path, knobs: dict[str, Any]) -> None:
+    """Soft-label the train side with the teacher, resumable from its response cache."""
+    from jev_factory.distill import edge as dedge
+
+    ctx = _ctx()
+    cfg = _teacher_config(ctx, knobs)
+    dedge.acquire_teacher_lock(ctx.work)  # final and edge refuse while it is held
+    try:
+        _label(ctx, Path(workdir), cfg)
+    finally:
+        dedge.release_teacher_lock(ctx.work)
+
+
+def _label(ctx: DistillContext, workdir: Path, cfg: Any) -> None:
+    from jev_factory.distill import teacher
+
     client = ctx.services.teacher_client
     if client is None:
         from jev_factory.distill.systemone import SystemOneClient
 
-        client = SystemOneClient(cfg.base_url, model=cfg.model, timeout=cfg.timeout)
+        client = SystemOneClient(
+            cfg.base_url,
+            model=cfg.model,
+            timeout=cfg.timeout,
+            auth_env=cfg.auth_env,
+            model_header=cfg.model_header,
+        )
     records = _train_records(ctx)
     total = len(records) if cfg.joint else sum(len(r.questions) for r in records)
     cache = Path(workdir) / TEACHER_DIR / teacher.CACHE_DIR
@@ -565,8 +621,18 @@ def stage_assemble(workdir: Path, knobs: dict[str, Any]) -> None:
     )
 
 
+def _probe_records(ctx: DistillContext) -> list[Any]:
+    """The operator's private probe set (``distill_probe_set``), refused if it touches a sealed
+    side; empty when unset."""
+    path = ctx.config.get("distill_probe_set")
+    if not path:
+        return []
+    held_out, test = _sealed(ctx)
+    return dfinal.load_probe(path, {"held_out": held_out, "test": test})
+
+
 def stage_benchmark(workdir: Path, knobs: dict[str, Any]) -> None:
-    """Zero-shot benchmark of Clef and the stock model on the fit and selection folds."""
+    """Zero-shot benchmark of Clef and stock, plus the stock JevBench w4096 reproduction."""
     from jev_factory.distill import benchmark as bench
 
     ctx = _ctx()
@@ -581,6 +647,9 @@ def stage_benchmark(workdir: Path, knobs: dict[str, Any]) -> None:
                 "stock", str(req("distill_stock_url")), str(req("distill_stock_model"))
             ),
         }
+    tasks_path = Path(ctx.config.require("distill_jevbench_tasks"))
+    tasks = bench.load_jevbench(tasks_path)  # refused before any model is served
+    probe = _probe_records(ctx)
     result = bench.run_benchmark(
         list(targets.values()),
         _folds(ctx),
@@ -589,6 +658,25 @@ def stage_benchmark(workdir: Path, knobs: dict[str, Any]) -> None:
         clients=ctx.services.benchmark_clients,
     )
     _write_json(Path(workdir) / BENCHMARK_FILE, result)
+    stock = targets["stock"]
+    client = (ctx.services.benchmark_clients or {}).get("stock")
+    reproduction = bench.reproduce_stock(
+        stock,
+        tasks,
+        base_revision=_base_revision(ctx),
+        tasks_path=tasks_path,
+        memory_probe=_memory_probe(ctx),
+        client=client,
+    )
+    bench.write_reproduction(ctx.work, reproduction)
+    sets = {name: bench.load_fold(path) for name, path in _folds(ctx).items()}
+    if probe:
+        sets[bench.PROBE_SET] = probe
+    measured = bench.measure_stock(
+        stock, sets, memory_probe=_memory_probe(ctx), client=client, sealed=_sealed(ctx)
+    )
+    measured["probe_set"] = None if not probe else {"count": len(probe)}
+    _write_json(ctx.work / bench.STOCK_SETS_REL, measured)
 
 
 def _pins(ctx: DistillContext) -> Any:
@@ -629,9 +717,18 @@ def _train_kwargs(ctx: DistillContext) -> dict[str, Any]:
     }
 
 
+def _require_reproduction(ctx: DistillContext) -> None:
+    """Train refuses without the stock reproduction record (fail closed) or on a base
+    mismatch, unless a deviation id is given."""
+    from jev_factory.distill import benchmark as bench
+
+    bench.require_base_match(ctx.work, ctx.deviation_id, required=True)
+
+
 def stage_train(workdir: Path, knobs: dict[str, Any]) -> None:
     """Train the pre-registered knob grid, calibrate on fit, select on the selection fold."""
     ctx = _ctx()
+    _require_reproduction(ctx)
     scorer = ctx.services.scorer
     if scorer is None:
         scorer = dtrain.served_scorer(
@@ -664,6 +761,7 @@ def _quant_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, An
         "sealed": _sealed(ctx),
         "deviation_id": ctx.deviation_id,
         "limits": _gpu_limits(ctx),
+        "probe": _probe_records(ctx),
     }
     if knobs.get("formats"):
         kwargs["formats"] = tuple(knobs["formats"])
@@ -693,45 +791,70 @@ def stage_gate(workdir: Path, knobs: dict[str, Any]) -> None:
     dgate.run_gate(ctx.work, **_gate_kwargs(ctx), apply=True, measurer=_measurer(ctx))
 
 
-def _student_final_model(ctx: DistillContext) -> Any:
-    """The deployed student, served from its own artifact on 127.0.0.1 for the final."""
-    from jev_factory.backbones.pointer import quantized as qz
+def _bf16_artifact(ctx: DistillContext) -> Path:
+    """The bf16 winner's export the quant stage measured every format against."""
+    path = stage_dir(ctx.work) / QUANT_MEASUREMENTS
+    bf16 = ((_read_json(path).get("formats") or {}).get(dquant.BF16)) or {}
+    if not bf16.get("available") or not bf16.get("artifact"):
+        raise _err(f"{path}: no bf16 artifact was built", "run the distill quantize stage first")
+    artifact = Path(str(bf16["artifact"]))
+    return artifact if artifact.is_absolute() else ctx.work / artifact
+
+
+def _bf16_final_model(ctx: DistillContext) -> Any:
+    """The distilled bf16 student, served from its own export on the Spark (127.0.0.1)."""
     from jev_factory.backbones.pointer import serve as pserve
     from jev_factory.distill import benchmark as bench
 
-    student = dfinal.deployed_student(ctx.work)
-    artifact = Path(str(student["artifact"] or ""))
-    if not artifact.is_absolute():
-        artifact = ctx.work / artifact
+    artifact = _bf16_artifact(ctx)
     env, jobdir = _student_env(ctx), jobs_dir(ctx.work)
     port = int(ctx.config.get("distill_student_port"))
     base_url = f"http://{pserve.LOOPBACK}:{port}"
-    name = "distill-final-student"
-
-    def start() -> Any:
-        if (artifact / qz.MANIFEST_FILE).is_file():
-            return qz.launch(
-                jobdir,
-                name,
-                env,
-                artifact,
-                port=port,
-                decider_repo=ctx.config.get("distill_decider_repo"),
-            )
-        return pserve.launch(jobdir, name, env, artifact, port=port)
-
+    name = "distill-final-student-bf16"
     target = bench.Target(
-        name=dfinal.dreport.STUDENT,
+        name=dfinal.dreport.STUDENT_BF16,
         base_url=base_url,
         model=name,
-        start=start,
+        start=lambda: pserve.launch(jobdir, name, env, artifact, port=port),
         ready=lambda: pserve.wait_ready(base_url, timeout=600.0, jobdir=jobdir, name=name),
         stop=lambda: dtrain._stop_job(jobdir, name),  # noqa: SLF001
     )
     return dfinal.FinalModel(target=target, client=pserve.PointerClient(base_url, model=name))
 
 
+def _agx_final_model(ctx: DistillContext) -> Any:
+    """The shipped quant, pre-served on the AGX Orin behind a 127.0.0.1 tunnel (no start/stop).
+
+    ``/v1/bundle`` and ``/v1/stats`` are read through the same tunnel (FinalModel.get), so the
+    final attests the bundle that answers before any request."""
+    from jev_factory.backbones.pointer import serve as pserve
+    from jev_factory.distill import benchmark as bench
+    from jev_factory.distill import edge as dedge
+
+    base_url = _localhost_url(ctx, "distill_agx_url")
+    name = "distill-final-student"
+    return dfinal.FinalModel(
+        target=bench.Target(name=dfinal.dreport.STUDENT, base_url=base_url, model=name),
+        client=pserve.PointerClient(base_url, model=name),
+        get=lambda path: dedge._get_json(base_url, path),  # noqa: SLF001 - localhost only
+    )
+
+
+def _localhost_url(ctx: DistillContext, key: str) -> str:
+    from jev_factory.measure.preflight import require_localhost
+
+    url = str(ctx.config.require(key))
+    try:
+        require_localhost(url)
+    except ValueError as exc:
+        raise _err(
+            f"{key}: {exc}", "open a tunnel and set its http://127.0.0.1:<port> URL"
+        ) from None
+    return url
+
+
 def _final_models(ctx: DistillContext) -> Mapping[str, Any]:
+    """Clef, stock, the bf16 student (served here) and the shipped quant (on the AGX Orin)."""
     if ctx.services.final_models is not None:
         return ctx.services.final_models
     from jev_factory.distill import benchmark as bench
@@ -749,8 +872,33 @@ def _final_models(ctx: DistillContext) -> Mapping[str, Any]:
                 report.STOCK, str(req("distill_stock_url")), str(req("distill_stock_model"))
             )
         ),
-        report.STUDENT: _student_final_model(ctx),
+        report.STUDENT_BF16: _bf16_final_model(ctx),
+        report.STUDENT: _agx_final_model(ctx),
     }
+
+
+def _contamination_manifest(ctx: DistillContext) -> dict[str, Any]:
+    """The upstream-sources manifest the contamination stage matched against; the final
+    refuses to run before that stage has (its report is the gate)."""
+    from jev_factory.distill import contamination
+
+    report = stage_dir(ctx.work) / CONTAMINATION_FILE
+    if not report.is_file():
+        raise _err(
+            f"{report}: the contamination check has not run",
+            "run: jev distill contamination --work <dir> --apply",
+        )
+    return contamination.load_manifest()
+
+
+def _final_inputs(ctx: DistillContext) -> Any:
+    calibration = stage_dir(ctx.work) / SELECT_CALIBRATION
+    return dfinal.FinalInputs(
+        gold_ledger=ctx.config.get("distill_gold_ledger") or None,
+        probe=ctx.config.get("distill_probe_set") or None,
+        bf16_calibration=calibration if calibration.is_file() else None,
+        contamination_manifest=_contamination_manifest(ctx),
+    )
 
 
 def _final_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, Any]:
@@ -761,13 +909,63 @@ def _final_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, An
         "deviation_id": ctx.deviation_id,
         "clef_calibration": knobs.get("clef_calibration") or None,
         "memory_probe": _memory_probe(ctx),
+        "inputs": _final_inputs(ctx),
     }
 
 
 def stage_final(workdir: Path, knobs: dict[str, Any]) -> None:
-    """Score Clef, the stock model and the deployed student once, on test and held-out."""
+    """Score Clef, stock, the bf16 student and the shipped quant once, on test and held-out."""
     ctx = _ctx()
     dfinal.run_final(**_final_kwargs(ctx, knobs), models=_final_models(ctx), apply=True)
+
+
+_SIZE_UNITS = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
+
+
+def parse_memory_cap(value: Any) -> int | None:
+    """``distill_edge_memory_cap`` in bytes: an integer, or digits with a K/M/G/T suffix
+    (base 1024, as systemd's ``MemoryMax=`` reads it); ``None`` when unset."""
+    if value in (None, ""):
+        return None
+    text = str(value).strip().upper()
+    unit = text[-1] if text and text[-1] in _SIZE_UNITS else ""
+    digits = text[: len(text) - len(unit)]
+    if not digits.isdigit() or int(digits) <= 0:
+        raise _err(
+            f"distill_edge_memory_cap: {value!r} is not a memory size",
+            "set bytes, or digits with K, M, G or T (base 1024), e.g. 4G",
+        )
+    return int(digits) * _SIZE_UNITS[unit]
+
+
+def _edge_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, Any]:
+    cap = parse_memory_cap(ctx.config.get("distill_edge_memory_cap"))
+    if cap is None:
+        raise _err(
+            "the edge stage needs the expected cgroup memory cap",
+            "set distill_edge_memory_cap (the MemoryMax the board's server runs under)",
+        )
+    probe = ctx.config.require("distill_probe_set")
+    return {
+        "run_dir": ctx.work,
+        "dataset_dir": _dataset_dir(ctx),
+        "selection": _folds(ctx)["selection"],
+        "probe": probe,
+        "base_url": _localhost_url(ctx, "distill_edge_url"),
+        "served_model": str(knobs["served_model"]),
+        "label": str(knobs["label"]),
+        "expected_cap": cap,
+        "client": ctx.services.edge_client,
+        "get": ctx.services.edge_get,
+    }
+
+
+def stage_edge(workdir: Path, knobs: dict[str, Any]) -> None:
+    """Measure the shipped quant on a board (selection fold and probe set), through a tunnel."""
+    from jev_factory.distill import edge as dedge
+
+    ctx = _ctx()
+    dedge.run_edge(**_edge_kwargs(ctx, knobs), apply=True)
 
 
 def stage_bundle(workdir: Path, knobs: dict[str, Any]) -> None:
@@ -863,23 +1061,36 @@ def _stages() -> list[Stage]:
             (TRAIN_SET, ASSEMBLE_MANIFEST),
             ("audit", "corrections-draft"),
         ),
-        s("benchmark", stage_benchmark, (DATASET_MANIFEST,), (BENCHMARK_FILE,), ("dataset",)),
-        s("train", stage_train, (PREREG_FILE, TRAIN_SET), (SELECT_SUMMARY,), ("assemble",)),
+        s(
+            "benchmark",
+            stage_benchmark,
+            (DATASET_MANIFEST,),
+            (BENCHMARK_FILE, STOCK_REPRODUCTION, STOCK_MEASUREMENTS),
+            ("dataset",),
+        ),
+        s(
+            "train",
+            stage_train,
+            (PREREG_FILE, TRAIN_SET),
+            (SELECT_SUMMARY,),
+            ("assemble",),
+        ),
         s(
             "quantize",
             stage_quantize,
             (SELECT_SUMMARY,),
-            (QUANT_MANIFEST, QUANT_DECISION, QUANT_CALIBRATION),
+            (QUANT_MANIFEST, QUANT_DECISION, QUANT_CALIBRATION, QUANT_PREDICTIONS),
             ("train",),
         ),
         s("gate", stage_gate, (QUANT_CALIBRATION,), (GATE_FILE,), ("quantize",)),
         s(
             "final",
             stage_final,
-            (QUANT_CALIBRATION, GATE_FILE),
+            (QUANT_CALIBRATION, GATE_FILE, CONTAMINATION_FILE),
             (FINAL_FILE, FINAL_REPORT),
-            ("gate",),
+            ("contamination", "gate"),
         ),
+        s("edge", stage_edge, (FINAL_FILE, QUANT_PREDICTIONS), (EDGE_DIR,), ("final",)),
         s(
             "bundle",
             stage_bundle,
@@ -926,6 +1137,8 @@ def _external(name: str, ctx: DistillContext) -> dict[str, Any]:
     """sha256 of the files a stage reads from outside its declared inputs (staleness)."""
     if name == "dataset" and ctx.config.get("distill_records"):
         return {"distill_records": sha256_path(Path(ctx.config["distill_records"]))}
+    if name == "train":  # not a declared input: a deviation id may stand in for it
+        return {"stock_reproduction": sha256_path(stage_dir(ctx.work) / STOCK_REPRODUCTION)}
     if name == "assemble":
         from jev_factory.review import corrections as review
 
@@ -955,6 +1168,7 @@ def effective_knobs(name: str, knobs: Mapping[str, Any] | None, ctx: DistillCont
 def _module_plan(name: str, ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, Any]:
     """The owning module's own dry run (``apply=False``: reads, never writes)."""
     if name == "train":
+        _require_reproduction(ctx)
         return dtrain.run_grid(**_train_kwargs(ctx), apply=False)
     if name == "quantize":
         return dquant.run_quant(**_quant_kwargs(ctx, knobs), apply=False)
@@ -963,6 +1177,10 @@ def _module_plan(name: str, ctx: DistillContext, knobs: Mapping[str, Any]) -> di
     if name == "final":
         models = _final_models(ctx)
         return dfinal.run_final(**_final_kwargs(ctx, knobs), models=models, apply=False)
+    if name == "edge":
+        from jev_factory.distill import edge as dedge
+
+        return dedge.run_edge(**_edge_kwargs(ctx, knobs), apply=False)
     from jev_factory.distill import bundle
 
     return bundle.upload_bundles(**_upload_kwargs(ctx, knobs), apply=False)

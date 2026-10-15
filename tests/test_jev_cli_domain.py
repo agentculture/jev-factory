@@ -169,3 +169,21 @@ def test_distill_is_one_mutating_operation_with_a_grounded_stage() -> None:
         {"stage": "teacher-label"}
     )
     assert isinstance(domain.ground("jev.distill", {"stage": "seal"}, world=snap), GroundDecline)
+
+
+#: The CLI surface hash before t17 (the distill verb's help did not name the edge check).
+PRE_T17_SURFACE = "bef2520ea214ba8ee509a4280176a16f123bb1f909bc261680cd79d251ab266a"
+
+
+def test_distill_stage_grounding_includes_edge_and_the_surface_hash_moved() -> None:
+    """t17 AC2: the jev.distill stage grounds 'edge'; cli_surface_sha256 is updated."""
+    domain = generate_domain()
+    snap = world()
+    assert "edge" in snap["distill_stages"]
+    assert domain.ground("jev.distill", {"stage": "Edge"}, world=snap) == Grounded(
+        {"stage": "edge"}
+    )
+    assert domain.ground("jev.distill", {"stage": "edge"}) == Grounded({"stage": "edge"})
+    op = next(o for o in domain.operations if o.name == "jev.distill")
+    assert "edge" in op.description
+    assert cli_surface_sha256() != PRE_T17_SURFACE

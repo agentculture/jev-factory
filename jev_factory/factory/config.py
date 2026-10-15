@@ -157,8 +157,50 @@ KEYS: tuple[Key, ...] = (
         "operator-held Clef probe set (upload scan; never committed)",
     ),
     _k("distill_side_model_list", "path", None, "operator-held side-model names (upload scan)"),
+    _k(
+        "distill_teacher_model_header",
+        "str",
+        None,
+        "model name sent as X-Lobes-Model to the teacher gateway, if any",
+    ),
+    _k(
+        "distill_gold_ledger",
+        "path",
+        None,
+        "human-gold approval ledger the final reads (default: beside test.jsonl)",
+    ),
+    _k(
+        "distill_jevbench_tasks",
+        "path",
+        None,
+        "JevBench w4096 public tasks (231, record JSONL) the stock reproduction scores",
+    ),
+    _k(
+        "distill_agx_url",
+        "str",
+        None,
+        "127.0.0.1 tunnel URL of the shipped quant pre-served on the AGX Orin (final)",
+    ),
+    _k(
+        "distill_edge_url",
+        "str",
+        None,
+        "127.0.0.1 tunnel URL of the shipped quant served on the edge board (edge)",
+    ),
+    _k(
+        "distill_edge_memory_cap",
+        "str",
+        None,
+        "expected cgroup MemoryMax of the edge server (bytes, or K/M/G/T, base 1024)",
+    ),
     # secrets, by the NAME of the environment variable that holds them
     _k("aug_key_env", "envname", None, "name of the env var holding the teacher gateway key"),
+    _k(
+        "distill_teacher_key_env",
+        "envname",
+        None,
+        "name of the env var holding the distill teacher's bearer key",
+    ),
     _k("hf_token_env", "envname", "HF_TOKEN", "name of the env var holding the hub token"),
 )
 

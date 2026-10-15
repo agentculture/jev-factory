@@ -10,11 +10,13 @@ import argparse
 import json
 import random
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from jev_factory.cli import _build_parser, main
+from jev_factory.cli._errors import CliError
 from jev_factory.distill import assemble as dassemble
 from jev_factory.distill import audit as daudit
 from jev_factory.distill import dataset as ddataset
@@ -268,7 +270,7 @@ def test_every_stage_writes_nothing_without_apply_on_a_populated_run(stage, asse
     plan = json.loads(out)
     assert plan["applied"] is False
     assert plan["would_run"] is (stage not in THROUGH_ASSEMBLE)
-    if stage in ("train", "quantize", "gate", "final", "upload"):
+    if stage in ("train", "quantize", "gate", "final", "edge", "upload"):
         assert "module_plan" in plan or "module_plan_blocked" in plan
     assert tree(root) == before
 
@@ -450,10 +452,35 @@ def test_explain_learn_and_overview_cover_distill(capsys):
     assert "distill <stage>" in out
 
 
+def _jevbench(n: int = 231) -> list[Record]:
+    return [replace(_rec(1000 + i, GOOD), id=f"jb{i:03d}") for i in range(n)]
+
+
+def _probe() -> list[Record]:
+    return [replace(_rec(2000 + i, GOOD), id=f"probe{i}") for i in range(3)]
+
+
+def _add_config(work: Path, **keys: str) -> None:
+    toml = work / "run.toml"
+    extra = "".join(f"{k} = {json.dumps(v)}\n" for k, v in keys.items())
+    toml.write_text(toml.read_text(encoding="utf-8") + extra, encoding="utf-8")
+
+
+def _jsonl(path: Path, records) -> Path:
+    path.write_text("".join(json.dumps(r.to_json()) + "\n" for r in records), "utf-8")
+    return path
+
+
 def test_benchmark_applies_on_the_fit_and_selection_folds_only(assembled):
+    """Risk r12: benchmark also reproduces stock on JevBench w4096 and measures it on the probe
+    set and the fit/selection folds; the sealed sides are never asked."""
     from jev_factory.distill import benchmark as bench
 
-    clients = {"clef": FakeTeacher(_records()), "stock": FakeTeacher(_records())}
+    tasks = _jsonl(assembled.parent / "jevbench.jsonl", _jevbench())
+    probe = _jsonl(assembled.parent / "probe.jsonl", _probe())
+    _add_config(assembled, distill_jevbench_tasks=str(tasks), distill_probe_set=str(probe))
+    every = _records() + _jevbench() + _probe()
+    clients = {"clef": FakeTeacher(every), "stock": FakeTeacher(every)}
     targets = {n: bench.Target(n, "http://127.0.0.1:9", n) for n in clients}
     _apply(
         assembled,
@@ -466,8 +493,326 @@ def test_benchmark_applies_on_the_fit_and_selection_folds_only(assembled):
     folds = {
         r.id for side in ("fit", "selection") for r in ddataset.read_records(ds / f"{side}.jsonl")
     }
-    for client in clients.values():
-        assert set(client.asked) == folds
+    assert set(clients["clef"].asked) == folds
+    jb = {r.id for r in _jevbench()}
+    assert set(clients["stock"].asked) == folds | jb | {r.id for r in _probe()}
+    sealed = {
+        r.id for side in ("test", "held_out") for r in ddataset.read_records(ds / f"{side}.jsonl")
+    }
+    assert not sealed & set(clients["stock"].asked)
     result = json.loads((assembled / "distill" / P.BENCHMARK_FILE).read_text())
     assert set(result["models"]) == {"clef", "stock"}
-    assert read_manifest(assembled / "distill", "benchmark")["status"] == "complete"
+    reproduction = json.loads((assembled / "distill" / P.STOCK_REPRODUCTION).read_text())
+    assert reproduction["n"] == 2 * 231  # every gold-bearing question of the 231 tasks
+    assert reproduction["tasks_sha256"] == dprereg.sha256_file(tasks)
+    assert reproduction["base_mismatch"] is True  # 231/231 right: the CI excludes 0.7792
+    measured = json.loads((assembled / "distill" / P.STOCK_MEASUREMENTS).read_text())
+    assert set(measured["sets"]) == {"fit", "selection", "probe"}
+    assert measured["probe_set"] == {"count": 3}
+    assert "probe0" not in json.dumps(measured)  # the probe set is private
+    manifest = read_manifest(assembled / "distill", "benchmark")
+    assert manifest["status"] == "complete"
+    assert set(manifest["outputs"]) >= {P.STOCK_REPRODUCTION, P.STOCK_MEASUREMENTS}
+
+
+def test_benchmark_without_the_jevbench_tasks_refuses_before_serving(assembled):
+    """Risk r12: no JevBench task file -> the stage fails before any model is asked."""
+    from jev_factory.distill import benchmark as bench
+
+    clients = {"clef": FakeTeacher(_records()), "stock": FakeTeacher(_records())}
+    targets = {n: bench.Target(n, "http://127.0.0.1:9", n) for n in clients}
+    ctx = _ctx(assembled, benchmark_targets=targets, benchmark_clients=clients)
+    out = P.run(assembled, "benchmark", ctx, apply=True)
+    assert out["status"] == "failed"
+    assert "distill_jevbench_tasks" in out["error"]
+    assert clients["stock"].asked == []
+    assert clients["clef"].asked == []
+
+
+def test_train_refuses_without_the_stock_reproduction_record(assembled, capsys):
+    """Risk r12: an ABSENT stock reproduction makes train refuse (fail closed)."""
+    out = P.run(assembled, "train", _ctx(assembled), apply=True)
+    assert out["status"] == "failed"
+    assert "no stock reproduction record" in out["error"]
+    rc, plan, _ = run_cli(capsys, "distill", "train", "--work", str(assembled), "--json")
+    assert rc == 0
+    blocked = json.loads(plan)["module_plan_blocked"]
+    assert "no stock reproduction record" in blocked["message"]
+
+
+def test_a_deviation_id_lets_train_past_an_absent_reproduction(assembled):
+    ctx = replace(_ctx(assembled), deviation_id="d9")
+    out = P.run(assembled, "train", ctx, apply=True)
+    assert "stock reproduction" not in (out.get("error") or "")
+
+
+def test_train_keeps_refusing_a_recorded_base_mismatch(assembled):
+    from jev_factory.distill import benchmark as bench
+
+    bench.write_reproduction(
+        assembled,
+        {"base_mismatch": True, "n": 231, "n_correct": 150, "ci_low": 0.58, "ci_high": 0.70},
+    )
+    out = P.run(assembled, "train", _ctx(assembled), apply=True)
+    assert out["status"] == "failed"
+    assert "base-mismatch" in out["error"]
+
+
+# ----------------------------------------------------------------- t17: run wiring
+
+
+def test_edge_is_registered_after_final_and_there_are_fifteen_stages(capsys):
+    """AC1: 'edge' is registered after final; jev distill --help lists 15 stages."""
+    assert len(STAGES) == 15
+    assert STAGES.index("edge") == STAGES.index("final") + 1
+    assert P.REGISTRY.get("edge").deps == ("final",)
+    assert set(P.DEFAULT_KNOBS["edge"]) == {"label", "served_model"}
+    with pytest.raises(SystemExit):
+        main(["distill", "--help"])
+    assert "final, edge, bundle, upload." in " ".join(capsys.readouterr().out.split())
+    parser = _build_parser()
+    sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    stage = next(a for a in sub.choices["distill"]._actions if a.dest == "stage")
+    assert list(stage.choices) == STAGES
+    assert stage.help == "The distill stage: " + ", ".join(STAGES) + "."
+
+
+def test_every_new_run_config_key_is_declared_and_read_by_a_stage():
+    """AC1: the six new keys exist and the stages that use them record them."""
+    from jev_factory.factory.config import KEYS
+
+    declared = {k.name: k for k in KEYS}
+    new = {
+        "distill_teacher_key_env": "teacher-label",
+        "distill_teacher_model_header": "teacher-label",
+        "distill_gold_ledger": "final",
+        "distill_agx_url": "final",
+        "distill_edge_url": "edge",
+        "distill_edge_memory_cap": "edge",
+        "distill_jevbench_tasks": "benchmark",
+    }
+    for key, stage in new.items():
+        assert key in declared, key
+        assert key in P.STAGE_CONFIG_KEYS[stage], (key, stage)
+    assert declared["distill_teacher_key_env"].kind == "envname"  # a NAME, never the key
+
+
+class LockCheckingTeacher(FakeTeacher):
+    """Records whether the teacher-label lock was held while each request was asked."""
+
+    def __init__(self, records, work, fail=False):
+        super().__init__(records)
+        self.work, self.fail, self.held = work, fail, []
+
+    def ask(self, wire):
+        from jev_factory.distill import edge as dedge
+
+        self.held.append(dedge.teacher_lock_path(self.work).is_file())
+        if self.fail:
+            raise RuntimeError("the teacher went away")
+        return super().ask(wire)
+
+
+def test_teacher_label_holds_the_lock_while_labelling_and_releases_it(work):
+    """Item 1 (t15): the lock is acquired at start and released when the stage ends."""
+    from jev_factory.distill import edge as dedge
+
+    teacher = LockCheckingTeacher(_records(), work)
+    _apply(work, "preregister", "dataset", "teacher-label", teacher_client=teacher)
+    assert teacher.held
+    assert all(teacher.held)
+    assert not dedge.teacher_lock_path(work).exists()
+
+
+def test_teacher_label_releases_the_lock_when_it_fails(work):
+    from jev_factory.distill import edge as dedge
+
+    _apply(work, "preregister", "dataset")
+    teacher = LockCheckingTeacher(_records(), work, fail=True)
+    out = P.run(work, "teacher-label", _ctx(work, **_services(teacher_client=teacher)), apply=True)
+    assert out["status"] == "failed"
+    assert teacher.held == [True]
+    assert not dedge.teacher_lock_path(work).exists()
+
+
+def test_teacher_label_refuses_while_another_holds_the_lock(work):
+    from jev_factory.distill import edge as dedge
+
+    _apply(work, "preregister", "dataset")
+    dedge.acquire_teacher_lock(work)
+    teacher = FakeTeacher(_records())
+    out = P.run(work, "teacher-label", _ctx(work, **_services(teacher_client=teacher)), apply=True)
+    assert out["status"] == "failed"
+    assert "already held" in out["error"]
+    assert teacher.asked == []
+    assert dedge.teacher_lock_path(work).exists()  # someone else's lock is left alone
+
+
+def test_the_teacher_client_gets_the_key_env_name_and_the_model_header(work, monkeypatch):
+    """Item 7 (t5): distill_teacher_key_env and distill_teacher_model_header reach the client."""
+    from jev_factory.distill import systemone
+
+    made = []
+
+    class Recorder(FakeTeacher):
+        def __init__(self, base_url, **kw):
+            super().__init__(_records())
+            made.append({"base_url": base_url, **kw})
+
+    monkeypatch.setattr(systemone, "SystemOneClient", Recorder)
+    _add_config(work, distill_teacher_key_env="CLEF_KEY", distill_teacher_model_header="clef-27b")
+    _apply(work, "preregister", "dataset")
+    ctx = _ctx(work, **{**_services(), "teacher_client": None})
+    out = P.run(work, "teacher-label", ctx, apply=True)
+    assert out["status"] == "complete", out.get("error")
+    assert made[0]["auth_env"] == "CLEF_KEY"
+    assert made[0]["model_header"] == "clef-27b"
+    manifest = json.loads((work / "distill" / P.TEACHER_MANIFEST).read_text())
+    assert manifest["auth_env"] == "CLEF_KEY"  # the NAME is recorded, never a value
+    assert manifest["model_header"] == "clef-27b"
+
+
+def test_final_builds_four_models_with_the_shipped_quant_on_the_agx(assembled):
+    """Item 6 (t14): clef, stock, student_bf16 served here, student pre-served on the AGX."""
+    from jev_factory.distill import final as dfinal
+
+    _add_config(
+        assembled,
+        distill_stock_url="http://127.0.0.1:10",
+        distill_stock_model="v21",
+        distill_agx_url="http://127.0.0.1:18090",
+        distill_student_python="python3",
+        distill_student_lockfile="0" * 64,
+    )
+    artifact = assembled / "distill" / "quant" / "builds" / "bf16"
+    artifact.mkdir(parents=True)
+    measurements = assembled / "distill" / P.QUANT_MEASUREMENTS
+    measurements.write_text(
+        json.dumps({"formats": {"bf16": {"available": True, "artifact": str(artifact)}}})
+    )
+    models = P._final_models(_ctx(assembled))
+    assert set(models) == set(dfinal.MODELS)
+    assert set(dfinal.MODELS) == {"clef", "stock", "student_bf16", "student"}
+    agx = models["student"]
+    assert agx.target.base_url == "http://127.0.0.1:18090"
+    assert agx.target.start is None  # pre-served: no start, no stop
+    assert agx.target.stop is None
+    assert agx.get is not None
+    bf16 = models["student_bf16"]
+    assert bf16.target.start is not None
+    assert bf16.target.stop is not None
+    assert bf16.target.base_url.startswith("http://127.0.0.1:")
+
+
+def test_a_non_localhost_agx_url_is_refused(assembled):
+    _add_config(assembled, distill_agx_url="http://10.0.0.7:18090")
+    ctx = _ctx(assembled)
+    with pytest.raises(CliError, match="distill_agx_url"):
+        P._agx_final_model(ctx)
+
+
+def test_the_final_inputs_come_from_the_run_config_and_earlier_stages(assembled, tmp_path):
+    """Item 6: gold ledger, probe set, bf16 calibration (when train wrote one) and the
+    contamination manifest the contamination stage matched against."""
+    from jev_factory.distill import contamination
+
+    ledger = tmp_path / "ledger.jsonl"
+    probe = _jsonl(tmp_path / "probe.jsonl", _probe())
+    _add_config(assembled, distill_gold_ledger=str(ledger), distill_probe_set=str(probe))
+    inputs = P._final_inputs(_ctx(assembled))
+    assert Path(inputs.gold_ledger) == ledger
+    assert Path(inputs.probe) == probe
+    assert inputs.bf16_calibration is None  # train has not written one
+    assert inputs.contamination_manifest == contamination.load_manifest()
+    cal = assembled / "distill" / P.SELECT_CALIBRATION
+    cal.parent.mkdir(parents=True)
+    cal.write_text("{}")
+    assert P._final_inputs(_ctx(assembled)).bf16_calibration == cal
+
+
+def test_the_final_refuses_before_the_contamination_check_has_run(work):
+    _apply(work, "preregister", "dataset")
+    ctx = _ctx(work)
+    with pytest.raises(CliError, match="contamination check has not run"):
+        P._final_inputs(ctx)
+    assert "contamination" in P.REGISTRY.get("final").deps
+
+
+def test_quantize_asks_the_probe_set_of_the_pruned_comparison(assembled, tmp_path):
+    """Item 4 (r14): the probe set reaches the quant stage; a sealed probe id is refused."""
+    probe = _jsonl(tmp_path / "probe.jsonl", _probe())
+    _add_config(assembled, distill_probe_set=str(probe))
+    got = P._probe_records(_ctx(assembled))
+    assert [r.id for r in got] == [r.id for r in _probe()]
+    sealed = ddataset.read_records(assembled / "distill" / "dataset" / "test.jsonl")[0]
+    _jsonl(probe, [sealed])
+    ctx = _ctx(assembled)
+    with pytest.raises(CliError, match="sealed"):
+        P._probe_records(ctx)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(None, None), ("", None), ("4G", 4 * 1024**3), ("512m", 512 * 1024**2), (4096, 4096)],
+)
+def test_the_edge_memory_cap_parses_like_systemd(value, expected):
+    assert P.parse_memory_cap(value) == expected
+
+
+@pytest.mark.parametrize("value", ["four", "4X", "-1", "0", "G"])
+def test_a_bad_edge_memory_cap_is_refused(value):
+    with pytest.raises(CliError, match="distill_edge_memory_cap"):
+        P.parse_memory_cap(value)
+
+
+def test_the_edge_stage_wires_url_cap_label_and_probe(assembled, tmp_path, monkeypatch):
+    """Item 8: edge uses distill_edge_url and distill_edge_memory_cap; the label is a knob."""
+    from jev_factory.distill import edge as dedge
+
+    probe = _jsonl(tmp_path / "probe.jsonl", _probe())
+    _add_config(
+        assembled,
+        distill_edge_url="http://127.0.0.1:18091",
+        distill_edge_memory_cap="4G",
+        distill_probe_set=str(probe),
+    )
+    seen = {}
+    monkeypatch.setattr(dedge, "run_edge", lambda **kw: seen.update(kw) or {})
+    reset = P._CURRENT.set(_ctx(assembled))
+    try:
+        P.stage_edge(assembled / "distill", {**P.DEFAULT_KNOBS["edge"], "label": "agx"})
+    finally:
+        P._CURRENT.reset(reset)
+    assert seen["base_url"] == "http://127.0.0.1:18091"
+    assert seen["expected_cap"] == 4 * 1024**3
+    assert seen["label"] == "agx"
+    assert seen["apply"] is True
+    assert Path(seen["probe"]) == probe
+    assert Path(seen["selection"]).name == "selection.jsonl"
+
+
+def test_the_edge_stage_refuses_without_a_configured_cap(assembled, tmp_path):
+    _add_config(assembled, distill_edge_url="http://127.0.0.1:18091")
+    ctx, knobs = _ctx(assembled), P.DEFAULT_KNOBS["edge"]
+    with pytest.raises(CliError, match="memory cap"):
+        P._edge_kwargs(ctx, knobs)
+
+
+def test_the_edge_dry_run_writes_nothing_and_plans_through_the_module(assembled, tmp_path, capsys):
+    probe = _jsonl(tmp_path / "probe.jsonl", _probe())
+    _add_config(
+        assembled,
+        distill_edge_url="http://127.0.0.1:18091",
+        distill_edge_memory_cap="4G",
+        distill_probe_set=str(probe),
+    )
+    before = tree(assembled.parent)
+    rc, out, err = run_cli(
+        capsys, "distill", "edge", "--work", str(assembled), "--knob", "label=agx", "--json"
+    )
+    assert rc == 0, err
+    plan = json.loads(out)
+    assert plan["module_plan"]["dry_run"] is True
+    assert plan["module_plan"]["label"] == "agx"
+    assert plan["module_plan"]["expected_cap"] == 4 * 1024**3
+    assert tree(assembled.parent) == before

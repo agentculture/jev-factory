@@ -9,7 +9,7 @@ log and done marker under ``<work>/jobs/distill/``) so a long stage outlives the
 with ``jev status <work>``. ``--force`` re-runs a fresh stage.
 
 The stage is a positional argument (not one subcommand per stage) so the jev-CLI domain gains
-one ``distill`` operation, not fourteen: the jev-tool model's candidate set stays within its
+one ``distill`` operation, not fifteen: the jev-tool model's candidate set stays within its
 52-letter bound.
 """
 
@@ -164,7 +164,8 @@ def cmd_distill(args: argparse.Namespace) -> int:
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "distill",
-        help="Run one distill stage, teacher to student (dry-run by default; --apply commits).",
+        help="Run one distill stage, teacher to student, through the edge-board check "
+        "(dry-run by default; --apply commits).",
         description="Run one stage of a distill run; with no stage, list the stages in order.",
     )
     p.add_argument(

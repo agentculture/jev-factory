@@ -445,22 +445,33 @@ outputs live under `<work>/distill/`. A fresh stage is a no-op and a stale one s
 `jev-factory distill` alone lists the stages in order.
 
 Dry-run by default: without `--apply` a stage prints what it would read and write, whether it
-is stale, the run-config keys it needs that are unset and, for train, quantize, gate, final
-and upload, the owning module's own dry-run plan; it changes no file. `--apply` runs it under
+is stale, the run-config keys it needs that are unset and, for train, quantize, gate, final,
+edge and upload, the owning module's own dry-run plan; it changes no file. `--apply` runs it under
 the run lock (shared with `jev run`). `--apply --detach` starts it in its own session (pid
 file, done marker, log under `<work>/jobs/distill/`) so a long stage survives the shell;
 follow it with `jev-factory status <work>`. `--force` re-runs a fresh stage.
 
 Run context: `--work` and `--config` (default `<work>/run.toml`; the `distill_*` keys name
-the records file, the pinned environments, the pin cache and the localhost endpoints);
+the records file, the pinned environments, the pin cache, the localhost endpoints, the
+teacher's key by env-var NAME (`distill_teacher_key_env`) and its `X-Lobes-Model` header, the
+JevBench w4096 task file, the gold ledger, the probe set, the AGX Orin tunnel the final asks
+the shipped quant through (`distill_agx_url`), and the edge board's tunnel and expected
+cgroup cap (`distill_edge_url`, `distill_edge_memory_cap`));
 `--knob KEY=VALUE` sets a stage knob (unknown knobs are refused); `--deviation-id` names a
 recorded deviation where a module allows one.
 
 Invariants the stages keep: the distill pre-registration is locked before any training
-command; only the train side is ever labelled or trained on; corrections are drafted
-`proposed` and only operator-approved ones train (`jev-factory review --corrections`); the
-gate is fitted on the fit fold only; test and held-out are measured once, for all three
-models together; bundles are uploaded private-first and fetched back to verify.
+command; only the train side is ever labelled or trained on (teacher-label holds a lock while
+it runs, and final and edge refuse while it is held); corrections are drafted `proposed` and
+only operator-approved ones train (`jev-factory review --corrections`); benchmark reproduces
+the stock model's JevBench w4096 result and train refuses without that record (or on a base
+mismatch) unless a deviation id is given; quantize ships nothing when no quantized build
+qualifies (no bf16 fallback), and final and bundle refuse then; the gate is fitted on the fit
+fold only; test and held-out are measured once, for all four models together (Clef, stock,
+the bf16 student and the shipped quant pre-served on the AGX Orin); edge measures the shipped
+quant on a board on the selection fold and the probe set only, against quant's own
+selection-fold predictions of the same bundle; bundles are uploaded private-first and fetched
+back to verify.
 
 ## Stages
 
@@ -473,6 +484,7 @@ STAGES
     jev-factory distill dataset --work <dir> --apply
     jev-factory distill teacher-label --work <dir> --apply --detach
     jev-factory distill audit --work <dir> --knob floor=0.6 --apply
+    jev-factory distill edge --work <dir> --knob label=nano --apply
     jev-factory status <dir>
 """
 

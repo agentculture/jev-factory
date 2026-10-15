@@ -98,6 +98,14 @@ def _jsonl(path: Path, recs) -> None:
     path.write_text("".join(json.dumps(r.to_json()) + "\n" for r in recs), encoding="utf-8")
 
 
+def _write_reference(run: Path, rows, bundle=BUNDLE) -> Path:
+    path = run / edge.REFERENCE_PREDICTIONS
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = {"format": "torch_int4_wo", "fold": "selection", "bundle": bundle, "predictions": rows}
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return path
+
+
 @pytest.fixture
 def world(tmp_path):
     run, ds = tmp_path / "run", tmp_path / "ds"
@@ -109,11 +117,22 @@ def world(tmp_path):
     _jsonl(ds / "selection.jsonl", [_rec("s1"), _rec("s2")])
     _jsonl(tmp_path / "probe.jsonl", [_rec("p1")])
     (run / "distill/final/final.json").write_text(json.dumps({"deployed": {"bundle": BUNDLE}}))
-    final_rows = [
-        {"record_id": "s1", "questions": {"c": {"distribution": {"fix": 0.9, "wait": 0.1}}}},
-        {"record_id": "s2", "questions": {"c": {"distribution": {"fix": 0.2, "wait": 0.8}}}},
-    ]
+    # the final's student answers cover test/held-out only: they never overlap edge's inputs
+    final_rows = [{"record_id": "test-1", "questions": {"c": {"distribution": {"fix": 1.0}}}}]
     (run / "distill/final/predictions/student.json").write_text(json.dumps(final_rows))
+    quant_rows = [
+        {
+            "fold": "selection",
+            "record_id": "s1",
+            "questions": {"c": {"distribution": {"fix": 0.9, "wait": 0.1}}},
+        },
+        {
+            "fold": "selection",
+            "record_id": "s2",
+            "questions": {"c": {"distribution": {"fix": 0.2, "wait": 0.8}}},
+        },
+    ]
+    _write_reference(run, quant_rows)
     return {"run": run, "ds": ds, "sel": ds / "selection.jsonl", "probe": tmp_path / "probe.jsonl"}
 
 
@@ -132,7 +151,8 @@ def _go(w, url, **kw):
 
 
 def test_measures_and_writes_manifest(world, server):
-    """AC1: latency median/p95, RSS and MemAvailable from /v1/stats, agreement with the final."""
+    """AC1: latency median/p95, RSS and MemAvailable from /v1/stats; agreement (risk r11) with
+    the quant stage's selection-fold predictions of the shipped bundle, not the final's."""
     srv = server()
     out = _go(world, srv.url)
     assert out["n_records"] == 3
@@ -140,8 +160,11 @@ def test_measures_and_writes_manifest(world, server):
     assert out["latency"]["p95_s"] is not None
     assert out["memory"]["rss_bytes_peak"] == 700_000_000
     assert out["memory"]["mem_available_bytes_min"] == 3_000_000_000
-    # the server always answers "fix": agrees with s1, disagrees with s2; the probe is not in final
+    # the server always answers "fix": agrees with s1, disagrees with s2; the probe is not in
+    # the reference (it is the selection fold only)
     assert out["agreement"]["n_compared"] == 2
+    assert out["agreement"]["reference"] == edge.REFERENCE_PREDICTIONS
+    assert out["agreement"]["fold"] == "selection"
     assert out["agreement"]["n_agree"] == 1
     assert out["agreement"]["agreement"] == 0.5
     assert (world["run"] / "distill/edge/nano/edge_manifest.json").is_file()
@@ -236,3 +259,63 @@ def test_non_localhost_url_refused(world):
     """Only a 127.0.0.1 tunnel URL is accepted."""
     with pytest.raises(CliError):
         _go(world, "http://10.0.0.5:8000")
+
+
+# --------------------------------------------------------------------- t17 wiring
+
+
+def test_agreement_overlap_is_not_empty_against_the_quant_selection_predictions(world, server):
+    """Risk r11: the final's predictions (test/held-out) never overlap edge's inputs; the quant
+    stage's selection-fold predictions do."""
+    out = _go(world, server().url)
+    assert out["agreement"]["n_compared"] > 0
+    assert out["agreement"]["n_reference_questions"] == 2  # the reference's selection questions
+
+
+def test_missing_reference_predictions_refused_before_any_request(world, server):
+    (world["run"] / edge.REFERENCE_PREDICTIONS).unlink()
+    srv = server()
+    with pytest.raises(CliError, match="no selection-fold predictions"):
+        _go(world, srv.url)
+    assert srv.posts == 0
+
+
+def test_reference_from_another_bundle_refused_before_any_request(world, server):
+    """Risk r11: the reference must come from the same sha256 bundle the final measured."""
+    other = {"files": FILES, "manifest_sha256": "e" * 64}
+    _write_reference(world["run"], [], bundle=other)
+    srv = server()
+    with pytest.raises(CliError, match="different bundle"):
+        _go(world, srv.url)
+    assert srv.posts == 0
+
+
+def test_reference_with_other_file_hashes_refused(world, server):
+    other = {"files": {**FILES, "head.safetensors": "f" * 64}, "manifest_sha256": "c" * 64}
+    _write_reference(world["run"], [], bundle=other)
+    url = server().url
+    with pytest.raises(CliError, match="file sha256s"):
+        _go(world, url)
+
+
+def test_a_cap_other_than_the_expected_one_refused(world, server):
+    """The edge stage passes distill_edge_memory_cap: a different cap is refused."""
+    srv = server()
+    with pytest.raises(CliError, match="expects"):
+        _go(world, srv.url, expected_cap=8_000_000_000)
+    assert srv.posts == 0
+    out = _go(world, srv.url, expected_cap=4_000_000_000)
+    assert out["expected_cap"] == 4_000_000_000
+
+
+def test_an_injected_getter_answers_bundle_and_stats(world, server):
+    srv = server(bundle={"files": {}}, stats=UNCAPPED)  # the HTTP GETs would refuse
+    seen = []
+
+    def get(path):
+        seen.append(path)
+        return BUNDLE if path == edge.BUNDLE_PATH else CAPPED
+
+    out = _go(world, srv.url, get=get)
+    assert out["n_records"] == 3
+    assert seen[:2] == [edge.BUNDLE_PATH, edge.STATS_PATH]
