@@ -13,6 +13,7 @@ from jev_factory.cli._errors import CliError
 from jev_factory.distill import benchmark as bm
 from jev_factory.distill import dataset
 from jev_factory.distill.records import Gold, Question, Record
+from tests.test_distill_train import cache  # noqa: F401 - fixture for the train guard test
 
 
 def _rec(i: int, split: str = "train") -> Record:
@@ -315,3 +316,205 @@ def test_neither_probe_working_stays_unmeasured(servers, tmp_path):
     t2 = bm.Target(t.name, t.base_url, t.model, pid=4242)
     out = bm.run_benchmark([t2], {"fit": [_rec(1)]}, memory_probe=lambda: None, proc_root=tmp_path)
     assert out["models"]["clef"]["memory"]["measured"] is False
+
+
+# ---------------------------------------------------------------------------
+# t13: stock reproduction of the card's JevBench w4096 result (180/231 = 0.7792)
+# ---------------------------------------------------------------------------
+
+
+def _bench_task(i: int, gold: str) -> Record:
+    return Record(
+        id=f"jb{i}",
+        state=f"task {i}",
+        questions={"c": Question("choice", [("fix", "fix it"), ("wait", "wait")])},
+        gold={"c": Gold(label=gold)},
+        split="train",
+        source="jevbench",
+        licence="mit",
+        gold_provenance="human",
+    )
+
+
+def _tasks(n_right: int, n: int = bm.CARD_N) -> list[Record]:
+    """*n* tasks; the fake server always answers 'fix', so exactly *n_right* are right."""
+    return [_bench_task(i, "fix" if i < n_right else "wait") for i in range(n)]
+
+
+def test_wilson_interval_brackets_the_point_and_handles_edges():
+    lo, hi = bm.wilson_interval(180, 231)
+    assert lo < bm.CARD_ACCURACY < hi
+    assert 0.72 < lo < 0.73
+    assert 0.82 < hi < 0.83
+    assert bm.wilson_interval(0, 0) == (0.0, 1.0)
+    assert bm.wilson_interval(10, 10)[1] == pytest.approx(1.0)
+
+
+def test_reproduction_that_matches_the_card_is_recorded_without_mismatch(servers):
+    """AC1: n, accuracy and CI are recorded; a CI that holds 0.7792 is not a base mismatch."""
+    srv = servers("stock")
+    out = bm.reproduce_stock(srv.target(), _tasks(180), base_revision="rev1", memory_probe=None)
+    assert out["n"] == 231
+    assert out["n_correct"] == 180
+    assert out["accuracy"] == pytest.approx(180 / 231)
+    assert out["ci_low"] < bm.CARD_ACCURACY < out["ci_high"]
+    assert out["ci_method"] == "wilson-95"
+    assert out["base_revision"] == "rev1"
+    assert out["card"] == {"n": 231, "n_correct": 180, "accuracy": pytest.approx(0.7792207)}
+    assert out["base_mismatch"] is False
+    assert len(srv.requests) == 231
+    assert json.dumps(out)
+
+
+def test_reproduction_whose_ci_excludes_the_card_marks_base_mismatch(servers):
+    """AC1: 150/231 has a CI wholly below 0.7792, so the run is marked base-mismatch."""
+    srv = servers("stock")
+    out = bm.reproduce_stock(srv.target(), _tasks(150), base_revision="rev1", memory_probe=None)
+    assert out["ci_high"] < bm.CARD_ACCURACY
+    assert out["base_mismatch"] is True
+
+
+def test_reproduction_within_noise_is_not_a_mismatch(servers):
+    """AC1: 172/231 differs from 180 but its CI still holds 0.7792."""
+    srv = servers("stock")
+    out = bm.reproduce_stock(srv.target(), _tasks(172), base_revision="rev1", memory_probe=None)
+    assert out["base_mismatch"] is False
+
+
+def test_reproduction_refuses_a_task_set_of_the_wrong_size_or_no_base(servers):
+    srv = servers("stock")
+    small = _tasks(10, n=20)
+    with pytest.raises(CliError, match="231"):
+        bm.reproduce_stock(srv.target(), small, base_revision="rev1")
+    full = _tasks(180)
+    with pytest.raises(CliError, match="base revision"):
+        bm.reproduce_stock(srv.target(), full, base_revision="")
+    assert srv.requests == []
+
+
+def test_failed_calls_count_as_wrong_in_the_reproduction(servers):
+    srv = servers("stock")
+    srv.httpd.shutdown()
+    srv.httpd.server_close()
+    out = bm.reproduce_stock(srv.target(), _tasks(231), base_revision="rev1", memory_probe=None)
+    assert out["n"] == 231
+    assert out["n_correct"] == 0
+    assert out["base_mismatch"] is True
+    assert out["n_failed"] == 231
+
+
+def test_tasks_file_hash_is_recorded_next_to_the_cards(servers, tmp_path):
+    path = tmp_path / "jevbench.jsonl"
+    dataset_rows = [json.dumps(t.to_json()) for t in _tasks(180)]
+    path.write_text("\n".join(dataset_rows) + "\n")
+    tasks = bm.load_jevbench(path)
+    srv = servers("stock")
+    out = bm.reproduce_stock(
+        srv.target(), tasks, base_revision="rev1", tasks_path=path, memory_probe=None
+    )
+    assert len(out["tasks_sha256"]) == 64
+    assert out["card_tasks_sha256"] == bm.CARD_TASKS_SHA256
+
+
+def test_sealed_jevbench_file_name_is_refused(tmp_path):
+    path = tmp_path / "test.jsonl"
+    path.write_text("")
+    with pytest.raises(CliError, match="sealed"):
+        bm.load_jevbench(path)
+
+
+def _mismatch_record(run_dir, mismatch):
+    bm.write_reproduction(
+        run_dir,
+        {"base_mismatch": mismatch, "n": 231, "n_correct": 150, "ci_low": 0.58, "ci_high": 0.70},
+    )
+
+
+def test_require_base_match_refuses_a_mismatch_without_a_deviation(tmp_path):
+    """AC1: train refuses on base-mismatch unless a deviation id is given."""
+    _mismatch_record(tmp_path, True)
+    with pytest.raises(CliError, match="base-mismatch"):
+        bm.require_base_match(tmp_path)
+    with pytest.raises(CliError, match="deviation"):
+        bm.require_base_match(tmp_path, "  ")
+    bm.require_base_match(tmp_path, "d7")
+
+
+def test_require_base_match_passes_a_match_and_an_absent_record(tmp_path):
+    bm.require_base_match(tmp_path)
+    _mismatch_record(tmp_path, False)
+    bm.require_base_match(tmp_path)
+
+
+def test_require_base_match_refuses_a_corrupt_record(tmp_path):
+    path = tmp_path / bm.REPRODUCTION_REL
+    path.parent.mkdir(parents=True)
+    path.write_text("{not json")
+    with pytest.raises(CliError, match="unreadable"):
+        bm.require_base_match(tmp_path, "d7")
+
+
+def test_train_refuses_on_base_mismatch_without_a_deviation(
+    tmp_path, cache, monkeypatch
+):  # noqa: F811
+    """AC1: run_grid itself refuses before planning anything; a deviation id lets it through."""
+    from jev_factory.backbones.pointer import train_distill as td
+    from jev_factory.distill import train as T
+    from jev_factory.distill.runspec import TrainerEnv
+    from tests import test_distill_train as tt
+
+    path, run_dir = tt.locked(tmp_path)
+    _mismatch_record(run_dir, True)
+    kwargs = dict(
+        prereg_path=path,
+        run_dir=run_dir,
+        cache_dir=cache,
+        pins=tt.student_pins(),
+        folds=tt.folds(),
+        trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
+    )
+    monkeypatch.setattr(td, "plan_train", lambda **k: pytest.fail("planned"))
+    with pytest.raises(CliError, match="base-mismatch"):
+        T.run_grid(**kwargs)
+
+
+def test_measure_stock_scores_probe_and_folds_from_the_server_never_copying(servers):
+    """AC2: probe, fit and selection are all measured by the (fake) server in one session."""
+    srv = servers("stock")
+    probe = [_bench_task(100 + i, "fix" if i < 3 else "wait") for i in range(4)]
+    fit = [_bench_task(200 + i, "fix") for i in range(5)]
+    sel = [_bench_task(300 + i, "wait") for i in range(2)]
+    out = bm.measure_stock(
+        srv.target(), {"probe": probe, "fit": fit, "selection": sel}, memory_probe=None
+    )
+    assert len(srv.requests) == 11
+    assert out["sets"]["probe"]["n"] == 4
+    assert out["sets"]["probe"]["accuracy"] == 0.75
+    assert out["sets"]["fit"]["accuracy"] == 1.0
+    assert out["sets"]["selection"]["accuracy"] == 0.0
+    assert out["sets"]["fit"]["ci_method"] == "wilson-95"
+    assert srv.log == ["start stock", "stop stock"]
+
+
+def test_probe_rows_are_private_but_folds_keep_theirs(servers):
+    srv = servers("stock")
+    probe = [_bench_task(100, "fix")]
+    fit = [_bench_task(200, "fix")]
+    out = bm.measure_stock(srv.target(), {"probe": probe, "fit": fit}, memory_probe=None)
+    ids = [p["record_id"] for p in out["predictions"]]
+    assert ids == ["jb200"]
+    assert "jb100" not in json.dumps(out)
+
+
+def test_measure_stock_refuses_sealed_unknown_and_empty(servers):
+    srv = servers("stock")
+    test_rec = _bench_task(1, "fix")
+    test_rec = Record(**{**test_rec.__dict__, "split": "test"})
+    with pytest.raises(CliError, match="test"):
+        bm.measure_stock(srv.target(), {"fit": [test_rec]})
+    with pytest.raises(CliError, match="unknown"):
+        bm.measure_stock(srv.target(), {"held_out": [_bench_task(2, "fix")]})
+    with pytest.raises(CliError, match="no sets"):
+        bm.measure_stock(srv.target(), {})
+    assert srv.requests == []
+    assert srv.log == []

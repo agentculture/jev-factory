@@ -510,6 +510,7 @@ def run_grid(
     seed, resamples = bootstrap.seed, bootstrap.resamples
     prereg_path, run_dir = Path(prereg_path), Path(run_dir)
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
+    bench.require_base_match(run_dir, deviation_id)
     threshold = _threshold(reg)
     pin_report = _verify_pins(cache_dir, pins)
     fold_records = _folds(folds, sealed)
