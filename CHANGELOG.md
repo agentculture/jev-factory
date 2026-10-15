@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-10-15
+
+### Added
+
+- Jetson-ops retarget of the distillery (issue #20): student is StrandsAgents/strands-decider-2B-qwen3.5-v1-2610 @216d1ccb; spec docs/specs/2026-10-15-orin-nano-jetson-ops-decider.md, plan docs/plans/2026-10-15-orin-nano-jetson-ops-decider.md.
+- `jev distill edge`: a 15th stage that measures the shipped quant on an AGX Orin or Orin Nano through a 127.0.0.1 tunnel, on the selection fold and probe set only, under a verified cgroup memory cap, with bundle attestation.
+- Quantized student build for < 10^9 bytes: LoRA merged, vision tower and MTP head dropped, int4 block linears and a packed full-vocabulary int4/int8 embedding, `/v1/bundle` and `/v1/stats` on the serve wrapper; a pruned-vocabulary comparison build that is reported and never shipped.
+- Heal once against the bf16 student's and Clef's soft labels (fake-quant LoRA training, bf16-continuation fallback), gated on >= 0.97 quant-vs-bf16 agreement on fit and selection.
+- Human gold: `jev review --gold FILE` (CLI and `--serve` page) writes an append-only approval ledger; final counts only approved human-gold test records. `jev review --drafts FILE --evidence FILE --serve` reviews drafted records with their evidence.
+- Stock 2610 reproduction of its published JevBench w4096 result before training; train refuses without the record or on a base mismatch, unless a deviation id is given.
+- Jetson-ops source registry (`jev_factory/distill/jetson_ops/`): NVIDIA public repos pinned upstream plus agent-drafted general-ops, with per-source licences and attribution.
+- Teacher client sends the gateway bearer key (by env-var name) and `X-Lobes-Model`, still localhost-only (SSH tunnel); teacher labelling holds a lock that final and edge respect.
+- Jetson runtime spike on the Orin Nano (docs/evidence/2026-10-jetson-runtime-spike.md).
+
+### Changed
+
+- Reference role `stock_v21` renamed to `stock` (config keys `distill_stock_url` / `distill_stock_model`); pins, pre-registration (schema 2, c17 bars for both the bf16 student and the shipped quant) and contamination manifest retargeted to 2610.
+- Dataset stage admits cc-by-4.0 records with attribution; questions over 24 options and records over 4096 tokens are refused and counted, never truncated; bundles carry a NOTICE and refuse upload on secret, host/IP, side-model-name or probe-set hits.
+- Final scores four models (Clef, stock, bf16 student, AGX-served quant) and reports the c17 verdict; quantize ships nothing (no bf16 fallback) when no quantized build qualifies.
+- docs/distill.md, docs/distill-bundle-format.md and the four harness prompt files describe the Jetson-ops run; no #20 model has been trained or measured yet.
+
 ## [0.11.0] - 2026-10-14
 
 ### Added
