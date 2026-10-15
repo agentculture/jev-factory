@@ -254,6 +254,30 @@ def _serve_corrections(path: Path, review_file: Path, port: int, json_mode: bool
     return 0
 
 
+def _serve_gold(path: Path, ledger_file: Path, port: int, json_mode: bool) -> int:
+    from jev_factory.review import server
+
+    app = server.GoldApp(path, ledger_file)
+    try:
+        httpd = server.make_server(app, port)
+    except OSError as exc:
+        raise CliError(
+            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", "pass a free --port"
+        ) from None
+    url = server.local_url(httpd.server_address[1])
+    emit_result({"url": url, "ledger": str(ledger_file)} if json_mode else url, json_mode=json_mode)
+    sys.stdout.flush()
+    emit_diagnostic(f"serving the gold review at {url} (Ctrl-C to stop)")
+    emit_diagnostic(f"decisions are appended to {ledger_file}; edits rewrite {path}")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        emit_diagnostic("stopped")
+    finally:
+        httpd.server_close()
+    return 0
+
+
 def _gold_decisions(args: argparse.Namespace) -> list[tuple[str, str, tuple[str, str] | None]]:
     """``(record id, action, edit)`` from ``--decide ID=ACTION`` and ``--edit ID:QID=LABEL``."""
     out: list[tuple[str, str, tuple[str, str] | None]] = []
@@ -299,12 +323,12 @@ def _gold_mode(args: argparse.Namespace, json_mode: bool) -> int:
     """Review drafted human-gold test records; ``--apply`` appends to the gold ledger."""
     from jev_factory.review import gold
 
-    if args.serve:
-        raise CliError(EXIT_USER_ERROR, "--gold has no --serve", "decide with --decide / --edit")
     path = Path(args.gold)
     if not path.is_file():
         raise CliError(EXIT_ENV_ERROR, f"gold records file not found: {path}", "check the path")
     ledger_file = Path(args.review_file) if args.review_file else gold.ledger_path(path)
+    if args.serve:
+        return _serve_gold(path, ledger_file, args.port, json_mode)
     try:
         drafted = gold.read_drafted(path)
         ledger = gold.read_ledger(ledger_file)

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jev review - gold</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6b6a64; --line:#d9d6cc;
+    --ok:#1a7f37; --bad:#b42318; --edit:#9a6700; --card:#fff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161614; --fg:#ecebe6; --muted:#9b9a92;
+    --line:#3a3a35; --ok:#56d364; --bad:#ff7b72; --edit:#e3b341; --card:#1f1f1c; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .bar { display:flex; gap:12px; flex-wrap:wrap; margin:8px 0 12px; font-size:13px; }
+  .pill { border:1px solid var(--line); border-radius:999px; padding:1px 10px; }
+  .progress { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin-bottom:12px; }
+  .progress > div { height:100%; background:var(--ok); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:12px; }
+  pre.state { white-space:pre-wrap; word-break:break-word; max-height:340px; overflow:auto; margin:6px 0 0; font:13px/1.45 ui-monospace, monospace; }
+  .q { border-top:1px solid var(--line); padding-top:8px; margin-top:8px; }
+  .opt { display:block; padding:2px 6px; border-radius:4px; }
+  .opt.gold { background: color-mix(in srgb, var(--ok) 18%, transparent); font-weight:600; }
+  .status { font-weight:700; text-transform:uppercase; font-size:12px; }
+  .approved { color:var(--ok); } .rejected { color:var(--bad); } .edited { color:var(--edit); }
+  button { font:inherit; padding:5px 12px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; }
+  button:disabled { opacity:.45; cursor:default; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  #error { color:var(--bad); font-weight:600; white-space:pre-wrap; }
+  input[type=text] { font:inherit; padding:4px 8px; width: 260px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
+  kbd { border:1px solid var(--line); border-radius:3px; padding:0 4px; font-size:12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>jev review - human gold</h1>
+  <div class="muted" id="files"></div>
+  <div id="error" role="alert"></div>
+  <div class="bar" id="counts"></div>
+  <div class="progress"><div id="progress" style="width:0"></div></div>
+  <div id="view"></div>
+  <p class="muted">Keys: <kbd>a</kbd> approve, <kbd>r</kbd> reject, <kbd>j</kbd>/<kbd>&rarr;</kbd> next,
+    <kbd>k</kbd>/<kbd>&larr;</kbd> previous, <kbd>u</kbd> next unreviewed.
+    Edit a question with its selector, then its button. Decisions are appended to the ledger at once.</p>
+</main>
+<script>
+"use strict";
+const KEY = "__JEV_REVIEW_KEY__";
+let state = null;
+let index = 0;
+
+async function api(path, body) {
+  const init = { headers: { "X-Review-Key": KEY } };
+  if (body) { init.method = "POST"; init.body = JSON.stringify(body); }
+  const res = await fetch(path, init);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+function el(tag, props, ...kids) {
+  const node = document.createElement(tag);
+  Object.assign(node, props || {});
+  for (const k of kids) node.append(k);
+  return node;
+}
+function showError(msg) { document.getElementById("error").textContent = msg || ""; }
+
+async function load(keep) {
+  try {
+    state = await api("/api/state");
+    showError("");
+    if (!keep) index = Math.max(0, state.items.findIndex(i => i.status === "proposed"));
+    index = Math.min(index, Math.max(0, state.items.length - 1));
+  } catch (err) {
+    state = null;
+    showError("Cannot read the records or ledger (nothing was written): " + err.message);
+  }
+  render();
+}
+
+function goldLabel(g) { return g && g.label !== undefined && g.label !== null ? g.label : "(no label)"; }
+
+function questionBlock(item, qid) {
+  const q = item.questions[qid];
+  const gold = goldLabel(item.gold[qid]);
+  const box = el("div", { className: "q" });
+  box.append(el("div", {}, el("strong", { textContent: qid }), el("span", { className: "muted", textContent: "  (" + q.type + ")" })));
+  if (q.instructions) box.append(el("div", { className: "muted", textContent: q.instructions }));
+  for (const [name, text] of q.criteria) {
+    box.append(el("span", { className: "opt" + (name === gold ? " gold" : ""),
+      textContent: (name === gold ? "→ " : "   ") + name + (text ? ": " + text : "") }));
+  }
+  const select = el("select");
+  for (const [name] of q.criteria) select.append(el("option", { value: name, textContent: name, selected: name === gold }));
+  const apply = el("button", { textContent: "Apply edit", disabled: true });
+  select.onchange = () => { apply.disabled = select.value === gold; };
+  apply.onclick = () => decide(item, "edit", { question_id: qid, label: select.value });
+  box.append(el("div", { className: "actions" }, el("span", { className: "muted", textContent: "correct gold:" }), select, apply));
+  return box;
+}
+
+function render() {
+  const view = document.getElementById("view");
+  view.replaceChildren();
+  const counts = document.getElementById("counts");
+  counts.replaceChildren();
+  if (!state) return;
+  document.getElementById("files").textContent = state.records_file + "  |  ledger " + state.ledger_file;
+  for (const k of ["proposed", "approved", "edited", "rejected"]) {
+    counts.append(el("span", { className: "pill", textContent: k + " " + (state.counts[k] || 0) }));
+  }
+  const total = state.test_records;
+  const done = total - (state.counts.proposed || 0);
+  document.getElementById("progress").style.width = total ? (100 * done / total) + "%" : "0";
+  if (!state.items.length) { view.append(el("p", { textContent: "No test records in the file." })); return; }
+  const item = state.items[index];
+  const card = el("div", { className: "card" });
+  card.append(el("div", {},
+    el("strong", { textContent: item.id }),
+    el("span", { className: "muted", textContent: "  " + (index + 1) + " of " + total + "  |  source " + item.source + "  |  gold " + item.gold_provenance + "  |  " }),
+    el("span", { className: "status " + item.status, textContent: item.status })));
+  card.append(el("pre", { className: "state", textContent: item.state }));
+  for (const qid of Object.keys(item.questions)) card.append(questionBlock(item, qid));
+  const note = el("input", { type: "text", placeholder: "note (optional)", id: "note" });
+  card.append(el("div", { className: "actions", style: "margin-top:12px" },
+    el("button", { textContent: "Approve (a)", onclick: () => decide(item, "approve", { note: note.value }) }),
+    el("button", { textContent: "Reject (r)", onclick: () => decide(item, "reject", { note: note.value }) }),
+    note,
+    el("button", { textContent: "Prev", onclick: () => move(-1) }),
+    el("button", { textContent: "Next", onclick: () => move(1) })));
+  view.append(card);
+  if (state.orphans.length) view.append(el("p", { className: "muted", textContent: "Ledger entries matching no record: " + state.orphans.join(", ") }));
+}
+
+function move(step) {
+  if (!state || !state.items.length) return;
+  index = Math.min(Math.max(index + step, 0), state.items.length - 1);
+  render();
+}
+function nextUnreviewed() {
+  if (!state) return;
+  const n = state.items.length;
+  for (let k = 1; k <= n; k++) {
+    const i = (index + k) % n;
+    if (state.items[i].status === "proposed") { index = i; break; }
+  }
+  render();
+}
+
+async function decide(item, action, extra) {
+  const noteBox = document.getElementById("note");
+  const body = Object.assign({ record_id: item.id, record_sha256: item.sha256, action }, extra);
+  if (noteBox && !body.note) body.note = noteBox.value;
+  try {
+    await api("/api/decision", body);
+  } catch (err) {
+    showError(err.message);
+    return;
+  }
+  await load(true);
+  if (action !== "edit") nextUnreviewed();
+}
+
+document.addEventListener("keydown", ev => {
+  if (ev.target.matches("input, select, textarea") || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  if (!state || !state.items.length) return;
+  const item = state.items[index];
+  if (ev.key === "a") decide(item, "approve", {});
+  else if (ev.key === "r") decide(item, "reject", {});
+  else if (ev.key === "j" || ev.key === "ArrowRight") move(1);
+  else if (ev.key === "k" || ev.key === "ArrowLeft") move(-1);
+  else if (ev.key === "u") nextUnreviewed();
+});
+load(false);
+</script>
+</body>
+</html>
