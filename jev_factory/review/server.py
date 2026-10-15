@@ -33,11 +33,13 @@ from jev_factory.distill.corrections import read_corrections
 from jev_factory.domain.model import Domain
 from jev_factory.review import core
 from jev_factory.review import corrections as corr_review
+from jev_factory.review import gold as gold_review
 
 HOST = "127.0.0.1"
 AUTH_HEADER = "X-Review-Key"
 MAX_BODY = 1 << 20
 PAGE = Path(__file__).with_name("page.html")
+GOLD_PAGE = Path(__file__).with_name("gold_page.html")
 _KEY_SLOT = "__JEV_REVIEW_KEY__"
 _CSP = (
     "default-src 'none'; script-src 'unsafe-inline' https://unpkg.com; "
@@ -178,6 +180,112 @@ class CorrectionsApp:
         return {"recorded": True, "staged": True, "action": record["action"]}
 
 
+class GoldApp:
+    """The gold-mode review (``jev review --gold --serve``), independent of HTTP.
+
+    Every read and write goes through :mod:`jev_factory.review.gold`: a decision is one
+    append-only ledger entry bound to the record's current sha256; an edit also rewrites
+    the records file, exactly as ``--gold --apply`` does. A malformed ledger or records
+    file raises :class:`GoldLedgerError` before anything is written.
+    """
+
+    def __init__(self, records: Path, ledger_file: Path | None = None) -> None:
+        self.records = records
+        self.ledger_file = ledger_file or gold_review.ledger_path(records)
+        self.token = secrets.token_hex(16)
+        self.page = GOLD_PAGE.read_text(encoding="utf-8").replace(_KEY_SLOT, self.token).encode()
+        self._lock = threading.Lock()
+
+    def _load(self) -> tuple[list[Any], list[Any], list[dict[str, Any]]]:
+        drafted = gold_review.read_drafted(self.records)
+        ledger = gold_review.read_ledger(self.ledger_file)
+        test = [r for r in drafted if r.split == gold_review.TEST_SPLIT]
+        return drafted, test, ledger
+
+    def state(self) -> dict[str, Any]:
+        drafted, test, ledger = self._load()
+        latest = {(e["record_id"], e["record_sha256"]): e["action"] for e in ledger}
+        items = []
+        for record in test:
+            sha = gold_review.record_sha256(record)
+            items.append(
+                {
+                    "id": record.id,
+                    "sha256": sha,
+                    "status": gold_review.status_of(record, latest),
+                    "source": record.source,
+                    "state": record.state,
+                    "gold_provenance": record.gold_provenance,
+                    "questions": {
+                        q: question.to_json() for q, question in record.questions.items()
+                    },
+                    "gold": {q: g.to_json() for q, g in record.gold.items()},
+                }
+            )
+        plan = gold_review.plan(ledger, test)
+        return {
+            "mode": "gold",
+            "records_file": str(self.records),
+            "ledger_file": str(self.ledger_file),
+            "test_records": len(test),
+            "skipped_non_test": len(drafted) - len(test),
+            "items": items,
+            "counts": plan.counts,
+            "orphans": plan.orphans,
+        }
+
+    def check(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Validate a decision without recording it."""
+        try:
+            _drafted, test, _ledger = self._load()
+            record = next((r for r in test if r.id == payload.get("record_id")), None)
+            if record is None:
+                raise gold_review.GoldLedgerError(f"no test record {payload.get('record_id')!r}")
+            edit = None
+            if payload.get("action") == "edit":
+                edit = (str(payload.get("question_id") or ""), str(payload.get("label") or ""))
+            gold_review.make_entry(record, str(payload.get("action")), edit=edit)
+        except gold_review.GoldLedgerError as exc:
+            return {"problems": [str(exc)]}
+        return {"problems": []}
+
+    def decide(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            drafted, test, _ledger = self._load()
+            record = next((r for r in test if r.id == payload.get("record_id")), None)
+            if record is None:
+                raise gold_review.GoldLedgerError(f"no test record {payload.get('record_id')!r}")
+            seen = payload.get("record_sha256")
+            if seen is not None and seen != gold_review.record_sha256(record):
+                raise gold_review.GoldLedgerError(
+                    f"{record.id}: the record changed since the page loaded; reload"
+                )
+            edit = None
+            if payload.get("action") == "edit":
+                edit = (str(payload.get("question_id") or ""), str(payload.get("label") or ""))
+            entry, after = gold_review.make_entry(
+                record,
+                str(payload.get("action")),
+                reviewer=_text(payload.get("reviewer")),
+                note=_text(payload.get("note")) or "",
+                edit=edit,
+            )
+            gold_review.append_entry(self.ledger_file, entry)
+            if edit is not None:
+                gold_review.write_drafted(
+                    self.records, [after if r.id == after.id else r for r in drafted]
+                )
+        return {
+            "recorded": True,
+            "action": entry["action"],
+            "record_sha256": entry["record_sha256"],
+        }
+
+
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
 def _public_correction(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
     if record is None:
         return None
@@ -198,7 +306,7 @@ class _ReviewHandler(BaseHTTPRequestHandler):
     """The review site's request handler; :func:`make_handler` binds it to one app."""
 
     server_version = "jev-review"
-    review_app: ReviewApp | CorrectionsApp
+    review_app: ReviewApp | CorrectionsApp | GoldApp
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 (stdlib name)
         """Quiet: the review site logs nothing per request."""
@@ -274,7 +382,7 @@ class _ReviewHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 
 
-def make_handler(app: ReviewApp | CorrectionsApp) -> type[BaseHTTPRequestHandler]:
+def make_handler(app: ReviewApp | CorrectionsApp | GoldApp) -> type[BaseHTTPRequestHandler]:
     class Handler(_ReviewHandler):
         review_app = app
 
@@ -286,6 +394,6 @@ def local_url(port: int) -> str:
     return urlunsplit(("http", f"{HOST}:{port}", "/", "", ""))
 
 
-def make_server(app: ReviewApp | CorrectionsApp, port: int) -> ThreadingHTTPServer:
+def make_server(app: ReviewApp | CorrectionsApp | GoldApp, port: int) -> ThreadingHTTPServer:
     """A server for *app* on the loopback interface (*port* 0 picks a free one)."""
     return ThreadingHTTPServer((HOST, port), make_handler(app))
