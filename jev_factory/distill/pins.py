@@ -17,15 +17,17 @@ from typing import Any
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 
 BASE_REPO = "Qwen/Qwen3.5-2B-Base"
-DECIDER_REPO = "StrandsAgents/strands-decider-2B-hobson-v21"
+DECIDER_REPO = "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610"
+#: The decider commit the digests below were read at (its provenance.json).
+DECIDER_REVISION = "216d1ccb46a9e9b036eb9187b248db98480f77d4"
 REVISION_FILE = "REVISION"
-#: v21 stores the adapter under ``lora/`` (with ``lora/adapter_config.json``); no root file.
+#: 2610 stores the adapter under ``lora/`` (with ``lora/adapter_config.json``); no root file.
 ADAPTER_FILE = "lora/adapter_model.safetensors"
 HEAD_FILE = "head.safetensors"
 PROVENANCE_FILE = "provenance.json"
-#: v21's full digests, from its provenance.json.
-V21_ADAPTER_SHA256 = "59be987f5eb664a7f74f11ef69383a0de526fe30c684932102984eb9c11f4028"
-V21_HEAD_SHA256 = "0fc78684d7504d334082d6ac8e6cb7825b5eb0e230601181cd273757f9f6ebef"
+#: 2610's full digests, from its provenance.json.
+DECIDER_ADAPTER_SHA256 = "ae1d0cd1ac3edec6df0a519a3ad18f1c382099032d493f8f98c96a80cfebb4c7"
+DECIDER_HEAD_SHA256 = "ace56742545b505e6fae34ada85c8edbeedb23ba8974d8680aebe0380d6083a1"
 #: Default base pin. Upstream marks it "inferred: Hub main at training time; hosts did not pin
 #: it", so it is our pin; a run config may override it.
 DEFAULT_BASE_REVISION = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
@@ -71,12 +73,12 @@ class StudentPins:
 def default_pins(
     *, decider_revision: str, base_revision: str = DEFAULT_BASE_REVISION
 ) -> StudentPins:
-    """v21 pins: full digests built in, base revision overridable, decider commit required."""
+    """Decider pins: full digests built in, base revision overridable, decider commit required."""
     return StudentPins(
         base=RepoPin(BASE_REPO, base_revision),
         decider=RepoPin(DECIDER_REPO, decider_revision),
-        adapter_sha256=V21_ADAPTER_SHA256,
-        head_sha256=V21_HEAD_SHA256,
+        adapter_sha256=DECIDER_ADAPTER_SHA256,
+        head_sha256=DECIDER_HEAD_SHA256,
     )
 
 
