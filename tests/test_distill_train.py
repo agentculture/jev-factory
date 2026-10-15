@@ -199,13 +199,15 @@ def run(tmp_path, cache, *, doc=None, apply=True, scorer=None, train=True, **kw)
 
 def test_refuses_without_a_locked_prereg(tmp_path, cache):
     path, run_dir = locked(tmp_path, lock=False)
+    pins = student_pins()
+    fold_set = folds()
     with pytest.raises(CliError, match="locked"):
         T.run_grid(
             prereg_path=path,
             run_dir=run_dir,
             cache_dir=cache,
-            pins=student_pins(),
-            folds=folds(),
+            pins=pins,
+            folds=fold_set,
             trainer_python="python3",
             decider_repo=tmp_path,
         )
@@ -223,32 +225,39 @@ def test_refuses_without_verified_pins(tmp_path, cache, monkeypatch):
 
 def test_refuses_held_out_and_test_folds_before_training(tmp_path, cache, monkeypatch):
     monkeypatch.setattr(gpu, "run_gpu_stage", lambda *a, **k: pytest.fail("trained"))
+    held_out_folds = {**folds(), "held_out": [_rec(99)]}
     with pytest.raises(CliError):
-        run(tmp_path / "a", cache, folds={**folds(), "held_out": [_rec(99)]})
+        run(tmp_path / "a", cache, folds=held_out_folds)
+    test_folds = {"fit": [_rec(1, "test")], "selection": [_rec(2)]}
     with pytest.raises(CliError, match="test"):
-        run(tmp_path / "b", cache, folds={"fit": [_rec(1, "test")], "selection": [_rec(2)]})
+        run(tmp_path / "b", cache, folds=test_folds)
     sealed = tmp_path / "test.jsonl"
     sealed.write_text(json.dumps(_rec(3).to_json()) + "\n")
+    sealed_folds = {"fit": sealed, "selection": [_rec(2)]}
     with pytest.raises(CliError, match="sealed"):
-        run(tmp_path / "c", cache, folds={"fit": sealed, "selection": [_rec(2)]})
+        run(tmp_path / "c", cache, folds=sealed_folds)
 
 
 def test_both_folds_are_required(tmp_path, cache):
+    one_fold = {"fit": [_rec(1)]}
     with pytest.raises(CliError, match="selection"):
-        run(tmp_path, cache, folds={"fit": [_rec(1)]})
+        run(tmp_path, cache, folds=one_fold)
 
 
 def test_apply_refuses_without_memory_cap_scorer_or_train_set(tmp_path, cache, monkeypatch):
     monkeypatch.setattr(gpu, "run_gpu_stage", lambda *a, **k: pytest.fail("trained"))
     with pytest.raises(CliError, match="memory"):
         run(tmp_path / "a", cache, memory_max=None)
+    prereg_b = locked(tmp_path / "b")[0]
+    pins = student_pins()
+    fold_set = folds()
     with pytest.raises(CliError, match="scorer"):
         T.run_grid(
-            prereg_path=locked(tmp_path / "b")[0],
+            prereg_path=prereg_b,
             run_dir=tmp_path / "b" / "run",
             cache_dir=cache,
-            pins=student_pins(),
-            folds=folds(),
+            pins=pins,
+            folds=fold_set,
             trainer_python="python3",
             decider_repo=tmp_path,
             apply=True,
@@ -309,7 +318,8 @@ def test_scorer_sees_only_the_fit_and_selection_folds(tmp_path, cache, monkeypat
     monkeypatch.setattr(gpu, "run_gpu_stage", fake_gpu([]))
     scorer = FakeScorer()
     run(tmp_path, cache, scorer=scorer)
-    assert scorer.calls and all(f == ["fit", "selection"] for _, f in scorer.calls)
+    assert scorer.calls
+    assert all(f == ["fit", "selection"] for _, f in scorer.calls)
 
 
 # --------------------------------------------------------------------- selection

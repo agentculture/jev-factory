@@ -72,9 +72,11 @@ def test_per_source_metrics_and_weak_flag(tmp_path):
     recs, labels = _fixture(tmp_path)
     table = audit.build_table(recs, audit.load_labels(labels), floor=0.6)
     s = _by_source(table)
-    assert s["good"]["n"] == 4 and s["good"]["accuracy"] == 1.0
+    assert s["good"]["n"] == 4
+    assert s["good"]["accuracy"] == 1.0
     assert s["good"]["teacher_weak"] is False
-    assert s["weak"]["accuracy"] == 0.0 and s["weak"]["teacher_weak"] is True
+    assert s["weak"]["accuracy"] == 0.0
+    assert s["weak"]["teacher_weak"] is True
     assert math.isclose(s["good"]["log_loss"], -math.log(0.9), rel_tol=1e-9)
     assert math.isclose(s["good"]["ece"], 0.1, abs_tol=1e-9)
     assert table["floor"] == 0.6
@@ -84,9 +86,11 @@ def test_model_generated_gold_reported_never_flagged(tmp_path):
     recs, labels = _fixture(tmp_path)
     table = audit.build_table(recs, audit.load_labels(labels), floor=0.6)
     t = _by_source(table)["typed"]
-    assert t["n"] == 4 and t["accuracy"] == 0.0  # reported
+    assert t["n"] == 4
+    assert t["accuracy"] == 0.0  # reported
     assert t["gold_provenance"] == "model-generated"
-    assert t["teacher_weak"] is None and t["flaggable"] is False
+    assert t["teacher_weak"] is None
+    assert t["flaggable"] is False
     assert table["teacher_weak_sources"] == ["weak"]
 
 
@@ -111,7 +115,9 @@ def test_teacher_errors_and_unlabelled_are_counted_not_scored(tmp_path):
     _write(labels, rows)
     table = audit.build_table(recs, audit.load_labels(labels), floor=0.6)
     s = _by_source(table)["s1"]
-    assert s["n"] == 1 and s["teacher_errors"] == 1 and s["unlabelled"] == 2
+    assert s["n"] == 1
+    assert s["teacher_errors"] == 1
+    assert s["unlabelled"] == 2
 
 
 def test_source_with_no_scored_items_is_not_flagged(tmp_path):
@@ -119,13 +125,16 @@ def test_source_with_no_scored_items_is_not_flagged(tmp_path):
     _write(labels, [])
     table = audit.build_table([_record("x", "s")], audit.load_labels(labels), floor=0.6)
     s = _by_source(table)["s"]
-    assert s["n"] == 0 and s["accuracy"] is None and s["teacher_weak"] is None
+    assert s["n"] == 0
+    assert s["accuracy"] is None
+    assert s["teacher_weak"] is None
 
 
 def test_floor_must_be_preregistered(tmp_path):
     recs, labels = _fixture(tmp_path)
-    with pytest.raises(Exception):
-        audit.run_audit(recs, labels, tmp_path, _prereg(), floor=0.123)
+    reg = _prereg()
+    with pytest.raises(CliError):
+        audit.run_audit(recs, labels, tmp_path, reg, floor=0.123)
     assert not (tmp_path / audit.AUDIT_REL).exists()
 
 
@@ -166,8 +175,9 @@ def test_audit_refuses_labels_with_more_than_one_build(tmp_path):
     recs = [_record("a1", "s"), _record("a2", "s")]
     labels = tmp_path / "l.jsonl"
     _write(labels, _rows("a1", 0.9) + _rows("a2", 0.9, build="clef-b2"))
+    reg = _prereg()
     with pytest.raises(CliError, match="build"):
-        audit.run_audit(recs, labels, tmp_path, _prereg(), floor=0.6)
+        audit.run_audit(recs, labels, tmp_path, reg, floor=0.6)
     assert not (tmp_path / audit.AUDIT_REL).exists()
 
 
@@ -177,8 +187,9 @@ def test_audit_refuses_labels_without_a_build_id(tmp_path):
     del rows[0]["teacher_build_id"]
     labels = tmp_path / "l.jsonl"
     _write(labels, rows)
+    reg = _prereg()
     with pytest.raises(CliError, match="build"):
-        audit.run_audit(recs, labels, tmp_path, _prereg(), floor=0.6)
+        audit.run_audit(recs, labels, tmp_path, reg, floor=0.6)
 
 
 def test_alternative_teacher_has_its_own_audit_table(tmp_path):
