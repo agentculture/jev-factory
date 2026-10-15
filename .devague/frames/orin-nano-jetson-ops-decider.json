@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-15T05:25:25Z",
-  "updated": "2026-10-15T15:39:04Z",
+  "updated": "2026-10-15T16:00:31Z",
   "claims": [
     {
       "id": "c1",
@@ -173,7 +173,7 @@
     {
       "id": "c9",
       "kind": "requirement",
-      "text": "quantize after distilling: merge the LoRA, drop the unused vision tower (331.4M) and MTP head (60.8M), quantize the 24 text blocks to 4-bit, and bring the 248,320x2048 embedding (508.6M params, 1.0 GB in bf16) under budget by quantizing it or pruning the vocabulary to the ids the prompts use; keep the fp32 pointer head (12.6 MB) and small DeltaNet params (in_proj_a/b, conv1d, A_log, dt_bias, norms) unquantized",
+      "text": "quantize after distilling: merge the LoRA, drop the unused vision tower (331.4M) and MTP head (60.8M), quantize the 24 text blocks to 4-bit, and quantize the full-vocabulary 248,320x2048 embedding (508.6M params, 1.0 GB in bf16) to INT4 or INT8 so the weight files total < 10^9 bytes; keep the fp32 pointer head (12.6 MB) and small DeltaNet params (in_proj_a/b, conv1d, A_log, dt_bias, norms) unquantized",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -182,12 +182,24 @@
           "text": "on-disk weight size is computed from the bundle's files and is < 1 GB; a pruned vocabulary is recorded with its kept id list, and a prompt token outside it fails closed",
           "status": "confirmed",
           "instruction": ""
+        },
+        {
+          "id": "h21",
+          "text": "the weight files' byte sum is < 10^9 and the tokenizer is the unmodified 2610 tokenizer (no id is unreachable)",
+          "status": "confirmed",
+          "instruction": ""
         }
       ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "quantize after distilling: merge the LoRA, drop the unused vision tower (331.4M) and MTP head (60.8M), quantize the 24 text blocks to 4-bit, and bring the 248,320x2048 embedding (508.6M params, 1.0 GB in bf16) under budget by quantizing it or pruning the vocabulary to the ids the prompts use; keep the fp32 pointer head (12.6 MB) and small DeltaNet params (in_proj_a/b, conv1d, A_log, dt_bias, norms) unquantized",
+          "kind": "requirement",
+          "reason": "operator: quantize full vocab, no pruning; GB = 10^9 bytes"
+        }
+      ]
     },
     {
       "id": "c10",
@@ -280,6 +292,12 @@
         {
           "id": "h13",
           "text": "no stage starts, stops or reconfigures a model on the AGX Orin or spark2; teacher labelling is sequential so the orin-decider lane keeps its headroom",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h22",
+          "text": "the only model jev-factory starts on the AGX Orin is the <1 GB quant for measurement, under the recorded memory cap and never during teacher labelling; Clef's lane and every other box's served model are untouched",
           "status": "confirmed",
           "instruction": ""
         }
@@ -470,9 +488,195 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "the contamination check is retargeted to 2610: data/upstream_sources.json is regenerated from the 2610 model card at 216d1ccb (48 datasets, incl. tasksource/tasksource-jev-typed-decisions and tasksource/procedural-typed-decisions), so typed-decisions general-guard records are marked overlapping, not clean",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "the regenerated manifest lists exactly the 2610 card's datasets at 216d1ccb, and a typed-decisions record is reported overlapping",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "before training, stock 2610 is served on the inferred base revision b1485b2 (provenance.json: 'inferred: Hub main at training time; hosts did not pin it') and must reproduce its own published JevBench w4096 result (eval/summary.json, 0.7792 = 180/231) within its CI; a miss stops the run as a base-mismatch",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "the reproduction uses the same served path and w4096 window as the card, and its result is recorded in the benchmark manifest with n and CI",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "a record counts as human gold only with an operator approval record (record sha256, decision, timestamp) written by a jev review gold-approval path; agent-drafted test records are stored as proposed and the final stage refuses a test record without a matching approval (records.py gold_provenance is a free string today)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "a test record whose sha256 has no approval entry is refused by final with its id printed; editing an approved record voids its approval",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "every Jetson-ops question offers at most 24 options (strands_decider_config.json num_slots = 24) and fits max_length 4096; the dataset stage refuses, never truncates, a record that exceeds either",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "the dataset manifest counts refusals by reason (over_slots, over_length) and no record is truncated",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "the dataset bundle never contains the Clef probe set (private) and passes scripts/scan-secrets.py plus a hostname/IP and side-model-name scan before upload; evidence-derived records are redacted at draft time",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "the upload stage refuses when any scan finds a hit, printing file and line only",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "assumption",
+      "text": "a pruned vocabulary covers real Jetson-ops requests; but logs, paths and container tags carry arbitrary tokens, so with h9's fail-closed rule a pruned build could refuse real requests that the INT4-embedding build would answer",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "decision",
+      "text": "the Nano (once reachable) measures latency, memory and prediction agreement on the selection fold and the probe set only, never the test side; the headline comes from the single AGX Orin final on the same sha256 bundle",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "decision",
+      "text": "the <1 GB quant may run on the AGX Orin for measurement only, under a memory cap recorded in the manifest, never while teacher labelling runs, and without reconfiguring Clef's lane",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "decision",
+      "text": "'< 1 GB' means < 10^9 bytes of weight files on disk",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "decision",
+      "text": "the embedding stays full-vocabulary and is quantized (INT4 or INT8); the vocabulary is not pruned",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "decision",
+      "text": "a pruned-vocabulary build (bf16 or quantized embedding over the ids the Jetson-ops and general prompts use, 32-50k) is also built as a comparison: it is measured beside the full-vocabulary quant on size, accuracy and out-of-vocabulary refusals, reported only; the full-vocabulary quant stays the shipped build",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
-  "open_vagueness": [],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "whether a Jetson torch + transformers 5.x stack runs Qwen3.5's Gated DeltaNet torch fallback and a 4-bit linear kernel on sm_87 under JetPack 6.2 (CUDA 12.6), given strands-decider pins torch 2.11+cu130",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "the pre-lock knob decisions left open in #18's delivery (grid and selection semantics, split fractions, audit thresholds, KD temperature, init_mode, confident_wrong 0.9, gate coverage 0.8, scalar temperature) apply to this run too; 2610 itself trained with kl_frozen_weight 0.3, which the distillery does not apply",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
   "scope_entries": [
     {
       "id": "s1",
@@ -576,8 +780,221 @@
       "seeds": [
         "c10"
       ]
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / adjacent-systems lens: HF StrandsAgents/strands-decider-2B-qwen3.5-v1-2610 @216d1ccb (README datasets, provenance.json, lora/adapter_config.json, strands_decider_config.json)",
+      "finding": "card lists 48 training datasets incl. tasksource-jev-typed-decisions (contamination manifest is v21's 29); base revision inferred, not pinned; LoRA r48/alpha96 over 12 targets (incl. q/k/v/o/gate/up/down, beyond c6's list); num_slots 24, max_length 4096; temperature_by_kind present; kl_frozen_weight 0.3",
+      "seeds": [
+        "c28",
+        "c29",
+        "c31"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / data-flow lens: jev_factory/distill/records.py (GOLD_PROVENANCES), dataset.py (ALLOWED_LICENCES, _carve), pipeline.py stage_dataset",
+      "finding": "gold_provenance 'human' is a free string with no approval binding; licence allowlist is a frozenset of apache-2.0/mit (cc-by-4.0 needs a code change per c24); held-out is carved per source from train-split records, test comes from split=test records",
+      "seeds": [
+        "c30"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / security lens: systemone.py require_localhost + c12/c27 tunnel, HANDOFF rules (private Clef probe set, side-model names off-record)",
+      "finding": "tunnel keeps the guard; bearer key by env-var name covered by h12; new exposure is the dataset bundle carrying evidence text and the private probe set \u2014 seeded c32",
+      "seeds": [
+        "c32"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / reversibility+recovery lens: teacher.py (resumable, cached by body sha256), quant.py (heal once), bundle/upload (private-first)",
+      "finding": "labelling resumes after a dropped tunnel; heal once; upload private-first with hash fetch-back; clean pass, residual risk only in the Orin gateway being down for long stretches",
+      "seeds": []
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / unexamined surfaces",
+      "finding": "NOT examined: lobes-cli docs/evidence content (redaction needs unknown), the Nano's actual JetPack/L4T and free memory (box unreachable), Jetson torch/transformers wheel availability (parked v1), the jetson-*-skills repos at their pinned commits",
+      "seeds": []
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / lifecycle lens: distill/final.py once ledger vs c22 (Nano unreachable)",
+      "finding": "test is measured once; a later Nano run on test would be a second measurement needing a deviation; routed as pending decision 'Nano vs once-only test'",
+      "seeds": []
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / operations lens: h5 vs h13 on the AGX Orin; lobes delivery s9 (Clef 32 GiB cap, ~3.4 GiB headroom)",
+      "finding": "measuring the served bundle on the AGX Orin starts a model there, which h13 forbids; routed as pending decision on running the quant beside Clef",
+      "seeds": []
     }
   ],
   "lapses": [],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c1",
+      "seam": "edge measurement vs final",
+      "behavior": "the bundle measured on the AGX Orin or Nano has the same per-file sha256 as the bundle final measured; a mismatch exits non-zero before any request",
+      "source_text": "A Strands Decider 2B distilled from Clef 27B knows how to operate a Jetson Orin, and a quantized, healed build under 1 GB runs fast and accurately on a Jetson Orin Nano as a lobes decider domain",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c2",
+      "seam": "dataset stage record validation",
+      "behavior": "every Jetson-ops record parses as a /v1/systemone body with question kinds only in {choice, noul, score}; anything else is refused with its id",
+      "source_text": "the operator and agents that run Jetson boxes (nvsh-style shells, lobes peers) asking typed decisions \u2014 choice / noul / score over /v1/systemone \u2014 about operating a Jetson Orin",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c5",
+      "seam": "bundle stage + serve wrapper",
+      "behavior": "the bundle holds the quantized weights, calibration.json, gate.json, NOTICE (CC-BY-4.0 attribution) and the loader-contract doc; the serve wrapper loads it with no network access and answers /v1/systemone on 127.0.0.1",
+      "source_text": "a distilled Jetson-ops 2B, LoRA merged, quantized and healed to under 1 GB on disk, ships as a private bundle (weights, calibration.json, gate.json and a documented loader contract) that runs on a Jetson Orin Nano through jev-factory's own /v1/systemone serve wrapper and agrees with its bf16 student and with Clef on the held-out human-gold Jetson-ops test set; hosting it as a lobes decider domain is lobes' separate plan",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c6",
+      "seam": "distill pins + prereg example",
+      "behavior": "pins name strands-decider-2B-qwen3.5-v1-2610 @216d1ccb with adapter sha256 ae1d0cd1... and head sha256 ace56742...; the prereg example's lora r/alpha/targets equal lora/adapter_config.json (r48, alpha 96, 12 targets); no v21 repo id, digest or stock_v21 row remains",
+      "source_text": "distillation reuses jev-factory's distillery (jev distill: preregister .. upload), retargeted from hobson-v21 to strands-decider-2B-qwen3.5-v1-2610 @216d1ccb: pins.py DECIDER_REPO + adapter/head sha256, prereg.py lora_r 48 / lora_alpha 96 / lora_targets incl. in_proj_qkv,in_proj_z,in_proj_a,in_proj_b,out_proj, the stock_v21 reference row",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c7",
+      "seam": "dataset stage licence allowlist",
+      "behavior": "apache-2.0, mit and cc-by-4.0 are admitted; a cc-by-4.0 record without an attribution entry, or any other licence, is refused; the manifest has a per-licence table",
+      "source_text": "a new Jetson-ops domain dataset of typed-decision records ({id,state,questions,gold,split,source,licence,gold_provenance}, licence apache-2.0, mit or cc-by-4.0 with attribution) built from the operator's measured Orin evidence in lobes-cli docs/evidence, jetson-containers-nv (l4t_version.py, setup/swap/ram scripts, package compatibility), jetson-ai-lab tutorials, NVIDIA-AI-IOT jetson-device-skills and jetson-bsp-skills at pinned commits and nvsh device-CLI verbs; Clef labels the train side",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c8",
+      "seam": "final report headline",
+      "behavior": "headline bars are computed only on approved human-gold test records (n printed); the Clef probe-set table carries no pass/fail",
+      "source_text": "the headline eval is a held-out Jetson-ops test set with HUMAN gold (jev-factory counts only human-gold records toward its bars), scored for accuracy, agreement with Clef, ECE and confident-wrong rate, plus the existing Clef probe set to measure loss of general ability",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c9",
+      "seam": "quantize stage size check",
+      "behavior": "the on-disk weight size is the byte sum of the bundle's weight files; a build at or over the budget is recorded unavailable, never shipped",
+      "source_text": "quantize after distilling: merge the LoRA, drop the unused vision tower (331.4M) and MTP head (60.8M), quantize the 24 text blocks to 4-bit, and bring the 248,320x2048 embedding (508.6M params, 1.0 GB in bf16) under budget by quantizing it or pruning the vocabulary to the ids the prompts use; keep the fp32 pointer head (12.6 MB) and small DeltaNet params (in_proj_a/b, conv1d, A_log, dt_bias, norms) unquantized",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c10",
+      "seam": "heal step",
+      "behavior": "a second heal of the same format is refused without a deviation id; heal agreement is computed on fit and selection records only and a test or held-out id in its input exits non-zero",
+      "source_text": "heal the quantized model: a short distillation pass that trains the quantized student (or its LoRA/norms) against the bf16 distilled student's and Clef's soft labels, and the healed build must reach agreement >= 0.97 with the bf16 student on the Jetson-ops fit/selection folds before it can ship",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c11",
+      "seam": "bundle-format doc",
+      "behavior": "docs name every file the bundle stage writes, its dtype/quant scheme and the loader entry point; a test fails when the bundle writes a file the doc does not list",
+      "source_text": "lobes' orin-nano machine card, shape and quantized decider backend are a separate lobes plan, not jev-factory tasks; jev-factory fixes and documents the bundle format (file layout, quantization scheme, loader entry point) that plan consumes",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c12",
+      "seam": "SystemOneClient",
+      "behavior": "a non-127.0.0.1 URL is refused; requests carry Authorization: Bearer from the env var named in config and X-Lobes-Model: decider:general; the key value never appears in a manifest, log or exception text",
+      "source_text": "teacher-label reaches the Orin gateway through an SSH tunnel to 127.0.0.1, so SystemOneClient's localhost-only guard (require_localhost) stays, and the client gains the gateway bearer key (env-var name only) and the X-Lobes-Model: decider:general header, which today it does not send",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c14",
+      "seam": "all distill stages",
+      "behavior": "no stage opens a connection to any host other than 127.0.0.1; teacher labelling sends one request at a time",
+      "source_text": "Clef 27B stays served only on the AGX Orin (W4A16); this work changes no other box's served model or shape, and the existing decider:strands-general on spark2 stays as the stock baseline",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c17",
+      "seam": "final report vs prereg",
+      "behavior": "each bar is computed for both the bf16 student and the shipped quant with a paired bootstrap CI and cited against the hashed prereg; latency median and p95 are reported without a pass/fail",
+      "source_text": "on the held-out human-gold Jetson-ops test set both the distilled bf16 student and the shipped healed quant beat the stock 2610 by >= 10 points top-1 and are within 5 points of Clef W4A16; the healed quant is < 1 GB of weights on disk and agrees >= 0.97 with the bf16 student; median and p95 latency on the AGX Orin and the Nano are measured and reported",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c28",
+      "seam": "contamination check",
+      "behavior": "with the 2610 manifest, a record from tasksource/tasksource-jev-typed-decisions or LocalLLaMA/typed-decisions is reported overlapping",
+      "source_text": "the contamination check is retargeted to 2610: data/upstream_sources.json is regenerated from the 2610 model card at 216d1ccb (48 datasets, incl. tasksource/tasksource-jev-typed-decisions and tasksource/procedural-typed-decisions), so typed-decisions general-guard records are marked overlapping, not clean",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c29",
+      "seam": "benchmark stage stock reproduction",
+      "behavior": "stock 2610 on JevBench w4096 is recorded with n and CI; a result outside the card's 0.7792 CI stops the train stage until a deviation is recorded",
+      "source_text": "before training, stock 2610 is served on the inferred base revision b1485b2 (provenance.json: 'inferred: Hub main at training time; hosts did not pin it') and must reproduce its own published JevBench w4096 result (eval/summary.json, 0.7792 = 180/231) within its CI; a miss stops the run as a base-mismatch",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c30",
+      "seam": "jev review gold approval + final",
+      "behavior": "approving a drafted test record writes an append-only entry (record sha256, decision, time); final refuses any test record without a matching approved entry",
+      "source_text": "a record counts as human gold only with an operator approval record (record sha256, decision, timestamp) written by a jev review gold-approval path; agent-drafted test records are stored as proposed and the final stage refuses a test record without a matching approval (records.py gold_provenance is a free string today)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c31",
+      "seam": "dataset stage limits",
+      "behavior": "a question with more than 24 options or a record over 4096 student tokens is refused and counted by reason; none is truncated",
+      "source_text": "every Jetson-ops question offers at most 24 options (strands_decider_config.json num_slots = 24) and fits max_length 4096; the dataset stage refuses, never truncates, a record that exceeds either",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c32",
+      "seam": "upload stage scans",
+      "behavior": "upload refuses when scan-secrets, the hostname/IP scan or the side-model-name scan hits, or when the Clef probe set is present; it prints file and line only",
+      "source_text": "the dataset bundle never contains the Clef probe set (private) and passes scripts/scan-secrets.py plus a hostname/IP and side-model-name scan before upload; evidence-derived records are redacted at draft time",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c38",
+      "seam": "quantize stage + final report",
+      "behavior": "the pruned-vocabulary build is recorded with its kept id list and is reported beside the full-vocabulary quant (weight bytes, selection-fold accuracy, count of records refused for out-of-vocabulary tokens); it is never selected as the shipped build",
+      "source_text": "a pruned-vocabulary build (bf16 or quantized embedding over the ids the Jetson-ops and general prompts use, 32-50k) is also built as a comparison: it is measured beside the full-vocabulary quant on size, accuracy and out-of-vocabulary refusals, reported only; the full-vocabulary quant stays the shipped build",
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ]
 }
