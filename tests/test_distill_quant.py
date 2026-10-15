@@ -90,23 +90,27 @@ PROFILE = {
 class FakeMeasurer:
     """Answers each record right on ``accuracy`` of them, at a fixed confidence."""
 
-    def __init__(self, profile=None, healed=None, p_right=0.9, fit_p_right=None):
+    def __init__(self, profile=None, healed=None, p_right=0.9, fit_p_right=None, shifts=None):
         self.profile = dict(profile or PROFILE)
         self.healed = dict(healed or {})
         self.p_right = p_right
         self.fit_p_right = fit_p_right or {}
+        # (format, is_heal) -> how far that build's right/wrong pattern is rotated: same
+        # accuracy, but it disagrees with bf16 on the records the rotation moves
+        self.shifts = dict(shifts or {})
         self.calls = []
 
     def __call__(self, fmt, artifact, fold_records):
         is_heal = Q.HEAL_DIR in Path(artifact).parts
         self.calls.append((fmt, is_heal, sorted(fold_records)))
         acc, peak, median = (self.healed if is_heal and fmt in self.healed else self.profile)[fmt]
+        shift = self.shifts.get((fmt, is_heal), 0)
         preds = {}
         for fold, recs in fold_records.items():
             p = self.fit_p_right.get(fmt, self.p_right) if fold == "fit" else self.p_right
             rows = []
             for k, rec in enumerate(recs):
-                right = (k % 20) < round(acc * 20)
+                right = ((k + shift) % 20) < round(acc * 20)
                 rows.append(
                     {
                         "fold": fold,
@@ -145,11 +149,17 @@ class FakeBuilders(dict):
         return build
 
 
+QAT_RAN = {"method": "qat", "fallback_reason": None, "fake_quant": None}
+
+
 class FakeTrainer:
-    def __init__(self, log_path):
+    """Writes a healed checkpoint recording *heal* (which method ran) as the trainer does."""
+
+    def __init__(self, log_path, heal=QAT_RAN):
         self.plans = []
         self.log_path = log_path
         self.log_at_call = None
+        self.heal = heal
 
     def __call__(self, plan):
         self.log_at_call = (
@@ -159,7 +169,35 @@ class FakeTrainer:
         out = Path(plan["output_dir"])
         out.mkdir(parents=True, exist_ok=True)
         (out / "strands_decider_config.json").write_text(json.dumps(NEUTRAL))
+        if self.heal is not None:
+            (out / "distill_train_config.json").write_text(json.dumps({"heal": self.heal}))
         return {"dry_run": False, "returncode": 0}
+
+
+def _train_set_rows(ids=("t0", "t1", "t2")):
+    """Frozen trainer rows: a Clef-taught row, an alternative-teacher row, a gold-only row."""
+    rows = []
+    for rid in ids:
+        for qid, source, teacher in (
+            ("c", "clef+gold", {"fix": 0.7, "wait": 0.3}),
+            ("a", "alt_teacher+gold", {"fix": 0.4, "wait": 0.6}),
+            ("g", "human_gold", None),
+        ):
+            rows.append(
+                {
+                    "record_id": rid,
+                    "question_id": qid,
+                    "kind": "choice",
+                    "state": f"state {rid}",
+                    "instructions": "",
+                    "options": [["fix", "fix it"], ["wait", "wait"]],
+                    "gold": {"label": "fix"},
+                    "teacher": teacher,
+                    "target_source": source,
+                    "weight": 1.0,
+                }
+            )
+    return "".join(json.dumps(r) + "\n" for r in rows)
 
 
 def setup(tmp_path, doc=None, lock=True):
@@ -182,7 +220,7 @@ def setup(tmp_path, doc=None, lock=True):
     (sel / T.SUMMARY_FILE).write_text(json.dumps(summary))
     train_set = run_dir / "distill" / "assemble" / "train_set.jsonl"
     train_set.parent.mkdir(parents=True, exist_ok=True)
-    train_set.write_text("{}\n")
+    train_set.write_text(_train_set_rows())
     return path, run_dir, ckpt
 
 
@@ -280,11 +318,25 @@ def test_dry_run_plans_every_format_and_the_heal_and_writes_nothing(tmp_path):
         assert f["unavailable_reason"] == Q.UNSUPPORTED[f["format"]]
     for fmt in ("w4a16_fp32_head", "onnx_int8", "onnx_int4", "gguf_side_head"):
         assert "8b6faa5" in Q.UNSUPPORTED[fmt]
-    hp = out["heal_plan"]["hyperparameters"]
+    assert out["heal_plans"] == {}  # nothing buildable, nothing to heal
+    assert not (run_dir / Q.QUANT_REL).exists()
+    assert trainer.plans == []
+
+
+def test_dry_run_plans_each_buildable_formats_heal_round(tmp_path):
+    builders = FakeBuilders(formats=("bf16", "onnx_int8"))
+    out, run_dir, trainer = run(tmp_path, apply=False, builders=builders)
+    assert set(out["heal_plans"]) == {"onnx_int8"}
+    plan = out["heal_plans"]["onnx_int8"]
+    hp = plan["hyperparameters"]
     assert (hp["epochs"], hp["lr"], hp["init_mode"]) == (1, 5e-5, "continue")
     assert hp["alpha"] == 0.9  # the winner's other knobs are kept
-    assert out["heal_plan"]["init_from"].endswith("c007/checkpoint")
-    assert out["heal_plan"]["train_file"].endswith("train_set.jsonl")
+    assert plan["init_from"].endswith("c007/checkpoint")
+    assert plan["train_file"].endswith("heal/onnx_int8/round-1/heal_set.jsonl")
+    assert plan["argv"][plan["argv"].index("--heal") + 1] == plan["heal_spec"]
+    assert out["heal_mix"] == dp.HEAL_MIX
+    assert out["agreement_min"] == 0.97
+    assert out["agreement_folds"] == ["fit", "selection"]
     assert not (run_dir / Q.QUANT_REL).exists()
     assert trainer.plans == []
 
@@ -422,7 +474,7 @@ def test_heal_runs_once_from_the_winner_and_lands_in_the_manifest(tmp_path):
     hp = plan["hyperparameters"]
     assert (hp["epochs"], hp["lr"], hp["init_mode"]) == (1, 5e-5, "continue")
     assert plan["init_from"].endswith("c007/checkpoint")
-    assert plan["train_file"].endswith("distill/assemble/train_set.jsonl")
+    assert plan["train_file"].endswith("quant/heal/onnx_int8/round-1/heal_set.jsonl")
     # the trigger was logged before the trainer ran
     assert trainer.log_at_call
     assert '"heal_trigger"' in trainer.log_at_call
@@ -435,7 +487,9 @@ def test_heal_runs_once_from_the_winner_and_lands_in_the_manifest(tmp_path):
     assert manifest["quant_vs_bf16_initial_delta_points"] == pytest.approx(-15.0)
     assert manifest["quant_vs_bf16_delta_points"] == pytest.approx(0.0)
     assert manifest["heal"]["drop_points"] == pytest.approx(15.0)
-    assert manifest["deployed_checkpoint"].endswith("quant/heal/checkpoint")
+    assert manifest["deployed_checkpoint"].endswith("quant/heal/onnx_int8/round-1/checkpoint")
+    assert manifest["heal_method"]["method"] == "qat"
+    assert manifest["shippable"] is True
     assert out == {**out, **manifest}
 
 
@@ -446,8 +500,9 @@ def test_a_second_trigger_stops_and_escalates_and_writes_nothing_further(tmp_pat
     assert "second heal trigger" in err.value.message
     run_dir = tmp_path / "run"
     assert outputs(run_dir) == dict.fromkeys(outputs(run_dir), False)
-    log = (run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE).read_text().splitlines()
-    assert [json.loads(line)["event"] for line in log] == ["heal_trigger"]
+    log = [json.loads(line) for line in (run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE).open()]
+    assert [e["event"] for e in log] == ["heal_trigger", "heal_result"]
+    assert log[1]["shippable"] is False  # the failed result is recorded, nothing else is
 
 
 def test_a_spent_heal_round_refuses_a_new_trigger_without_training(tmp_path):
@@ -1204,3 +1259,286 @@ def test_a_pruned_artifact_is_reused_only_for_the_same_prompt_set(tmp_path):
     assert Q._reusable(out, ckpt, PRUNED4, scheme, prompts) is True
     prompts.write_text(json.dumps({"side": "train", "body": {"questions": {}}}) + "\n")
     assert Q._reusable(out, ckpt, PRUNED4, scheme, prompts) is False
+
+
+# --------------------------------------------------------------------- heal (c10, h10; t12)
+
+
+def _heal_files(run_dir, fmt="onnx_int8", round_=1):
+    root = Q.heal_root(run_dir / Q.QUANT_REL, fmt, round_)
+    rows = [json.loads(line) for line in (root / Q.HEAL_SET_FILE).open()]
+    spec = json.loads((root / Q.HEAL_SPEC_FILE).read_text())
+    return rows, spec
+
+
+def _log(run_dir):
+    path = run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE
+    return [json.loads(line) for line in path.open()] if path.is_file() else []
+
+
+def test_the_pre_registered_heal_block_names_the_mix():
+    """AC1: the pre-registered heal block names the mix of the two soft-label sources."""
+    doc = dp.example_doc()
+    assert doc["heal"]["mix"] == {"bf16_student": 0.5, "clef": 0.5}
+    assert "c10" in doc["heal"]["mix_source"]
+    assert Q.heal_mix(dp.validate(doc)) == {"bf16_student": 0.5, "clef": 0.5}
+
+
+@pytest.mark.parametrize(
+    "mix, match",
+    [
+        (None, "names no mix"),
+        ({"bf16_student": 1.0}, "exactly"),
+        ({"bf16_student": 0.7, "clef": 0.7}, "sum to 1"),
+        ({"bf16_student": -0.5, "clef": 1.5}, r"\[0, 1\]"),
+    ],
+)
+def test_a_heal_block_without_a_valid_mix_is_refused(tmp_path, mix, match):
+    """AC1: the stage refuses a heal block whose mix is missing or malformed."""
+    doc = dp.example_doc()
+    if mix is None:
+        del doc["heal"]["mix"]
+    else:
+        doc["heal"]["mix"] = mix
+    with pytest.raises(CliError, match=match):
+        run(tmp_path, doc=doc, apply=False)
+
+
+def test_the_heal_trains_on_train_records_with_targets_mixing_student_and_clef(tmp_path):
+    """AC1: the heal round runs the trainer in heal mode on the train rows; each row carries
+    Clef's distribution (no gold), the spec carries the registered mix, the bf16 student
+    (the winner) and the protected ids as sha256."""
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    out, run_dir, trainer = run(tmp_path, builders=builders, measurer=measurer)
+    (plan,) = trainer.plans
+    assert plan["argv"][plan["argv"].index("--heal") + 1] == plan["heal_spec"]
+    rows, spec = _heal_files(run_dir)
+    assert {r["record_id"] for r in rows} == {"t0", "t1", "t2"}
+    by_q = {r["question_id"]: r for r in rows if r["record_id"] == "t0"}
+    assert by_q["c"]["clef"] == {"fix": 0.7, "wait": 0.3}  # Clef taught this row
+    assert by_q["a"]["clef"] is None  # an alternative teacher's label is not Clef's
+    assert by_q["g"]["clef"] is None
+    assert all("gold" not in r and "teacher" not in r for r in rows)
+    assert spec["mix"] == {"bf16_student": 0.5, "clef": 0.5}
+    assert spec["bf16_student"].endswith("c007/checkpoint")
+    assert spec["bf16_student"] == plan["init_from"]
+    from jev_factory.backbones.pointer import train_distill as td
+
+    assert td.id_digest("r0") in spec["protected_id_sha256"]  # a fit id
+    trigger = _log(run_dir)[0]
+    assert trigger["heal_mix"] == spec["mix"]
+    assert trigger["heal_set"]["rows_with_clef"] == 3
+    assert out["heal"]["heal_mix"] == spec["mix"]
+
+
+def test_a_torchao_build_hands_its_own_scheme_to_the_qat_heal(tmp_path):
+    """AC1: the quantized student is trained against the built format's own scheme."""
+    from jev_factory.backbones.pointer import quantized as qz
+
+    art = tmp_path / "int4"
+    _write_artifact(art, 4, scheme=qz.QuantScheme(block_group_size=128))
+    fq = Q.fake_quant_scheme("torch_int4_wo", art)
+    assert fq == {
+        "block_bits": 4,
+        "block_group_size": 128,
+        "block_symmetric": False,
+        "embedding_bits": 4,
+        "embedding_group_size": 128,
+    }
+    _write_artifact(tmp_path / "int8", 8)
+    assert Q.fake_quant_scheme("torch_int8_wo", tmp_path / "int8")["block_symmetric"] is True
+    assert Q.fake_quant_scheme("onnx_int8", art) is None  # no QAT scheme: the heal falls back
+
+
+def test_the_fallback_heal_is_recorded_when_qat_is_unavailable(tmp_path):
+    """Instruction: the bf16 continuation stays as the fallback, and which ran is recorded."""
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    path, run_dir, _ = setup(tmp_path)
+    fallback = {"method": "bf16_continuation", "fallback_reason": "no fake-quant scheme"}
+    trainer = FakeTrainer(run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE, heal=fallback)
+    out = Q.run_quant(
+        prereg_path=path,
+        run_dir=run_dir,
+        folds=folds(),
+        trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
+        apply=True,
+        hooks=Q.QuantHooks(builders=builders, measurer=measurer, trainer=trainer),
+        bootstrap=Bootstrap(resamples=50),
+    )
+    assert out["heal_method"]["method"] == "bf16_continuation"
+    assert out["heal_method"]["fallback_reason"] == "no fake-quant scheme"
+    assert _log(run_dir)[-1]["method"] == "bf16_continuation"
+
+
+def test_a_healed_checkpoint_that_does_not_record_its_method_is_refused(tmp_path):
+    """Instruction: which heal ran must be recorded; an unrecorded heal is not accepted."""
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    path, run_dir, _ = setup(tmp_path)
+    trainer = FakeTrainer(run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE, heal=None)
+    args = dict(
+        prereg_path=path,
+        run_dir=run_dir,
+        folds=folds(),
+        trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
+        apply=True,
+        hooks=Q.QuantHooks(builders=builders, measurer=measurer, trainer=trainer),
+        bootstrap=Bootstrap(resamples=50),
+    )
+    with pytest.raises(CliError, match="which heal method ran"):
+        Q.run_quant(**args)
+
+
+def _answers_rows(fold, recs, flip=()):
+    out = []
+    for k, rec in enumerate(recs):
+        out.append(
+            {
+                "fold": fold,
+                "record_id": rec.id,
+                "error": None,
+                "questions": _answer(rec, 0.9, k not in flip),
+            }
+        )
+    return out
+
+
+def test_agreement_is_computed_on_fit_and_selection_only():
+    """AC2: agreement with the bf16 student reads the fit and selection folds only."""
+    recs = folds()
+    bf16 = {f: _answers_rows(f, recs[f]) for f in T.FOLDS}
+    quant = {f: _answers_rows(f, recs[f], flip=(0,)) for f in T.FOLDS}
+    # a test fold that disagrees everywhere is ignored, on either side
+    test_recs = [_rec(900 + i) for i in range(20)]
+    bf16["test"] = _answers_rows("test", test_recs)
+    quant["test"] = _answers_rows("test", test_recs, flip=range(20))
+    agreement = Q.agreement_vs_bf16(bf16, quant)
+    assert agreement["folds"] == ["fit", "selection"]
+    assert "test" not in agreement
+    assert agreement["fit"]["agreement"] == pytest.approx(19 / 20)
+    assert agreement[Q.POOLED]["n_reference"] == 2 * 20 * 3
+    assert agreement[Q.POOLED]["agreement"] == pytest.approx(38 / 40)
+
+
+def test_every_quant_measurement_carries_its_fit_selection_agreement(tmp_path):
+    """AC2: each measured quant records its agreement and the folds it was computed on."""
+    builders, measurer = only("onnx_int8", 0.9)
+    out, run_dir, _ = run(tmp_path, builders=builders, measurer=measurer)
+    meas = _read(run_dir, Q.MEASUREMENTS_FILE)
+    assert meas["agreement_folds"] == ["fit", "selection"]
+    assert meas["formats"]["onnx_int8"]["agreement_vs_bf16"][Q.POOLED]["agreement"] == 1.0
+    assert out["quant_vs_bf16_agreement"][Q.POOLED]["agreement"] == 1.0
+    assert out["shippable"] is True
+    names = {c["name"] for c in out["decision"]["cited"]}
+    assert "onnx_int8.agreement_vs_bf16" in names
+
+
+def test_a_quant_within_the_margin_but_below_the_agreement_bar_is_healed(tmp_path):
+    """AC2: a chosen quant agreeing < 0.97 with the bf16 student does not ship unhealed."""
+    builders, measurer = only("onnx_int8", 0.9, healed_acc=0.9)
+    measurer.shifts = {("onnx_int8", False): 1}  # same accuracy, 0.9 agreement
+    out, run_dir, trainer = run(tmp_path, builders=builders, measurer=measurer)
+    assert len(trainer.plans) == 1
+    (reason,) = out["decision"]["heal_reasons"]
+    assert reason.startswith("agreement")
+    assert out["quant_vs_bf16_initial_delta_points"] == pytest.approx(0.0)
+    assert out["quant_vs_bf16_agreement"][Q.POOLED]["agreement"] == 1.0  # the healed build
+
+
+def test_a_healed_build_below_the_agreement_bar_is_not_shippable(tmp_path):
+    """AC2: a healed build below 0.97 agreement stops; no deployable output is written."""
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    measurer.shifts = {("onnx_int8", True): 1}  # healed accuracy fine, agreement 0.9
+    with pytest.raises(CliError, match="not shippable") as err:
+        run(tmp_path, builders=builders, measurer=measurer)
+    assert "stop_escalate" in err.value.message
+    run_dir = tmp_path / "run"
+    assert outputs(run_dir) == dict.fromkeys(outputs(run_dir), False)
+    result = _log(run_dir)[-1]
+    assert result["event"] == "heal_result"
+    assert result["shippable"] is False
+    assert result["agreement_vs_bf16"] == pytest.approx(0.9)
+
+
+def test_the_agreement_bar_is_read_from_the_prereg(tmp_path):
+    """AC2: the bar is the pre-registered c17 value (tightening it is honoured)."""
+    doc = dp.example_doc()
+    doc["bars"]["c17"]["quant"]["quant_vs_bf16_agreement_min"] = 0.999
+    builders, measurer = only("onnx_int8", 0.9, healed_acc=0.9)
+    out, _run_dir, trainer = run(tmp_path, doc=doc, builders=builders, measurer=measurer)
+    assert out["agreement_min"] == 0.999
+    assert trainer.plans == []  # 1.0 agreement clears even the tighter bar
+
+
+@pytest.mark.parametrize("bad_id", ["r3", "sealed-7"])  # a fit id; a held-out/test id
+def test_a_protected_id_in_the_heal_input_exits_non_zero_before_the_round(tmp_path, bad_id):
+    """AC2: a test or held-out (or fit/selection) id in the heal input exits non-zero; no
+    heal round is spent and the trainer never runs."""
+    from jev_factory.cli._errors import EXIT_USER_ERROR
+    from jev_factory.distill.dataset import SealedSide
+
+    path, run_dir, _ = setup(tmp_path)
+    train_set = run_dir / "distill" / "assemble" / "train_set.jsonl"
+    train_set.write_text(_train_set_rows(("t0", bad_id)))
+    sealed = [SealedSide("test.jsonl", "0" * 64, ("sealed-7",), 1, (("src", 1),))]
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    trainer = FakeTrainer(run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE)
+    args = dict(
+        prereg_path=path,
+        run_dir=run_dir,
+        folds=folds(),
+        trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
+        apply=True,
+        hooks=Q.QuantHooks(builders=builders, measurer=measurer, trainer=trainer),
+        bootstrap=Bootstrap(resamples=50),
+        sealed=sealed,
+    )
+    with pytest.raises(CliError, match="protected record id") as err:
+        Q.run_quant(**args)
+    assert err.value.code == EXIT_USER_ERROR
+    assert bad_id in err.value.message
+    assert trainer.plans == []
+    assert _log(run_dir) == []
+
+
+def _rerun(tmp_path, path, run_dir, deviation_id=None):
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    trainer = FakeTrainer(run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE)
+    out = Q.run_quant(
+        prereg_path=path,
+        run_dir=run_dir,
+        folds=folds(),
+        trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
+        apply=True,
+        hooks=Q.QuantHooks(builders=builders, measurer=measurer, trainer=trainer),
+        bootstrap=Bootstrap(resamples=50),
+        deviation_id=deviation_id,
+    )
+    return out, trainer
+
+
+def test_a_second_heal_of_the_same_format_needs_a_deviation_id(tmp_path):
+    """AC2: a second heal of the same format is refused without a deviation id; with one it
+    runs as round 2 and records the id; that id cannot pay for a third round."""
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    out, run_dir, _ = run(tmp_path, builders=builders, measurer=measurer)
+    path = tmp_path / "prereg.json"
+    assert out["heal"]["heal_round"] == 1
+    with pytest.raises(CliError, match="needs a deviation id"):
+        _rerun(tmp_path, path, run_dir)
+    out2, trainer = _rerun(tmp_path, path, run_dir, deviation_id="d9")
+    assert out2["heal"]["heal_round"] == 2
+    assert out2["heal"]["deviation_id"] == "d9"
+    assert trainer.plans[0]["train_file"].endswith("onnx_int8/round-2/heal_set.jsonl")
+    with pytest.raises(CliError, match="already paid"):
+        _rerun(tmp_path, path, run_dir, deviation_id="d9")
+
+
+def test_a_spent_round_for_one_format_does_not_spend_another_formats(tmp_path):
+    """AC2: the one heal round is per format."""
+    path, run_dir, _ = setup(tmp_path)
+    log = run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE
+    log.parent.mkdir(parents=True)
+    log.write_text(json.dumps({"event": "heal_trigger", "format": "onnx_int4"}) + "\n")
+    out, trainer = _rerun(tmp_path, path, run_dir)
+    assert out["heal"]["heal_round"] == 1
+    assert len(trainer.plans) == 1

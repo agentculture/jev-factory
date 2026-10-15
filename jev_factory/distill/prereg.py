@@ -193,6 +193,14 @@ HEAL_SOURCE = (
     "heal = 1 epoch, lr 5e-5, continuing from the model's own checkpoint on the frozen "
     "train set (a plain continued fine-tune, not QAT)"
 )
+#: The heal's soft-target mix (c10): weight on the bf16 distilled student's per-option
+#: distribution and on Clef's. A draft for the operator to confirm before the lock.
+HEAL_MIX = {"bf16_student": 0.5, "clef": 0.5}
+HEAL_MIX_SOURCE = (
+    "spec 2026-10-15-orin-nano-jetson-ops-decider c10: heal trains the quantized student "
+    "against the bf16 distilled student's and Clef's soft labels; the equal split is an "
+    "operator placeholder until the lock"
+)
 #: The stock model's ``lora_targets``: exactly the 12 modules of 2610's
 #: ``lora/adapter_config.json`` ``target_modules`` (its train_config.json and
 #: strands_decider_config.json list the same set).
@@ -293,12 +301,16 @@ def example_doc() -> dict[str, Any]:
             "init_mode": ["continue", "merge_fresh"],
         },
         # The one heal round (distill quant): one more pass from the winner's own checkpoint
-        # on the same frozen train set, with the winner's other knobs. Each value must be in
-        # knob_grid (the trainer refuses an unregistered value).
+        # on the train records, with the winner's other knobs. Each value must be in
+        # knob_grid (the trainer refuses an unregistered value). ``mix`` weighs the heal's
+        # soft targets: the bf16 distilled student's and Clef's per-option distributions
+        # (c10); the 0.5 / 0.5 split is an operator placeholder until the lock.
         "heal": {
             "epochs": 1,
             "lr": 5e-5,
             "init_mode": "continue",
+            "mix": dict(HEAL_MIX),
+            "mix_source": HEAL_MIX_SOURCE,
             "source": HEAL_SOURCE,
         },
         # The decision gate (deviation d4): per question kind, sweep floor / margin /
