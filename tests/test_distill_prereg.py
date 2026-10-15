@@ -31,12 +31,14 @@ def test_example_doc_validates_and_seeds_upstream_knobs():
     assert seeded["teacher_weight"].value == 1.0
     assert seeded["ordinal_smoothing"].value == 0.1
     assert all(
-        k.source_file in ("train_config.json", "strands_decider_config.json") and k.source_key
+        k.source_file
+        in ("train_config.json", "strands_decider_config.json", "lora/adapter_config.json")
+        and k.source_key
         for k in seeded.values()
     )
 
 
-#: The values read once from StrandsAgents/strands-decider-2B-hobson-v21 (raw/main).
+#: The values read once from StrandsAgents/strands-decider-2B-qwen3.5-v1-2610 @ 216d1ccb.
 TRAINER_UPSTREAM = {
     "micro_batch_size": (8, "train_config.json"),
     "grad_accum": (4, "train_config.json"),
@@ -44,12 +46,9 @@ TRAINER_UPSTREAM = {
     "warmup_ratio": (0.03, "train_config.json"),
     "max_grad_norm": (1.0, "train_config.json"),
     "max_length": (4096, "train_config.json"),
-    "seed": (5, "train_config.json"),
+    "seed": (0, "train_config.json"),
     "shuffle_options": (True, "train_config.json"),
     "reverse_score_prob": (0.5, "train_config.json"),
-    "lora_r": (16, "train_config.json"),
-    "lora_alpha": (32, "train_config.json"),
-    "lora_dropout": (0.05, "strands_decider_config.json"),
 }
 
 
@@ -62,11 +61,6 @@ def test_example_doc_carries_every_knob_the_trainer_needs_with_cited_sources():
         assert seeded[name].value == value, name
         assert seeded[name].source_file == source, name
         assert seeded[name].source_key == name, name
-    targets = seeded["lora_targets"]
-    assert targets.source_file == "train_config.json"
-    assert targets.source_key == "lora_targets"
-    assert "q_proj" in targets.value
-    assert "out_proj" in targets.value
     assert reg.knob_grid["init_mode"] == list(td.INIT_MODES)
     needed = set(td.REQUIRED_UPSTREAM) | set(td.LORA_UPSTREAM)
     assert needed <= set(seeded) | set(reg.knob_grid)
@@ -103,12 +97,12 @@ def test_trainer_plan_accepts_the_example_doc(tmp_path, init_mode):
     )
     hp = plan["hyperparameters"]
     assert hp["init_mode"] == init_mode
-    assert hp["seed"] == 5
+    assert hp["seed"] == 0
     assert hp["micro_batch_size"] == 8
     if init_mode == "merge_fresh":
-        assert hp["lora_r"] == 16
+        assert hp["lora_r"] == 48
         assert hp["lora_dropout"] == 0.05
-        assert hp["sources"]["lora_dropout"] == "upstream:strands_decider_config.json#lora_dropout"
+        assert hp["sources"]["lora_dropout"] == "upstream:lora/adapter_config.json#lora_dropout"
 
 
 def test_schema_covers_bars_rule_grid_and_references():
@@ -137,6 +131,7 @@ def test_schema_covers_bars_rule_grid_and_references():
         lambda d: d["knob_grid"].__setitem__("epochs", []),
         lambda d: d["reference_rows"].pop("clef"),
         lambda d: d.__setitem__("schema_version", 99),
+        lambda d: d["bars"].pop("c17"),
         lambda d: d["selection_rule"].pop("order"),
     ],
 )
@@ -310,3 +305,194 @@ def test_lock_refuses_a_lock_directory_symlinked_out_of_the_run(tmp_path):
     with pytest.raises(CliError, match="escapes"):
         dp.lock(path, run_dir)
     assert not (tmp_path / "elsewhere" / "prereg.lock.json").exists()
+
+
+# --------------------------------------------------------------------- 2610 seed and c17 bars
+
+TARGETS_2610 = [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
+    "in_proj_qkv",
+    "in_proj_z",
+    "in_proj_a",
+    "in_proj_b",
+    "out_proj",
+]
+
+
+def seeded():
+    return {k.name: k for k in dp.validate(good_doc()).upstream_knobs}
+
+
+def test_example_doc_seeds_from_2610_at_the_pinned_revision():
+    """prereg.example_doc seeds from 2610: source URL at 216d1ccb."""
+    assert "strands-decider-2B-qwen3.5-v1-2610" in dp.UPSTREAM_SOURCE
+    assert dp.UPSTREAM_SOURCE.endswith("/raw/216d1ccb46a9e9b036eb9187b248db98480f77d4")
+    assert "hobson" not in dp.UPSTREAM_SOURCE
+    stock = good_doc()["reference_rows"]["stock"]["model"]
+    assert stock == "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610@" + dp.UPSTREAM_REVISION
+
+
+def test_lora_hyperparameters_come_from_the_2610_adapter_config():
+    """lora_r 48, lora_alpha 96, lora_dropout 0.05, each citing lora/adapter_config.json."""
+    knobs = seeded()
+    for name, value, key in (
+        ("lora_r", 48, "r"),
+        ("lora_alpha", 96, "lora_alpha"),
+        ("lora_dropout", 0.05, "lora_dropout"),
+    ):
+        assert knobs[name].value == value
+        assert knobs[name].source_file == "lora/adapter_config.json"
+        assert knobs[name].source_key == key
+
+
+def test_lora_targets_are_exactly_the_12_modules_of_2610():
+    """lora_targets exactly the 12 modules in 2610's lora/adapter_config.json."""
+    targets = seeded()["lora_targets"]
+    assert targets.source_file == "lora/adapter_config.json"
+    assert targets.source_key == "target_modules"
+    assert len(targets.value) == 12
+    assert sorted(targets.value) == sorted(TARGETS_2610)
+    assert tuple(targets.value) == dp.STOCK_LORA_TARGETS
+
+
+def test_temperature_by_kind_is_seeded_from_the_2610_decider_config():
+    """temperature_by_kind from its strands_decider_config.json."""
+    knob = seeded()["temperature_by_kind"]
+    assert knob.source_file == "strands_decider_config.json"
+    assert knob.source_key == "temperature_by_kind"
+    assert knob.value["choice"] == 0.8629556148274228
+    assert knob.value["noul"] == 1.0704394404346953
+    assert knob.value["score"] == 1.834409163182587
+
+
+def test_the_size_budget_is_imported_not_duplicated():
+    from jev_factory.backbones.pointer import quantized
+
+    assert dp.SIZE_BUDGET_BYTES is quantized.SIZE_BUDGET_BYTES
+    assert dp.SIZE_BUDGET_BYTES == 10**9
+
+
+def test_c17_bars_are_registered_for_both_builds():
+    """Both the bf16 student and the shipped quant carry the top-1 bars; latency has no bar."""
+    c17 = dp.validate(good_doc()).bars["c17"]
+    assert set(c17) == {"bf16", "quant"}
+    for build in ("bf16", "quant"):
+        assert c17[build]["top1_over_stock_min_points"] == 10.0
+        assert c17[build]["top1_under_clef_w4a16_max_points"] == 5.0
+        assert c17[build]["latency_reported"] == ["median", "p95"]
+        assert not any("latency" in n and n != "latency_reported" for n in c17[build])
+    assert c17["quant"]["quant_vs_bf16_agreement_min"] == 0.97
+    assert c17["quant"]["weight_bytes_max"] == 10**9
+    assert "weight_bytes_max" not in c17["bf16"]
+
+
+def _drop(build, name):
+    return lambda d: d["bars"]["c17"][build].pop(name)
+
+
+def _set(build, name, value):
+    return lambda d: d["bars"]["c17"][build].__setitem__(name, value)
+
+
+C17_NAMES = [
+    ("bf16", "top1_over_stock_min_points"),
+    ("bf16", "top1_under_clef_w4a16_max_points"),
+    ("quant", "top1_over_stock_min_points"),
+    ("quant", "top1_under_clef_w4a16_max_points"),
+    ("quant", "quant_vs_bf16_agreement_min"),
+    ("quant", "weight_bytes_max"),
+    ("quant", "latency_reported"),
+    ("bf16", "latency_reported"),
+]
+
+
+@pytest.mark.parametrize(("build", "name"), C17_NAMES)
+def test_a_prereg_missing_any_c17_bar_is_refused(build, name):
+    doc = good_doc()
+    _drop(build, name)(doc)
+    with pytest.raises(CliError, match=name):
+        dp.validate(doc)
+
+
+@pytest.mark.parametrize(("build", "name"), C17_NAMES)
+@pytest.mark.parametrize("bad", ["10", None, True, [1]])
+def test_a_c17_bar_of_the_wrong_type_is_refused(build, name, bad):
+    doc = good_doc()
+    _set(build, name, bad)(doc)
+    with pytest.raises(CliError, match=name):
+        dp.validate(doc)
+
+
+@pytest.mark.parametrize(
+    ("build", "name", "bad"),
+    [
+        ("bf16", "top1_over_stock_min_points", 9.9),
+        ("quant", "top1_over_stock_min_points", 0),
+        ("bf16", "top1_under_clef_w4a16_max_points", 5.1),
+        ("quant", "top1_under_clef_w4a16_max_points", 20),
+        ("quant", "quant_vs_bf16_agreement_min", 0.96),
+        ("quant", "weight_bytes_max", 10**9 + 1),
+        ("quant", "weight_bytes_max", 1.0e9),
+        ("quant", "latency_reported", ["median"]),
+        ("bf16", "latency_reported", []),
+    ],
+)
+def test_a_c17_bar_weaker_than_the_bar_is_refused(build, name, bad):
+    doc = good_doc()
+    _set(build, name, bad)(doc)
+    with pytest.raises(CliError, match=name):
+        dp.validate(doc)
+
+
+def test_a_stricter_c17_bar_is_accepted():
+    doc = good_doc()
+    doc["bars"]["c17"]["quant"]["weight_bytes_max"] = 9 * 10**8
+    doc["bars"]["c17"]["quant"]["quant_vs_bf16_agreement_min"] = 0.99
+    doc["bars"]["c17"]["bf16"]["top1_over_stock_min_points"] = 12
+    assert dp.validate(doc).bars["c17"]["quant"]["weight_bytes_max"] == 9 * 10**8
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d["bars"]["c17"].pop("quant"),
+        lambda d: d["bars"]["c17"].pop("bf16"),
+        lambda d: d["bars"]["c17"].__setitem__("int4", {}),
+        lambda d: d["bars"]["c17"]["bf16"].__setitem__("latency_ratio_max", 0.2),
+        lambda d: d["bars"]["c17"]["bf16"].__setitem__("weight_bytes_max", 10**9),
+        lambda d: d["bars"].__setitem__("c17", []),
+    ],
+)
+def test_c17_structure_is_checked(mutate):
+    doc = good_doc()
+    mutate(doc)
+    with pytest.raises(CliError):
+        dp.validate(doc)
+
+
+def test_a_number_is_not_a_bytes_count_for_weight_bytes():
+    doc = good_doc()
+    doc["bars"]["c17"]["quant"]["weight_bytes_max"] = 999999999.5
+    with pytest.raises(CliError, match="integer"):
+        dp.validate(doc)
+
+
+def test_an_18_shape_prereg_is_refused_with_a_clear_message(tmp_path):
+    """A schema_version 1 (#18-shape) file is refused, not reinterpreted."""
+    doc = good_doc()
+    doc["schema_version"] = 1
+    del doc["bars"]["c17"]
+    with pytest.raises(CliError, match="#18-shape") as exc:
+        dp.validate(doc)
+    assert "bars.c17" in exc.value.message
+    path = write(tmp_path, doc)
+    with pytest.raises(CliError, match="#18-shape"):
+        dp.load(path)
+    with pytest.raises(CliError, match="#18-shape"):
+        dp.lock(path, tmp_path / "run")
