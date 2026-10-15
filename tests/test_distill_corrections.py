@@ -55,8 +55,9 @@ def test_valid_correction_roundtrips_through_jsonl(tmp_path):
 def test_refuses_missing_author_date_or_reason(field):
     with pytest.raises(C.MissingCorrectionField):
         _corr(**{field: ""})
+    payload = {k: v for k, v in _corr().to_json().items() if k != field}
     with pytest.raises(C.MissingCorrectionField):
-        C.Correction.from_json({k: v for k, v in _corr().to_json().items() if k != field})
+        C.Correction.from_json(payload)
 
 
 def test_refuses_unknown_reason_status_and_empty_target():
@@ -69,21 +70,24 @@ def test_refuses_unknown_reason_status_and_empty_target():
 
 
 def test_refuses_exact_duplicate_of_protected_item():
+    correction = _corr(text=PROTECTED["test"][0]["text"].upper())
     with pytest.raises(C.LeakageRefused, match="exact of test item 't1'"):
-        C.intake(_corr(text=PROTECTED["test"][0]["text"].upper()), PROTECTED)
+        C.intake(correction, PROTECTED)
 
 
 def test_refuses_near_duplicate_of_protected_item():
     near = "list every open port on the database host please now"
+    correction = _corr(text=near)
     with pytest.raises(C.LeakageRefused, match="near-duplicate of held_out item 'h1'"):
-        C.intake(_corr(text=near), PROTECTED)
+        C.intake(correction, PROTECTED)
 
 
 def test_clean_correction_passes_intake_and_empty_text_fails_closed():
     c = _corr()
     assert C.intake(c, PROTECTED) is c
+    empty = _corr(text="")
     with pytest.raises(C.LeakageRefused):
-        C.intake(_corr(text=""), PROTECTED)
+        C.intake(empty, PROTECTED)
 
 
 def test_draft_yields_only_proposed_even_if_drafter_claims_approved():
@@ -92,14 +96,16 @@ def test_draft_yields_only_proposed_even_if_drafter_claims_approved():
 
     res = C.draft_corrections([_record()], drafter, PROTECTED, author="clef-27b", date="d")
     assert [c.status for c in res.proposed] == ["proposed"]
-    assert res.proposed[0].label == "b" and res.refused == []
+    assert res.proposed[0].label == "b"
+    assert res.refused == []
 
 
 def test_draft_refuses_unknown_options_and_failing_drafter():
     res = C.draft_corrections(
         [_record("r3")], lambda r: {"q": {"label": "zzz"}}, PROTECTED, author="m", date="d"
     )
-    assert res.proposed == [] and len(res.refused) == 1
+    assert res.proposed == []
+    assert len(res.refused) == 1
 
     def boom(record):
         raise RuntimeError("down")
@@ -113,7 +119,8 @@ def test_leaky_draft_is_refused_by_leakage():
     res = C.draft_corrections(
         [leaky], lambda r: {"q": {"label": "a"}}, PROTECTED, author="m", date="d"
     )
-    assert res.proposed == [] and "exact" in res.refused[0][1]
+    assert res.proposed == []
+    assert "exact" in res.refused[0][1]
 
 
 def test_systemone_drafter_uses_client_distribution():

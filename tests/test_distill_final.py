@@ -133,8 +133,10 @@ def test_dry_run_by_default_scores_nothing_and_writes_no_ledger(env):
     models = _models(log)
     plan = _run(env, models, apply=False)
     assert plan["dry_run"] is True
-    assert plan["sides"]["test"]["count"] == 12 and plan["sides"]["held_out"]["count"] == 6
-    assert log == [] and all(not m.client.asked for m in models.values())
+    assert plan["sides"]["test"]["count"] == 12
+    assert plan["sides"]["held_out"]["count"] == 6
+    assert log == []
+    assert all(not m.client.asked for m in models.values())
     assert _ledger(env) == []
 
 
@@ -158,7 +160,8 @@ def test_one_ledgered_invocation_scores_all_three_on_test_and_held_out(env):
         rows = json.loads((final_dir / "predictions" / f"{name}.json").read_text())
         assert len(rows) == 18
     written = json.loads((final_dir / F.REPORT_FILE).read_text())
-    assert written["c42"]["bars"] and written["c43"]["bars"]
+    assert written["c42"]["bars"]
+    assert written["c43"]["bars"]
     assert out["report"]["result"] in (R.PASSED, R.MISSED)
     assert set(out["final"]["runtime"]) == set(F.MODELS)
 
@@ -172,7 +175,8 @@ def test_a_second_final_is_refused_without_a_deviation_id(env, apply):
         _run(env, models, apply=apply)
     assert exc.value.code == EXIT_USER_ERROR != 0
     assert "deviation" in exc.value.remediation
-    assert log == [] and all(not m.client.asked for m in models.values())
+    assert log == []
+    assert all(not m.client.asked for m in models.values())
     assert len(_ledger(env)) == 2
 
 
@@ -181,11 +185,13 @@ def test_a_final_for_only_some_of_the_models_is_refused(env):
     del models["stock_v21"], models["clef"]
     with pytest.raises(CliError) as exc:
         _run(env, models)
-    assert exc.value.code != 0 and "missing ['clef', 'stock_v21']" in exc.value.message
+    assert exc.value.code != 0
+    assert "missing ['clef', 'stock_v21']" in exc.value.message
     assert _ledger(env) == []
     _run(env, _models([]))
+    student_only = {"student": _models([])["student"]}
     with pytest.raises(CliError):  # a later student-only (or any) final is refused too
-        _run(env, {"student": _models([])["student"]})
+        _run(env, student_only)
 
 
 def test_a_second_final_with_a_deviation_id_runs_and_is_recorded(env):
@@ -197,25 +203,29 @@ def test_a_second_final_with_a_deviation_id_runs_and_is_recorded(env):
 
 
 def test_a_bad_deviation_id_is_refused(env):
+    models = _models([])
     with pytest.raises(CliError):
-        _run(env, _models([]), deviation_id="not a deviation id!")
+        _run(env, models, deviation_id="not a deviation id!")
 
 
 def test_a_run_whose_first_start_fails_writes_no_ledger_record(env):
+    models = _models([], fail_start="clef")
     with pytest.raises(RuntimeError):
-        _run(env, _models([], fail_start="clef"))
+        _run(env, models)
     assert _ledger(env) == []
     _run(env, _models([]))  # the real run is not blocked
     assert len(_ledger(env)) == 2
 
 
 def test_a_run_that_fails_after_scoring_is_still_ledgered(env):
+    models = _models([], fail_start="student")
     with pytest.raises(RuntimeError):
-        _run(env, _models([], fail_start="student"))
+        _run(env, models)
     statuses = {r.status for r in _ledger(env)}
     assert statuses == {once.FAILED_MID_RUN}
+    models = _models([])
     with pytest.raises(CliError):
-        _run(env, _models([]))
+        _run(env, models)
 
 
 def test_the_calibration_each_row_used_is_recorded(env, tmp_path):
@@ -226,8 +236,10 @@ def test_the_calibration_each_row_used_is_recorded(env, tmp_path):
     assert cals["student"]["source"] == F.STUDENT_CALIBRATION_REL
     assert cals["student"]["sha256"] == dp.sha256_file(env["qdir"] / "calibration.json")
     assert cals["student"]["calibration"]["temperature_by_kind"] == {"choice": 1.5}
-    assert cals["stock_v21"]["source"] == F.CAL_SERVED and cals["stock_v21"]["calibration"] is None
-    assert cals["clef"]["source"] == F.CAL_RAW and cals["clef"]["calibration"] is None
+    assert cals["stock_v21"]["source"] == F.CAL_SERVED
+    assert cals["stock_v21"]["calibration"] is None
+    assert cals["clef"]["source"] == F.CAL_RAW
+    assert cals["clef"]["calibration"] is None
     assert cals[R.CLEF_CALIBRATED]["sha256"] == dp.sha256_file(clef_cal)
     assert out["final"]["deployed"]["format"] == "bf16"
     stats = out["report"]["sides"]["test"]["pools"][R.HEADLINE]["stats"]
@@ -236,22 +248,25 @@ def test_the_calibration_each_row_used_is_recorded(env, tmp_path):
 
 def test_the_student_needs_the_quant_calibration_it_was_shipped_with(env):
     (env["qdir"] / "calibration.json").unlink()
+    models = _models([])
     with pytest.raises(CliError):
-        _run(env, _models([]))
+        _run(env, models)
     assert _ledger(env) == []
 
 
 def test_a_changed_quant_calibration_is_refused(env):
     (env["qdir"] / "calibration.json").write_text(json.dumps(STUDENT_CAL), encoding="utf-8")
+    models = _models([])
     with pytest.raises(CliError) as exc:
-        _run(env, _models([]))
+        _run(env, models)
     assert "sha256" in exc.value.message
 
 
 def test_an_unlocked_prereg_is_refused(env):
     (env["run_dir"] / dp.LOCK_REL).unlink()
+    models = _models([])
     with pytest.raises(CliError):
-        _run(env, _models([]))
+        _run(env, models)
 
 
 def test_runtime_is_recorded_for_all_three_on_the_same_host(env):
@@ -270,8 +285,9 @@ def test_final_reads_the_sealed_sides_only_by_their_sealed_sha(env, monkeypatch)
         return dataset.SealedSide(side.path, "0" * 64, side.ids, side.count, side.by_source)
 
     monkeypatch.setattr(F.dataset, "load_sealed", tampered)
+    models = _models([])
     with pytest.raises(CliError):
-        _run(env, _models([]))
+        _run(env, models)
     assert Path(env["run_dir"] / F.FINAL_REL / F.REPORT_FILE).exists() is False
 
 
@@ -314,14 +330,16 @@ def test_without_a_gate_the_report_says_none_was_fitted(env):
 @pytest.mark.parametrize("apply", [True, False])
 def test_a_gate_fitted_on_another_calibration_is_refused(env, apply):
     _write_gate(env, calibration_sha256="d" * 64)
+    models = _models([])
     with pytest.raises(CliError) as exc:
-        _run(env, _models([]), apply=apply)
+        _run(env, models, apply=apply)
     assert "calibration" in exc.value.message
     assert _ledger(env) == []
 
 
 def test_an_unfitted_gate_file_is_refused(env):
     _write_gate(env, fitted=False)
+    models = _models([])
     with pytest.raises(CliError):
-        _run(env, _models([]))
+        _run(env, models)
     assert _ledger(env) == []

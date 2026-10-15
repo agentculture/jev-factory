@@ -192,11 +192,11 @@ def test_every_distill_stage_is_in_its_own_registry_in_dependency_order():
 
 def test_the_layout_matches_the_modules_that_write_it():
     d = P.DISTILL_DIR
-    assert f"{d}/{P.PREREG_FILE}" == dprereg.PREREG_REL
-    assert f"{d}/{P.PREREG_LOCK}" == dprereg.LOCK_REL
-    assert f"{d}/{P.AUDIT_FILE}" == daudit.AUDIT_REL
-    assert f"{d}/{P.TRAIN_SET}" == dassemble.OUT_REL
-    assert f"{d}/{P.ASSEMBLE_MANIFEST}" == dassemble.MANIFEST_REL
+    assert dprereg.PREREG_REL == f"{d}/{P.PREREG_FILE}"
+    assert dprereg.LOCK_REL == f"{d}/{P.PREREG_LOCK}"
+    assert daudit.AUDIT_REL == f"{d}/{P.AUDIT_FILE}"
+    assert dassemble.OUT_REL == f"{d}/{P.TRAIN_SET}"
+    assert dassemble.MANIFEST_REL == f"{d}/{P.ASSEMBLE_MANIFEST}"
     assert f"{d}/{P.GATE_FILE}" == f"{dgate.GATE_REL}/{dgate.GATE_FILE}"
 
 
@@ -217,7 +217,8 @@ def test_distill_lists_its_stages_in_order(capsys):
     assert rc == 0
     assert [s["stage"] for s in json.loads(out)["stages"]] == STAGES
     rc, out, _ = run_cli(capsys, "distill")
-    assert rc == 0 and all(s in out for s in STAGES)
+    assert rc == 0
+    assert all(s in out for s in STAGES)
 
 
 def test_distill_has_apply_detach_force_and_json():
@@ -235,7 +236,8 @@ def test_every_stage_writes_nothing_without_apply(stage, work, capsys):
     rc, out, err = run_cli(capsys, "distill", stage, "--work", str(work), "--json")
     assert rc == 0, err
     plan = json.loads(out)
-    assert plan["applied"] is False and plan["stage"] == stage
+    assert plan["applied"] is False
+    assert plan["stage"] == stage
     assert plan["would_run"] is True
     assert tree(root) == before
     assert not (work / "distill" / "manifests").exists()
@@ -275,7 +277,8 @@ def test_apply_runs_through_assemble_with_per_stage_manifests(assembled):
     base = assembled / "distill"
     for name in THROUGH_ASSEMBLE:
         man = read_manifest(base, name)
-        assert man["status"] == "complete" and man["stage"] == name
+        assert man["status"] == "complete"
+        assert man["stage"] == name
         assert (base / "manifests" / f"{name}.json").is_file()
     assert (base / "prereg.lock.json").is_file()
     assert (base / "dataset" / "train.jsonl").is_file()
@@ -284,7 +287,8 @@ def test_apply_runs_through_assemble_with_per_stage_manifests(assembled):
     table = json.loads((base / "teacher_audit.json").read_text())
     assert table["teacher_weak_sources"] == [WEAK]
     proposed = read_corrections(base / "corrections" / "corrections.jsonl")
-    assert proposed and {c.status for c in proposed} == {"proposed"}
+    assert proposed
+    assert {c.status for c in proposed} == {"proposed"}
     frozen = json.loads((base / "assemble" / "assemble_manifest.json").read_text())
     assert frozen["status"] == "frozen"
     assert frozen["counts"]["trainable_corrections"] == 0  # nothing is reviewed yet
@@ -314,7 +318,8 @@ def test_a_resumed_teacher_label_asks_only_unanswered_items(assembled):
     assert man["status"] == "complete"
     assert teacher.asked == []  # every request is a cache hit
     labelled = json.loads((assembled / "distill" / P.TEACHER_MANIFEST).read_text())
-    assert labelled["cache_hits"] == labelled["records"] and labelled["requests_sent"] == 0
+    assert labelled["cache_hits"] == labelled["records"]
+    assert labelled["requests_sent"] == 0
 
 
 def test_a_fresh_stage_is_skipped_and_force_reruns_it(assembled, capsys):
@@ -346,11 +351,14 @@ def test_a_failed_stage_exits_non_zero_and_records_it(work, capsys):
 
 def test_unknown_knobs_and_misused_flags_are_refused(work, capsys):
     rc, _, err = run_cli(capsys, "distill", "dataset", "--work", str(work), "--knob", "nope=1")
-    assert rc == 1 and "unknown knob" in err
+    assert rc == 1
+    assert "unknown knob" in err
     rc, _, err = run_cli(capsys, "distill", "dataset", "--work", str(work), "--detach")
-    assert rc == 1 and "--detach needs --apply" in err
+    assert rc == 1
+    assert "--detach needs --apply" in err
     rc, _, err = run_cli(capsys, "distill", "--apply")
-    assert rc == 1 and "name the distill stage" in err
+    assert rc == 1
+    assert "name the distill stage" in err
     with pytest.raises(SystemExit) as stop:
         run_cli(capsys, "distill", "nope", "--json")
     assert stop.value.code == 1
@@ -376,14 +384,16 @@ def test_status_shows_distill_stages(assembled, capsys):
     assert all(rows[n]["status"] == "complete" for n in THROUGH_ASSEMBLE)
     assert rows["train"]["status"] == "not-run"
     rc, out, _ = run_cli(capsys, "status", str(assembled))
-    assert "distill stages:" in out and "teacher-label" in out
+    assert "distill stages:" in out
+    assert "teacher-label" in out
 
 
 def test_status_of_a_run_without_distill_lists_none(tmp_path, capsys):
     plain = tmp_path / "plain"
     plain.mkdir()
     rc, out, _ = run_cli(capsys, "status", str(plain), "--json")
-    assert rc == 0 and json.loads(out)["distill_stages"] == []
+    assert rc == 0
+    assert json.loads(out)["distill_stages"] == []
     rc, out, _ = run_cli(capsys, "status", str(plain))
     assert "distill stages:" not in out
 
@@ -393,7 +403,8 @@ def test_detached_distill_stage_survives_and_status_reports_its_job(work, capsys
     rc, out, err = run_cli(capsys, *argv)
     assert rc == 0, err
     info = json.loads(out)
-    assert info["detached"] is True and info["pid"] > 0
+    assert info["detached"] is True
+    assert info["pid"] > 0
     jobs = work / "jobs" / "distill"
     deadline = time.time() + 60
     while detach.job_status(jobs, "preregister")["state"] != "done":
@@ -402,7 +413,8 @@ def test_detached_distill_stage_survives_and_status_reports_its_job(work, capsys
     assert detach.job_status(jobs, "preregister")["rc"] == 0, (jobs / "preregister.log").read_text()
     rc, out, _ = run_cli(capsys, "status", str(work), "--json")
     row = json.loads(out)["distill_stages"][0]
-    assert row["stage"] == "preregister" and row["status"] == "complete"
+    assert row["stage"] == "preregister"
+    assert row["status"] == "complete"
     assert row["jobs"][0]["job"] == "distill/preregister"
     assert row["jobs"][0]["state"] == "done"
 
@@ -415,7 +427,8 @@ def test_detach_refuses_a_distill_stage_that_is_already_running(work, capsys):
     (jobs / "dataset.pid").write_text(f"{os.getpid()}\n")
     argv = ["distill", "dataset", "--work", str(work), "--apply", "--detach"]
     rc, _, err = run_cli(capsys, *argv)
-    assert rc == 1 and "already running" in err
+    assert rc == 1
+    assert "already running" in err
 
 
 # ----------------------------------------------------------------- docs surface
@@ -427,7 +440,8 @@ def test_explain_learn_and_overview_cover_distill(capsys):
     for stage in STAGES:
         assert ("distill", stage) in paths
     rc, out, _ = run_cli(capsys, "explain", "distill")
-    assert rc == 0 and all(f"`{s}`" in out for s in STAGES)
+    assert rc == 0
+    assert all(f"`{s}`" in out for s in STAGES)
     rc, out, _ = run_cli(capsys, "learn", "--json")
     assert ["distill", "<stage>"] in [c["path"] for c in json.loads(out)["commands"]]
     rc, out, _ = run_cli(capsys, "learn")
