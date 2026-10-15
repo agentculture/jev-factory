@@ -17,6 +17,7 @@ from jev_factory.distill import final as F
 from jev_factory.distill import prereg as dp
 from jev_factory.distill import report as R
 from jev_factory.distill.records import Gold, Question, Record
+from jev_factory.distill.runspec import Bootstrap
 from jev_factory.distill.systemone import CallResult, QuestionResult
 from jev_factory.measure import once
 
@@ -119,7 +120,7 @@ def _run(env, models, **kw):
         memory_probe=None,
         host="box",
         now=lambda: NOW,
-        resamples=50,
+        bootstrap=Bootstrap(resamples=50),
         **kw,
     )
 

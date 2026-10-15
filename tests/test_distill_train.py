@@ -22,6 +22,7 @@ from jev_factory.distill import pins as dpins
 from jev_factory.distill import prereg as dp
 from jev_factory.distill import train as T
 from jev_factory.distill.records import Gold, Question, Record
+from jev_factory.distill.runspec import Bootstrap, GpuLimits, TrainerEnv
 from jev_factory.factory import gpu
 
 REV = "a" * 40
@@ -183,12 +184,11 @@ def run(tmp_path, cache, *, doc=None, apply=True, scorer=None, train=True, **kw)
         cache_dir=cache,
         pins=student_pins(),
         folds=folds(),
-        trainer_python="python3",
-        decider_repo=tmp_path / "strands-decider",
+        trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path / "strands-decider"),
         apply=apply,
         scorer=scorer if scorer is not None else FakeScorer(),
-        memory_max="100G",
-        resamples=50,
+        limits=GpuLimits(memory_max=kw.pop("memory_max", "100G")),
+        bootstrap=Bootstrap(resamples=50),
     )
     args.update(kw)
     return T.run_grid(**args), run_dir
@@ -208,8 +208,7 @@ def test_refuses_without_a_locked_prereg(tmp_path, cache):
             cache_dir=cache,
             pins=pins,
             folds=fold_set,
-            trainer_python="python3",
-            decider_repo=tmp_path,
+            trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
         )
 
 
@@ -258,10 +257,9 @@ def test_apply_refuses_without_memory_cap_scorer_or_train_set(tmp_path, cache, m
             cache_dir=cache,
             pins=pins,
             folds=fold_set,
-            trainer_python="python3",
-            decider_repo=tmp_path,
+            trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
             apply=True,
-            memory_max="100G",
+            limits=GpuLimits(memory_max="100G"),
         )
     with pytest.raises(CliError, match="train_set"):
         run(tmp_path / "c", cache, train=False)

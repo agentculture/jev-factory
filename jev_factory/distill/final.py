@@ -38,7 +38,6 @@ from pathlib import Path
 from typing import Any
 
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
-from jev_factory.core import metrics as core_metrics
 from jev_factory.distill import benchmark as bench
 from jev_factory.distill import dataset
 from jev_factory.distill import gate as dgate
@@ -46,6 +45,7 @@ from jev_factory.distill import prereg as dp
 from jev_factory.distill import quant as dquant
 from jev_factory.distill import report as dreport
 from jev_factory.distill.records import Record
+from jev_factory.distill.runspec import Bootstrap
 from jev_factory.measure import once
 
 STAGE = "distill-final"
@@ -213,10 +213,10 @@ def run_final(
     host: str | None = None,
     now: Callable[[], str] = _now,
     contamination_manifest: Mapping[str, Any] | None = None,
-    seed: int = core_metrics.DEFAULT_BOOTSTRAP_SEED,
-    resamples: int = core_metrics.DEFAULT_BOOTSTRAP_RESAMPLES,
+    bootstrap: Bootstrap = Bootstrap(),
 ) -> dict[str, Any]:
     """Plan (dry-run) or run the single final measurement and write the report."""
+    seed, resamples = bootstrap.seed, bootstrap.resamples
     prereg_path, run_dir, dataset_dir = Path(prereg_path), Path(run_dir), Path(dataset_dir)
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
     try:

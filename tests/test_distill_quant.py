@@ -19,6 +19,7 @@ from jev_factory.distill import prereg as dp
 from jev_factory.distill import quant as Q
 from jev_factory.distill import train as T
 from jev_factory.distill.records import Gold, Question, Record
+from jev_factory.distill.runspec import Bootstrap, TrainerEnv
 
 NEUTRAL = {"head_type": "pointer", "temperature": 1.0, "temperature_by_kind": {}}
 WINNER_KNOBS = {
@@ -189,13 +190,14 @@ def run(tmp_path, *, doc=None, apply=True, builders=None, measurer=None, trainer
         prereg_path=path,
         run_dir=run_dir,
         folds=folds(),
-        trainer_python="python3",
-        decider_repo=tmp_path / "strands-decider",
+        trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path / "strands-decider"),
         apply=apply,
-        builders=FakeBuilders() if builders is None else builders,
-        measurer=measurer or FakeMeasurer(),
-        trainer=trainer,
-        resamples=50,
+        hooks=Q.QuantHooks(
+            builders=FakeBuilders() if builders is None else builders,
+            measurer=measurer or FakeMeasurer(),
+            trainer=trainer,
+        ),
+        bootstrap=Bootstrap(resamples=50),
     )
     args.update(kw)
     return Q.run_quant(**args), run_dir, trainer
@@ -224,8 +226,7 @@ def test_refuses_without_a_locked_prereg(tmp_path):
             prereg_path=path,
             run_dir=run_dir,
             folds=all_folds,
-            trainer_python="python3",
-            decider_repo=tmp_path,
+            trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
         )
 
 
@@ -463,13 +464,10 @@ def test_a_spent_heal_round_refuses_a_new_trigger_without_training(tmp_path):
             prereg_path=path,
             run_dir=run_dir,
             folds=all_folds,
-            trainer_python="python3",
-            decider_repo=tmp_path,
+            trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
             apply=True,
-            builders=builders,
-            measurer=measurer,
-            trainer=trainer,
-            resamples=50,
+            hooks=Q.QuantHooks(builders=builders, measurer=measurer, trainer=trainer),
+            bootstrap=Bootstrap(resamples=50),
         )
     assert trainer.plans == []
     assert not (run_dir / Q.QUANT_REL / Q.MANIFEST_FILE).exists()

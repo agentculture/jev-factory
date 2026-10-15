@@ -62,6 +62,7 @@ from jev_factory.distill import pins as dpins
 from jev_factory.distill import prereg as dp
 from jev_factory.distill.assemble import OUT_REL as TRAIN_SET_REL
 from jev_factory.distill.records import NOUL_OPTIONS, Record
+from jev_factory.distill.runspec import Bootstrap, GpuLimits, TrainerEnv
 from jev_factory.factory import gpu
 
 TRAIN_REL = "distill/train"
@@ -493,21 +494,20 @@ def run_grid(
     cache_dir: Path | str | None,
     pins: dpins.StudentPins | None,
     folds: Mapping[str, Any],
-    trainer_python: str,
-    decider_repo: Path | str,
+    trainer_env: TrainerEnv,
     apply: bool = False,
     scorer: Scorer | None = None,
     sealed: Sequence[Any] = (),
     train_file: Path | str | None = None,
     deviation_id: str | None = None,
-    memory_max: str | None = None,
-    memory_floor: str = "8G",
-    allow_foreign: bool = False,
-    timeout: float | None = None,
-    seed: int = core_metrics.DEFAULT_BOOTSTRAP_SEED,
-    resamples: int = core_metrics.DEFAULT_BOOTSTRAP_RESAMPLES,
+    limits: GpuLimits = GpuLimits(),
+    bootstrap: Bootstrap = Bootstrap(),
 ) -> dict[str, Any]:
     """Plan (dry-run) or run the knob grid, then calibrate and select on apply."""
+    trainer_python, decider_repo = trainer_env.python, trainer_env.decider_repo
+    memory_max, memory_floor = limits.memory_max, limits.memory_floor
+    allow_foreign, timeout = limits.allow_foreign, limits.timeout
+    seed, resamples = bootstrap.seed, bootstrap.resamples
     prereg_path, run_dir = Path(prereg_path), Path(run_dir)
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
     threshold = _threshold(reg)

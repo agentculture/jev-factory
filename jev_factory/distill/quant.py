@@ -60,6 +60,7 @@ import math
 import os
 import subprocess  # nosec B404 - only its exception types are used here
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -68,7 +69,6 @@ from jev_factory.backbones.pointer import quantized as qz
 from jev_factory.backbones.pointer import serve as pserve
 from jev_factory.backbones.pointer import train_distill as td
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
-from jev_factory.core import metrics as core_metrics
 from jev_factory.decide import records as drecords
 from jev_factory.decide.rules import HEAL_MARGIN_POINTS, HEAL_ROUNDS
 from jev_factory.distill import benchmark as bench
@@ -76,6 +76,7 @@ from jev_factory.distill import prereg as dp
 from jev_factory.distill import train as dtrain
 from jev_factory.distill.assemble import OUT_REL as TRAIN_SET_REL
 from jev_factory.distill.records import Record
+from jev_factory.distill.runspec import Bootstrap, GpuLimits, TrainerEnv
 from jev_factory.factory import gpu
 
 QUANT_REL = "distill/quant"
@@ -153,6 +154,19 @@ Builder = Callable[[str, Path, Path], Path]
 Measurer = Callable[[str, Path, Mapping[str, Sequence[Record]]], Mapping[str, Any]]
 #: a heal plan from ``train_distill.plan_train`` -> anything (it must write the checkpoint).
 Trainer = Callable[[Mapping[str, Any]], Any]
+
+
+@dataclass(frozen=True)
+class QuantHooks:
+    """Injectable seams for :func:`run_quant`: format builders, the measurer, the heal trainer.
+
+    ``None`` keeps the defaults (no builders, apply refused without a measurer, the capped
+    GPU trainer for the heal round).
+    """
+
+    builders: Mapping[str, Builder] | None = None
+    measurer: Measurer | None = None
+    trainer: Trainer | None = None
 
 
 def _refuse(message: str, remediation: str = "") -> CliError:
@@ -709,24 +723,22 @@ def run_quant(
     prereg_path: Path | str,
     run_dir: Path | str,
     folds: Mapping[str, Any],
-    trainer_python: str,
-    decider_repo: Path | str,
+    trainer_env: TrainerEnv,
     apply: bool = False,
-    builders: Mapping[str, Builder] | None = None,
-    measurer: Measurer | None = None,
-    trainer: Trainer | None = None,
+    hooks: QuantHooks = QuantHooks(),
     sealed: Sequence[Any] = (),
     train_file: Path | str | None = None,
     deviation_id: str | None = None,
-    memory_max: str | None = None,
-    memory_floor: str = "8G",
-    allow_foreign: bool = False,
-    timeout: float | None = None,
+    limits: GpuLimits = GpuLimits(),
     formats: Sequence[str] = tuple(FORMATS),
-    seed: int = core_metrics.DEFAULT_BOOTSTRAP_SEED,
-    resamples: int = core_metrics.DEFAULT_BOOTSTRAP_RESAMPLES,
+    bootstrap: Bootstrap = Bootstrap(),
 ) -> dict[str, Any]:
     """Plan (dry-run) or run the format spike, the one heal round and the recalibration."""
+    builders, measurer, trainer = hooks.builders, hooks.measurer, hooks.trainer
+    trainer_python, decider_repo = trainer_env.python, trainer_env.decider_repo
+    memory_max, memory_floor = limits.memory_max, limits.memory_floor
+    allow_foreign, timeout = limits.allow_foreign, limits.timeout
+    seed, resamples = bootstrap.seed, bootstrap.resamples
     prereg_path, run_dir = Path(prereg_path), Path(run_dir)
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
     bars = quant_bars(reg)

@@ -50,6 +50,7 @@ from jev_factory.distill import gate as dgate
 from jev_factory.distill import prereg as dprereg
 from jev_factory.distill import quant as dquant
 from jev_factory.distill import train as dtrain
+from jev_factory.distill.runspec import GpuLimits, TrainerEnv
 from jev_factory.factory.config import RunConfig
 from jev_factory.factory.lock import RunLock
 from jev_factory.factory.stages import (
@@ -599,6 +600,21 @@ def _pins(ctx: DistillContext) -> Any:
     )
 
 
+def _trainer_env(ctx: DistillContext) -> TrainerEnv:
+    return TrainerEnv(
+        python=str(ctx.config.require("distill_trainer_python")),
+        decider_repo=ctx.config.require("distill_decider_repo"),
+    )
+
+
+def _gpu_limits(ctx: DistillContext) -> GpuLimits:
+    return GpuLimits(
+        memory_max=ctx.config.get("train_memory_max"),
+        memory_floor=str(ctx.config.get("train_memory_floor") or "8G"),
+        allow_foreign=ctx.allow_foreign_gpu,
+    )
+
+
 def _train_kwargs(ctx: DistillContext) -> dict[str, Any]:
     return {
         "prereg_path": _prereg_path(ctx),
@@ -606,13 +622,10 @@ def _train_kwargs(ctx: DistillContext) -> dict[str, Any]:
         "cache_dir": ctx.config.require("distill_pin_cache"),
         "pins": _pins(ctx),
         "folds": _folds(ctx),
-        "trainer_python": str(ctx.config.require("distill_trainer_python")),
-        "decider_repo": ctx.config.require("distill_decider_repo"),
+        "trainer_env": _trainer_env(ctx),
         "sealed": _sealed(ctx),
         "deviation_id": ctx.deviation_id,
-        "memory_max": ctx.config.get("train_memory_max"),
-        "memory_floor": str(ctx.config.get("train_memory_floor") or "8G"),
-        "allow_foreign": ctx.allow_foreign_gpu,
+        "limits": _gpu_limits(ctx),
     }
 
 
@@ -646,15 +659,11 @@ def _quant_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, An
         "prereg_path": _prereg_path(ctx),
         "run_dir": ctx.work,
         "folds": _folds(ctx),
-        "trainer_python": str(ctx.config.require("distill_trainer_python")),
-        "decider_repo": ctx.config.require("distill_decider_repo"),
-        "builders": builders,
-        "trainer": ctx.services.trainer,
+        "trainer_env": _trainer_env(ctx),
+        "hooks": dquant.QuantHooks(builders=builders, trainer=ctx.services.trainer),
         "sealed": _sealed(ctx),
         "deviation_id": ctx.deviation_id,
-        "memory_max": ctx.config.get("train_memory_max"),
-        "memory_floor": memory_floor,
-        "allow_foreign": ctx.allow_foreign_gpu,
+        "limits": _gpu_limits(ctx),
     }
     if knobs.get("formats"):
         kwargs["formats"] = tuple(knobs["formats"])
@@ -664,7 +673,9 @@ def _quant_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, An
 def stage_quantize(workdir: Path, knobs: dict[str, Any]) -> None:
     """Spike the deployed formats, heal once if needed, recalibrate the deployed student."""
     ctx = _ctx()
-    dquant.run_quant(**_quant_kwargs(ctx, knobs), apply=True, measurer=_measurer(ctx))
+    kwargs = _quant_kwargs(ctx, knobs)
+    kwargs["hooks"] = replace(kwargs["hooks"], measurer=_measurer(ctx))
+    dquant.run_quant(**kwargs, apply=True)
 
 
 def _gate_kwargs(ctx: DistillContext) -> dict[str, Any]:
