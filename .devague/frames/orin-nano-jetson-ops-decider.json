@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-15T05:25:25Z",
-  "updated": "2026-10-15T16:00:31Z",
+  "updated": "2026-10-15T17:04:41Z",
   "claims": [
     {
       "id": "c1",
@@ -832,7 +832,19 @@
       "seeds": []
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "provenance-missing",
+      "what": "t9 pinned jetson-containers-nv by a local fork-branch commit (c8bad15f) under the NVIDIA-AI-IOT repo URL without verifying the commit exists there; jetson-ai-lab is pinned at the operator's fork URL",
+      "skipped_check": "git ls-remote / GitHub API check that each pinned commit exists at the recorded repo URL",
+      "refs": [
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": [
     {
       "id": "o1",

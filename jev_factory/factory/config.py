@@ -128,8 +128,13 @@ KEYS: tuple[Key, ...] = (
     # the distillery (jev distill): inputs, pinned environments and localhost endpoints
     _k("distill_records", "path", None, "typed-decision records JSONL the distill dataset reads"),
     _k("distill_pin_cache", "path", None, "local cache of the pinned student inputs (no network)"),
-    _k("distill_base_revision", "str", None, "student base revision (default: the v21 base pin)"),
-    _k("distill_decider_revision", "str", None, "strands-decider-2B-hobson-v21 commit pinned"),
+    _k(
+        "distill_base_revision",
+        "str",
+        None,
+        "student base revision (default: the pinned base, b1485b2)",
+    ),
+    _k("distill_decider_revision", "str", None, "strands-decider-2B-qwen3.5-v1-2610 commit pinned"),
     _k("distill_decider_repo", "path", None, "strands-decider checkout (serve and train)"),
     _k("distill_trainer_python", "path", None, "python of the pinned distill trainer env"),
     _k("distill_student_python", "path", None, "python of the pinned student runtime env"),

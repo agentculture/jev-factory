@@ -58,8 +58,8 @@ teacher_timeout = 300.0
 # --- the distillery (jev distill); endpoints are localhost /v1/systemone servers ---
 # distill_records = "/path/to/records.jsonl"
 # distill_pin_cache = "/path/to/student-pin-cache"
-# distill_base_revision = "<base commit; default: the v21 base pin>"
-# distill_decider_revision = "<strands-decider-2B-hobson-v21 commit>"
+# distill_base_revision = "<base commit; default: the pinned base, b1485b2>"
+# distill_decider_revision = "<strands-decider-2B-qwen3.5-v1-2610 commit>"
 # distill_decider_repo = "/path/to/strands-decider"
 # distill_trainer_python = "/path/to/trainer-env/bin/python"
 # distill_student_python = "/path/to/student-env/bin/python"
