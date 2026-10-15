@@ -3,8 +3,10 @@
 Each evaluation source name gets one of three statuses against the checked-in manifest
 ``data/upstream_sources.json`` (the 48 ``datasets`` of the card of
 ``StrandsAgents/strands-decider-2B-qwen3.5-v1-2610`` at revision ``216d1ccb``, with the role
-from its ``training/sources.md``, plus Clef's Decision Index suites; every entry cites the URL
-it came from):
+from its ``training/sources.md``; plus, by deviation d1, the training sources that
+``training/sources.md`` lists but the card omits (MuSiQue, the ag_news / lang_id / yahoo_topics /
+yelp_stars short tasks and the v27 code-build sources); plus Clef's Decision Index suites; every
+entry cites the URL it came from):
 
 * ``overlapping``: the 2610 recipe trained on it (or lists it with no held-out role, which
   fails closed), or it is a Clef Decision Index suite;
@@ -32,8 +34,8 @@ clean. Clef's own training data is unreleased, so its Decision Index entries onl
 leaderboard and cannot be checked at row level; "clean" means "not found in the manifest",
 not "proven clean". Of the 21 jev-bench configs without a known upstream id (the page shows
 ``meta.hf_id`` only for ``arc_challenge``), unaliased ones fall to ``clean`` by name. The 2610
-recipe also reads non-Hub release files (ContractNLI, MuSiQue) that are not card datasets;
-ContractNLI is covered by its Clef suite entry, MuSiQue is not listed. Stdlib only.
+recipe also reads non-Hub release files (ContractNLI, MuSiQue): MuSiQue is listed as a training
+source (deviation d1) and ContractNLI is covered by its Clef suite entry. Stdlib only.
 """
 
 from __future__ import annotations

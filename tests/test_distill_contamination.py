@@ -72,7 +72,7 @@ def test_hf_id_match_beats_name():
 def test_manifest_lists_the_48_card_datasets_and_clef_suites():
     """t6 criterion 1: exactly the 2610 card's 48 datasets plus Clef Decision Index suites."""
     sources = c.load_manifest()["sources"]
-    card = [s for s in sources if s["role"] != "clef-decision-index-eval"]
+    card = [s for s in sources if s["source_url"].endswith("/README.md")]
     clef = [s for s in sources if s["role"] == "clef-decision-index-eval"]
     assert len(card) == 48
     assert len({s["name"] for s in card}) == 48
@@ -81,6 +81,17 @@ def test_manifest_lists_the_48_card_datasets_and_clef_suites():
     assert {"legacy-datasets/banking77", "tasksource/tasksource-jev-typed-decisions"} <= {
         s["name"] for s in card
     }
+
+
+def test_non_card_training_sources_from_sources_md_are_overlapping():
+    """Deviation d1: 2610 trained on sources missing from its card; they check overlapping."""
+    sources = c.load_manifest()["sources"]
+    extra = [s for s in sources if s["source_url"].endswith("/training/sources.md")]
+    names = {s["name"] for s in extra}
+    assert {"MuSiQue", "fancyzhx/ag_news", "Yelp/yelp_review_full"} <= names
+    assert {s["role"] for s in extra} == {"training"}
+    report = c.check_sources(["MuSiQue", "lang_id", "yahoo_topics"])
+    assert report["overlapping"] == ["MuSiQue", "lang_id", "yahoo_topics"]
 
 
 def test_eval_only_label_is_model_neutral():

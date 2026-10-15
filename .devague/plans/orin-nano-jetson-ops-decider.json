@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-15T16:29:32Z",
-  "updated": "2026-10-15T16:51:44Z",
+  "updated": "2026-10-15T17:16:36Z",
   "targets": [
     {
       "id": "c1",
@@ -736,6 +736,24 @@
         "h14"
       ],
       "instruction": "Blocked by design until the operator runs it. Ask before stopping any GPU process. Progress updates every 30 min from jev status --watch."
+    },
+    {
+      "id": "t24",
+      "summary": "jev review --serve: a gold page over the t8 ledger",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jev review --gold FILE --serve serves a local page listing test records with proposed gold; approve, edit (per question label) and reject write the same append-only ledger entries as the CLI path, through jev_factory.review.gold; --serve binds 127.0.0.1 only",
+        "tests drive the page's endpoints (no browser): an approve then edit voids the approval exactly as the CLI path does; a corrupted ledger renders an error and writes nothing"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c30",
+        "h18"
+      ],
+      "instruction": "Own jev_factory/review/server.py, jev_factory/cli/_commands/review.py (only the --gold --serve refusal) and tests/test_review_gold_server.py. Mirror the corrections page (CorrectionsApp) in server.py; reuse review.gold for every read and write."
     }
   ],
   "risks": [
