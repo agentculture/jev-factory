@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-15T16:29:32Z",
-  "updated": "2026-10-15T17:34:28Z",
+  "updated": "2026-10-15T17:38:27Z",
   "targets": [
     {
       "id": "c1",
@@ -762,8 +762,8 @@
       "text": "Jetson runtime unknown (frame park v1): torch + transformers 5.x for Qwen3.5 Gated DeltaNet and a 4-bit linear kernel on sm_87 under JetPack 6.2 (CUDA 12.6) may not exist; t1 settles it before t10 picks a kernel; if neither int4 nor int8 runs, the Nano target needs a recorded deviation",
       "kind": "unknown_nonblocking",
       "task_id": "t1",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "t1 spike on the Nano (docs/evidence/2026-10-jetson-runtime-spike.md): torch 2.11/CUDA 12.6 sees sm_87; Qwen3.5-2B torso runs on the DeltaNet torch fallback (~440 ms bf16, 512 tokens); torchao int8 and int4 weight-only both run (int4 ~1.9 s, cosine 0.935 pre-heal)"
     },
     {
       "id": "r2",
@@ -850,6 +850,14 @@
       "text": "the 231 JevBench w4096 task texts are not shipped with the 2610 card; the stock reproduction needs them converted to Record jsonl (source: JevBench public items at commit 1bcc55e per 2610's sources.md); until stage_benchmark writes stock_reproduction.json, train's base-match guard has nothing to read \u2014 t17 must make an absent record refuse for this run",
       "kind": "unknown_nonblocking",
       "task_id": "t17",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r13",
+      "text": "torchao 0.13 int4 weight-only runs on the Nano but ~4x slower than bf16 (~1.9 s vs ~440 ms per 512-token forward), likely a generic fallback kernel on sm_87; latency is reported not gated (c26) but 'runs fast' (c1) is at risk \u2014 evaluate other int4 kernels/layouts before t23 measures latency",
+      "kind": "unknown_nonblocking",
+      "task_id": "t23",
       "resolved": false,
       "resolution": ""
     }
