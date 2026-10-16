@@ -796,4 +796,5 @@ From `scripts/lfm-finetune/scan_bundle.py` at `9debdc6` (Apache-2.0).
 - check_no_symlinks moved here from hub_upload.py (bundle + hub both refuse links)
 - the argparse main() is dropped; scan/verify are called by bundle and hub code
 - d17 (2026-10-08): restructured for SonarCloud code quality (cognitive complexity split into private helpers, plus lint-level cleanups); behaviour unchanged, pinned by tests/test_complexity_*.py and differential checks against the imported version
+- 2026-10-16: torch.save archives (*.pt) are proven and their pickle walked without executing it, instead of an unscanned_binary finding
 ```

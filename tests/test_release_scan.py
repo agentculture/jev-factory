@@ -82,3 +82,61 @@ def test_symlinks_are_listed(tmp_path):
     folder = _folder(tmp_path, **{"a.md": "x"})
     (folder / "link").symlink_to(tmp_path / "a-target")
     assert scan.check_no_symlinks(folder) == ["link"]
+
+
+# ------------------------------------------------------------------ torch.save archives (.pt)
+
+
+def _torch_archive(path, payload: bytes, extra=()):
+    """A zip laid out as torch.save writes it, holding *payload* as its pickle."""
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("torso/data.pkl", payload)
+        zf.writestr("torso/byteorder", "little")
+        zf.writestr("torso/version", "3\n")
+        zf.writestr("torso/data/0", b"\x00" * 16)
+        for name, data in extra:
+            zf.writestr(name, data)
+
+
+def _scan_one(tmp_path, name="torso_quantized.pt"):
+    scan.write_scan(tmp_path)
+    return json.loads((tmp_path / scan.SCAN_FILE).read_text())
+
+
+def test_a_weights_only_torch_archive_is_a_listed_binary(tmp_path):
+    import collections
+    import pickle
+
+    payload = pickle.dumps(collections.OrderedDict(w="layer.0"), protocol=2)
+    _torch_archive(tmp_path / "torso_quantized.pt", payload)
+    doc = _scan_one(tmp_path)
+    assert doc["findings"] == []
+    assert "torso_quantized.pt" in doc["binaries"]
+
+
+def test_a_pickle_importing_code_is_unsafe(tmp_path):
+    import os
+    import pickle
+
+    for proto in (2, 4):  # GLOBAL and STACK_GLOBAL
+        _torch_archive(tmp_path / "torso_quantized.pt", pickle.dumps(os.getcwd, protocol=proto))
+        kinds = {(f["kind"], f["detail"]) for f in _scan_one(tmp_path)["findings"]}
+        assert any(k == "unsafe_pickle" and "getcwd" in d for k, d in kinds), kinds
+
+
+def test_a_secret_inside_the_pickle_is_found(tmp_path):
+    import pickle
+
+    payload = pickle.dumps({"note": "hf_" + "A" * 34}, protocol=4)
+    _torch_archive(tmp_path / "torso_quantized.pt", payload)
+    assert any(f["kind"] != "unsafe_pickle" for f in _scan_one(tmp_path)["findings"])
+
+
+def test_a_pt_that_is_not_a_torch_archive_is_unrecognised(tmp_path):
+    (tmp_path / "legacy.pt").write_bytes(b"\x80\x02}q\x00.")  # a bare (legacy) pickle
+    _torch_archive(tmp_path / "foreign.pt", b"\x80\x02}q\x00.", extra=[("torso/run.sh", "x")])
+    kinds = {(f["path"], f["kind"]) for f in _scan_one(tmp_path)["findings"]}
+    assert ("legacy.pt", "unrecognised_binary") in kinds
+    assert ("foreign.pt", "unrecognised_binary") in kinds

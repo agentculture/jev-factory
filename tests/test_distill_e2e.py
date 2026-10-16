@@ -305,10 +305,21 @@ def write_checkpoint(out: Path) -> None:
         (out / name).write_text("{}")
 
 
+def _torch_archive(path):
+    """A torch.save-shaped zip holding a weights-only pickle, so the bundle scan proves it."""
+    import collections
+    import pickle
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("torso/data.pkl", pickle.dumps(collections.OrderedDict(), protocol=2))
+        zf.writestr("torso/version", "3\n")
+
+
 def fake_int8_builder(fmt, checkpoint, out_dir):
     """A fake torchao int8 weight-only builder: a manifest-verified artifact, no torch."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / qz.TORSO_FILE).write_bytes(b"int8-torso")
+    _torch_archive(out_dir / qz.TORSO_FILE)
     (out_dir / player.HEAD).write_bytes(ST + b"head")
     (out_dir / player.CONFIG).write_text(json.dumps(NEUTRAL))
     for name in player.TOKENIZER_FILES:
