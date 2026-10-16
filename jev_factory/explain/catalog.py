@@ -237,7 +237,10 @@ Rejecting removes the entry. An edit replaces the entry. A proposal adds a
 new entry, whose source defaults to `operator-review-<date>`.
 
 `--corrections FILE` reviews distillery corrections instead of a domain seed;
-see `jev-factory explain review corrections`.
+see `jev-factory explain review corrections`. `--gold FILE` records the
+operator's approval of drafted human-gold test records; see
+`jev-factory explain review gold`. `--drafts FILE` reviews drafted records of every
+split one at a time; see `jev-factory explain review drafts`.
 
 ## Usage
 
@@ -277,6 +280,84 @@ error (exit 1).
     jev-factory review --corrections <file> --serve
     jev-factory review --corrections <file> --serve --port 0 --json
     jev-factory review --corrections <file> --apply
+"""
+
+_REVIEW_GOLD = """\
+# jev-factory review --gold <file>
+
+Operator approval of drafted human-gold test records (JSONL of distill records
+whose gold the agent only proposed). A record counts as human gold only when the
+operator approved that exact record. The ledger, `<file stem>.gold-ledger.jsonl`
+beside the records unless `--review-file` names another, is append-only: one line
+per decision with the record id, the record's sha256, the action, the reviewer and
+an ISO time. The final stage reads it through `approved_ids`: an id is approved only
+when the latest entry for its current sha256 is an approve. A reject or an edit is not
+an approval, an edited record has a new sha256 so its earlier approval no longer
+matches, and a malformed ledger is an error (fails closed).
+
+- Default (dry run): lists the test records with their proposed gold and status
+  (proposed, approved, rejected, edited) and what the given decisions would record.
+  Records of other splits are skipped. Nothing is written.
+- `--decide ID=approve|reject`: a decision for one record (repeat the flag).
+- `--edit ID:QID=LABEL`: correct the gold label of a question; `--apply` rewrites the
+  records file with the edit and appends an edit entry. The edited record needs a
+  fresh approve.
+- `--reviewer NAME`, `--note TEXT`: stored with each decision.
+- `--apply`: appends the decisions to the ledger.
+
+`--gold --serve` opens the local approval page (127.0.0.1 only) over the same ledger.
+A missing file is an environment error (exit 2); an
+unreadable file, a corrupted ledger or an unknown id is a user error (exit 1).
+
+## Usage
+
+    jev-factory review --gold <file>
+    jev-factory review --gold <file> --decide <id>=approve --apply
+    jev-factory review --gold <file> --edit <id>:<qid>=<label> --apply
+"""
+
+_REVIEW_DRAFTS = """\
+# jev-factory review --drafts <file>
+
+Operator review of drafted records of every split (JSONL of distill records), one
+record at a time, with the evidence that produced each one. `--evidence FILE` is a
+JSONL of `{id, group, quote, why}` lines. Decisions are `keep`, `drop`, `edit` (correct
+a question's gold: a label, or per-option probabilities whose highest is the label),
+`add_option` (a choice option the draft missed, such as `escalate`), `restore` (undo the
+edits and added options of one question, or of the whole record) and `note` (a remark
+that stays out of the records). They go to
+an append-only ledger, `<file stem>.draft-ledger.jsonl` beside the drafts unless
+`--review-file` names another: one line per decision with the record id, the record's
+sha256, the action, the reviewer and an ISO time. The drafted file itself is never
+changed by a decision. Entries count for the record's current sha256 only. Status is
+dropped after a drop, edited while the ledger changes the record (an edit implies keep),
+kept after a keep, else unreviewed; a malformed ledger is an error and nothing is
+written.
+
+- Default (dry run): lists the status counts and what the given decisions would record.
+- `--serve`: starts the local site on 127.0.0.1 (`--port`, default 18765, `0` for a free
+  one): the state text, the questions with the drafted gold highlighted, the evidence
+  quote and why, source group and split, progress counts and filters by split, source
+  and status. Keys: k keep, d drop, e edit gold (percentages per option, add an option,
+  one-click not_sure / escalate / do_not_proceed, restore the drafted gold), n note, j or
+  the arrow keys to move, u next unreviewed. Every call needs the per-run token and a
+  loopback Host header.
+- `--decide ID=keep|drop|note`, `--edit ID:QID=LABEL`, `--reviewer`, `--note`: decisions
+  from the command line.
+- `--apply`: appends the decisions to the ledger.
+- `--reviewed-out FILE` (with `--apply`): writes the reviewed draft file, with dropped
+  records removed and edits applied.
+
+An edited test record has a new sha256, so an earlier gold approval no longer matches
+it: its approval still goes through `jev-factory review --gold`. A missing file is an
+environment error (exit 2); an unreadable file, a corrupted ledger or an unknown id is
+a user error (exit 1).
+
+## Usage
+
+    jev-factory review --drafts <file> --evidence <file> --serve
+    jev-factory review --drafts <file> --decide <id>=keep --apply
+    jev-factory review --drafts <file> --apply --reviewed-out <reviewed.jsonl>
 """
 
 _DECIDE = """\
@@ -370,22 +451,33 @@ outputs live under `<work>/distill/`. A fresh stage is a no-op and a stale one s
 `jev-factory distill` alone lists the stages in order.
 
 Dry-run by default: without `--apply` a stage prints what it would read and write, whether it
-is stale, the run-config keys it needs that are unset and, for train, quantize, gate, final
-and upload, the owning module's own dry-run plan; it changes no file. `--apply` runs it under
+is stale, the run-config keys it needs that are unset and, for train, quantize, gate, final,
+edge and upload, the owning module's own dry-run plan; it changes no file. `--apply` runs it under
 the run lock (shared with `jev run`). `--apply --detach` starts it in its own session (pid
 file, done marker, log under `<work>/jobs/distill/`) so a long stage survives the shell;
 follow it with `jev-factory status <work>`. `--force` re-runs a fresh stage.
 
 Run context: `--work` and `--config` (default `<work>/run.toml`; the `distill_*` keys name
-the records file, the pinned environments, the pin cache and the localhost endpoints);
+the records file, the pinned environments, the pin cache, the localhost endpoints, the
+teacher's key by env-var NAME (`distill_teacher_key_env`) and its `X-Lobes-Model` header, the
+JevBench w4096 task file, the gold ledger, the probe set, the AGX Orin tunnel the final asks
+the shipped quant through (`distill_agx_url`), and the edge board's tunnel and expected
+cgroup cap (`distill_edge_url`, `distill_edge_memory_cap`));
 `--knob KEY=VALUE` sets a stage knob (unknown knobs are refused); `--deviation-id` names a
 recorded deviation where a module allows one.
 
 Invariants the stages keep: the distill pre-registration is locked before any training
-command; only the train side is ever labelled or trained on; corrections are drafted
-`proposed` and only operator-approved ones train (`jev-factory review --corrections`); the
-gate is fitted on the fit fold only; test and held-out are measured once, for all three
-models together; bundles are uploaded private-first and fetched back to verify.
+command; only the train side is ever labelled or trained on (teacher-label holds a lock while
+it runs, and final and edge refuse while it is held); corrections are drafted `proposed` and
+only operator-approved ones train (`jev-factory review --corrections`); benchmark reproduces
+the stock model's JevBench w4096 result and train refuses without that record (or on a base
+mismatch) unless a deviation id is given; quantize ships nothing when no quantized build
+qualifies (no bf16 fallback), and final and bundle refuse then; the gate is fitted on the fit
+fold only; test and held-out are measured once, for all four models together (Clef, stock,
+the bf16 student and the shipped quant pre-served on the AGX Orin); edge measures the shipped
+quant on a board on the selection fold and the probe set only, against quant's own
+selection-fold predictions of the same bundle; bundles are uploaded private-first and fetched
+back to verify.
 
 ## Stages
 
@@ -398,6 +490,7 @@ STAGES
     jev-factory distill dataset --work <dir> --apply
     jev-factory distill teacher-label --work <dir> --apply --detach
     jev-factory distill audit --work <dir> --knob floor=0.6 --apply
+    jev-factory distill edge --work <dir> --knob label=nano --apply
     jev-factory status <dir>
 """
 
@@ -431,6 +524,8 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("review",): _REVIEW,
     ("distill",): _DISTILL,
     ("review", "corrections"): _REVIEW_CORRECTIONS,
+    ("review", "gold"): _REVIEW_GOLD,
+    ("review", "drafts"): _REVIEW_DRAFTS,
     ("domain",): _DOMAIN,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,

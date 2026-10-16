@@ -27,12 +27,14 @@ class _Server:
     def __init__(self, break_for=()):
         outer = self
         self.bodies = []
+        self.headers = []
         self.break_for = set(break_for)
 
         class H(BaseHTTPRequestHandler):
             def do_POST(self):  # noqa: N802
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 outer.bodies.append(body)
+                outer.headers.append(dict(self.headers.items()))
                 ans = {}
                 for qid, spec in body["questions"].items():
                     if spec["type"] == "noul":
@@ -228,3 +230,32 @@ def test_label_dataset_reads_train_side_only(make, tmp_path):
     assert man["requests_sent"] == 3
     assert len(srv.bodies) == 3
     assert dataset.train_ids(ds_dir) == frozenset({"r0", "r1", "r2"})
+
+
+def test_auth_and_header_passed_through_and_manifest_has_names_only(make, tmp_path, monkeypatch):
+    """AC3 + AC2: settings reach the wire; the manifest, rows and log hold the NAME, not the key."""
+    key = "sk-test-SECRET-VALUE-456"
+    monkeypatch.setenv("TEACHER_KEY", key)
+    srv = make()
+    cfg = _cfg(srv.url, auth_env="TEACHER_KEY", model_header="clef-27b-w4a16")
+    man = label_records([_record("r1")], tmp_path, cfg, allowed_ids={"r1"})
+    assert srv.headers[0]["Authorization"] == f"Bearer {key}"
+    assert srv.headers[0]["X-Lobes-Model"] == "clef-27b-w4a16"
+    assert man["auth_env"] == "TEACHER_KEY"
+    assert man["model_header"] == "clef-27b-w4a16"
+    for path in tmp_path.rglob("*"):
+        if path.is_file():
+            assert key not in path.read_text(encoding="utf-8"), path
+
+
+def test_missing_key_env_is_exit_2_without_value(make, tmp_path, monkeypatch):
+    """AC1/AC2: label_records with an unset env var raises exit 2 naming it, before any request."""
+    monkeypatch.delenv("TEACHER_KEY_MISSING", raising=False)
+    srv = make()
+    cfg = _cfg(srv.url, auth_env="TEACHER_KEY_MISSING")
+    records = [_record("r1")]
+    with pytest.raises(CliError) as info:
+        label_records(records, tmp_path, cfg, allowed_ids={"r1"})
+    assert info.value.code == 2
+    assert "TEACHER_KEY_MISSING" in info.value.message
+    assert not srv.bodies

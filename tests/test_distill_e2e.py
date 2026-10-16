@@ -2,10 +2,11 @@
 
 A tiny typed-question run is built from the real rows in ``tests/fixtures/typed_decisions``
 (cloned under fresh ids, workflows and state) plus synthetic rows
-(``tests/fixtures/distill_e2e``). Every one of the 14 stages is first dry-run through the CLI
+(``tests/fixtures/distill_e2e``). Every one of the 15 stages is first dry-run through the CLI
 (nothing is written), then run with ``--apply`` through the CLI, against stdlib fakes for the
-teacher, the correction drafter, the token counter, the benchmark and final servers, the
-trainer, the scorer, the format builders, the measurer and the hub. Torch, transformers and
+teacher, the correction drafter, the token counter, the benchmark and final servers (the stock
+server also answers the 231 JevBench w4096 tasks and the probe set), the trainer, the scorer,
+the format builders, the measurer, the edge board and the hub. Torch, transformers and
 strands_decider are made un-importable and sockets refuse to connect for the whole run.
 """
 
@@ -41,6 +42,7 @@ from jev_factory.factory import gpu
 from jev_factory.factory.stages import read_manifest
 from jev_factory.measure import once
 from jev_factory.review import corrections as review
+from jev_factory.review import gold
 from tests.release_support import TOKEN, FakeHub
 
 FIX = Path(__file__).parent / "fixtures"
@@ -92,6 +94,25 @@ def _words(i: int) -> str:
     return " ".join(f"{rng.choice(_WORDS)}{rng.randrange(10**6)}" for _ in range(10))
 
 
+def _fit_slots(row: dict, slots: int = 24) -> dict:
+    """Trim a real row's question to the student's 24 slots (the real go_emotions has 28)."""
+    q = row["question"]
+    q = json.loads(q) if isinstance(q, str) else dict(q)
+    crit = q["criteria"]
+    if isinstance(crit, dict):
+        names = list(crit)[:slots]
+        q["criteria"] = {k: crit[k] for k in names}
+    else:
+        names = crit[:slots]
+        q["criteria"] = names
+    row["question"] = json.dumps(q)
+    soft = row.get("soft_label")
+    if soft:
+        soft = json.loads(soft) if isinstance(soft, str) else dict(soft)
+        row["soft_label"] = json.dumps({k: v for k, v in soft.items() if k in names})
+    return row
+
+
 def _bench_row(template: dict, name: str, i: int, split: str) -> dict:
     row = copy.deepcopy(template)
     row.update(
@@ -99,7 +120,7 @@ def _bench_row(template: dict, name: str, i: int, split: str) -> dict:
         split=split,
         state=json.dumps(f"UID-{name}-{i:04d} {_words(i)}"),
     )
-    return row
+    return _fit_slots(row) if name == "go_emotions" else row
 
 
 def make_records() -> list[R.Record]:
@@ -121,6 +142,20 @@ def make_records() -> list[R.Record]:
     out += [R.from_jev_bench_row(_bench_row(banking, "banking77", i, "train")) for i in range(3)]
     assert {r.source for r in out} == {R.TYPED_DECISIONS_SOURCE, WEAK_SOURCE, EXCLUDED_SOURCE}
     return out
+
+
+def make_jevbench() -> list[R.Record]:
+    """231 public JevBench-shaped tasks (one question each) for the stock reproduction."""
+    emotions = _fx("real_jev_bench_go_emotions_row.json")
+    return [
+        R.from_jev_bench_row(_bench_row(emotions, "jevbench", 500 + i, "train")) for i in range(231)
+    ]
+
+
+def make_probe() -> list[R.Record]:
+    """The operator's private probe set: ids and text disjoint from every side."""
+    emotions = _fx("real_jev_bench_go_emotions_row.json")
+    return [R.from_jev_bench_row(_bench_row(emotions, "probe", 900 + i, "train")) for i in range(3)]
 
 
 def uid_of(record: R.Record) -> str:
@@ -154,22 +189,31 @@ def _answer(rec: R.Record, qid: str, right: bool, conf: float) -> tuple[str, dic
 
 
 class GoldClient:
-    """A SystemOne-shaped fake server: right on ``accuracy`` of the questions, never on *wrong*."""
+    """A SystemOne-shaped fake server: right on ``accuracy`` of the questions, never on *wrong*.
 
-    def __init__(self, name, records, accuracy, conf=0.88, wrong_sources=()):
+    *right_ids*, when given, overrides the accuracy for those records' membership: a record in
+    *fixed* is right exactly when its id is in *right_ids* (the stock reproduction's 180/231)."""
+
+    def __init__(self, name, records, accuracy, conf=0.88, wrong_sources=(), fixed=None):
         self.name, self.accuracy, self.conf = name, accuracy, conf
         self.by_id = {r.id: r for r in records}
         self.wrong_sources = set(wrong_sources)
+        self.fixed = dict(fixed or {})
         self.asked: list[str] = []
+
+    def _right(self, rec, qid) -> bool:
+        if rec.id in self.fixed:
+            return self.fixed[rec.id]
+        return rec.source not in self.wrong_sources and _right(
+            self.name, rec.id, qid, self.accuracy
+        )
 
     def ask(self, wire):
         rec = self.by_id[wire["id"]]
         self.asked.append(rec.id)
         results = []
         for qid in wire["questions"]:
-            right = rec.source not in self.wrong_sources and _right(
-                self.name, rec.id, qid, self.accuracy
-            )
+            right = self._right(rec, qid)
             kind, dist, p_true = _answer(rec, qid, right, self.conf)
             if kind == "noul":
                 results.append(QuestionResult(qid, "noul", p_true=p_true))
@@ -261,10 +305,21 @@ def write_checkpoint(out: Path) -> None:
         (out / name).write_text("{}")
 
 
+def _torch_archive(path):
+    """A torch.save-shaped zip holding a weights-only pickle, so the bundle scan proves it."""
+    import collections
+    import pickle
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("torso/data.pkl", pickle.dumps(collections.OrderedDict(), protocol=2))
+        zf.writestr("torso/version", "3\n")
+
+
 def fake_int8_builder(fmt, checkpoint, out_dir):
     """A fake torchao int8 weight-only builder: a manifest-verified artifact, no torch."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / qz.TORSO_FILE).write_bytes(b"int8-torso")
+    _torch_archive(out_dir / qz.TORSO_FILE)
     (out_dir / player.HEAD).write_bytes(ST + b"head")
     (out_dir / player.CONFIG).write_text(json.dumps(NEUTRAL))
     for name in player.TOKENIZER_FILES:
@@ -331,6 +386,16 @@ class Env:
             "".join(json.dumps(r.to_json(), sort_keys=True) + "\n" for r in self.records), "utf-8"
         )
         cache = self._pin_cache(tmp_path / "cache", monkeypatch)
+        probe, side = tmp_path / "probe.jsonl", tmp_path / "side.txt"  # operator-held, t16
+        self.probe = make_probe()
+        probe.write_text("".join(json.dumps(r.to_json()) + "\n" for r in self.probe), "utf-8")
+        side.write_text("zz-side-model\n", "utf-8")
+        self.jevbench = make_jevbench()
+        jevbench = tmp_path / "jevbench-w4096.jsonl"
+        jevbench.write_text("".join(json.dumps(r.to_json()) + "\n" for r in self.jevbench), "utf-8")
+        # the served stock reproduces the card: 180 of the 231 tasks right (0.7792)
+        reproduced = {r.id: k < 180 for k, r in enumerate(self.jevbench)}
+        every = [*self.records, *self.probe, *self.jevbench]
         (self.work / "run.toml").write_text(
             "\n".join(
                 [
@@ -341,6 +406,8 @@ class Env:
                     'licence = "Apache-2.0"',
                     f"distill_records = {json.dumps(str(records_file))}",
                     f"distill_pin_cache = {json.dumps(str(cache))}",
+                    f"distill_probe_set = {json.dumps(str(probe))}",
+                    f"distill_side_model_list = {json.dumps(str(side))}",
                     f'distill_decider_revision = "{REV}"',
                     f"distill_decider_repo = {json.dumps(str(tmp_path / 'strands-decider'))}",
                     'distill_trainer_python = "python3"',
@@ -353,8 +420,12 @@ class Env:
                     'distill_teacher_engine = "sglang"',
                     'distill_alt_teacher_url = "http://127.0.0.1:9"',
                     'distill_alt_teacher_model = "fake-drafter"',
-                    'distill_v21_url = "http://127.0.0.1:9"',
-                    'distill_v21_model = "v21"',
+                    'distill_stock_url = "http://127.0.0.1:9"',
+                    'distill_stock_model = "v21"',
+                    f"distill_jevbench_tasks = {json.dumps(str(jevbench))}",
+                    'distill_agx_url = "http://127.0.0.1:9"',
+                    'distill_edge_url = "http://127.0.0.1:9"',
+                    'distill_edge_memory_cap = "4G"',
                 ]
             )
             + "\n",
@@ -367,30 +438,34 @@ class Env:
         self.scorer = FakeScorer()
         self.hub = FakeHub(tmp_path / "remote")
         self.final_clients = {
-            "clef": GoldClient("clef", self.records, 0.95),
-            "stock_v21": GoldClient("stock_v21", self.records, 0.7),
-            "student": GoldClient("student", self.records, 0.85),
+            "clef": GoldClient("clef", every, 0.95),
+            "stock": GoldClient("stock", every, 0.7),
+            "student_bf16": GoldClient("student_bf16", every, 0.85),
+            "student": GoldClient("student", every, 0.85),
         }
+        self.stock = GoldClient("stock", every, 0.7, fixed=reproduced)
+        self.edge_client = GoldClient("student", every, 0.85)
         self.services = P.Services(
             token_counter=lambda text: len(text.split()),
             teacher_client=self.teacher,
             drafter=lambda rec: {
                 qid: {"label": g.label} for qid, g in rec.gold.items() if g.label is not None
             },
-            benchmark_targets={n: self._target(n) for n in ("clef", "stock_v21")},
-            benchmark_clients={
-                "clef": GoldClient("clef", self.records, 0.95),
-                "stock_v21": GoldClient("stock_v21", self.records, 0.7),
-            },
+            benchmark_targets={n: self._target(n) for n in ("clef", "stock")},
+            benchmark_clients={"clef": GoldClient("clef", self.records, 0.95), "stock": self.stock},
             memory_probe=lambda: None,
             scorer=self.scorer,
             builders={"bf16": dquant.bf16_builder(dpins.DEFAULT_BASE_REVISION)}
             | {"torch_int8_wo": fake_int8_builder},
             measurer=self.measurer,
             final_models={
-                n: dfinal.FinalModel(target=self._target(n), client=c)
+                n: dfinal.FinalModel(
+                    target=self._target(n), client=c, get=self._board if n == "student" else None
+                )
                 for n, c in self.final_clients.items()
             },
+            edge_client=self.edge_client,
+            edge_get=self._board,
             hub=self.hub,
             environ={"HF_TOKEN": TOKEN},
             today=lambda: NOW,
@@ -400,6 +475,14 @@ class Env:
             distill_cmd, "_context", lambda args: replace(orig(args), services=self.services)
         )
         monkeypatch.setattr(gpu, "run_gpu_stage", self._fake_gpu)
+
+    def _board(self, path):
+        """The pre-served quant's /v1/bundle (the deployed artifact) and a capped /v1/stats."""
+        if path == "/v1/stats":
+            cgroup = {"memory_max": 2**32, "effective_memory_max": 2**32}  # 4G, as configured
+            return {"cgroup": cgroup, "rss_bytes": 700_000_000, "mem_available_bytes": 2**31}
+        artifact = Path(dfinal.deployed_student(self.work)["artifact"])
+        return qz.bundle_attestation(artifact if artifact.is_absolute() else self.work / artifact)
 
     def _target(self, name):
         from jev_factory.distill import benchmark as bench
@@ -426,8 +509,8 @@ class Env:
         )
         # The real v21 digests are of files we cannot ship; the toy cache holds toy bytes, so the
         # pins under test are the toy digests. Everything else in verify_pins runs for real.
-        monkeypatch.setattr(dpins, "V21_ADAPTER_SHA256", _sha(b"adapter"))
-        monkeypatch.setattr(dpins, "V21_HEAD_SHA256", _sha(b"head"))
+        monkeypatch.setattr(dpins, "DECIDER_ADAPTER_SHA256", _sha(b"adapter"))
+        monkeypatch.setattr(dpins, "DECIDER_HEAD_SHA256", _sha(b"head"))
         return root
 
     def _fake_gpu(self, stage, run_dir, cmd, **kw):
@@ -499,6 +582,15 @@ def approve_corrections(env: Env) -> list:
     return proposed
 
 
+def approve_test_gold(env: Env) -> None:
+    """The operator's `jev review --gold` approval of every sealed test record (t8 ledger)."""
+    test = env.base / "dataset" / "test.jsonl"
+    records = [R.Record.from_json(json.loads(x)) for x in test.read_text().splitlines() if x]
+    for rec in records:
+        entry, _ = gold.make_entry(rec, "approve", at="2026-10-14T00:00:00Z")
+        gold.append_entry(gold.ledger_path(test), entry)
+
+
 # ------------------------------------------------------------------------------ the test
 
 
@@ -516,7 +608,8 @@ def test_every_stage_dry_runs_then_applies_end_to_end_into_a_complete_bundle(env
     proposed = approve_corrections(env)
     assert proposed  # the file never self-approves
     assert {c.status for c in proposed} == {"proposed"}
-    for stage in ("assemble", "benchmark", "train", "quantize", "gate", "final", "bundle"):
+    approve_test_gold(env)  # the operator approves every test record before the final
+    for stage in ("assemble", "benchmark", "train", "quantize", "gate", "final", "edge", "bundle"):
         assert env.apply(stage)["status"] == "complete", stage
     assert env.apply("upload", UPLOAD_KNOBS)["status"] == "complete"
 
@@ -528,6 +621,7 @@ def test_every_stage_dry_runs_then_applies_end_to_end_into_a_complete_bundle(env
     check_early_stages(env)
     check_training_chain(env)
     check_final_and_bundle(env)
+    check_edge(env)
     check_upload(env)
     check_final_is_once(env)
 
@@ -557,8 +651,14 @@ def check_early_stages(env: Env) -> None:
     rows = [json.loads(x) for x in (env.base / P.TRAIN_SET).read_text().splitlines() if x.strip()]
     assert {r["target_source"] for r in rows} == {"clef+gold", "correction"}
     bench = env.read("benchmark/benchmark.json")
-    assert set(bench["models"]) == {"clef", "stock_v21"}
+    assert set(bench["models"]) == {"clef", "stock"}
     assert set(bench["folds"]) == {"fit", "selection"}
+    reproduction = env.read(P.STOCK_REPRODUCTION)  # r12: train needs it
+    assert (reproduction["n"], reproduction["n_correct"]) == (231, 180)
+    assert reproduction["base_mismatch"] is False
+    stock = env.read(P.STOCK_MEASUREMENTS)
+    assert set(stock["sets"]) == {"fit", "selection", "probe"}
+    assert not any(p.id in json.dumps(stock) for p in env.probe)  # the probe set is private
 
 
 def check_training_chain(env: Env) -> None:
@@ -589,12 +689,18 @@ def check_final_and_bundle(env: Env) -> None:
         (once.HELD_OUT, once.MEASURED),
         (once.TEST, once.MEASURED),
     ]
+    probe_ids = {r.id for r in env.probe}
     for client in env.final_clients.values():  # every sealed record, scored once per model
+        sealed = [i for i in client.asked if i not in probe_ids]
         assert (
-            len(client.asked)
-            == len(set(client.asked))
+            len(sealed)
+            == len(set(sealed))
             == 10 + env.read("dataset/manifest.json")["counts"]["held_out"]
         )
+        assert sorted(i for i in client.asked if i in probe_ids) == sorted(probe_ids)
+    final = env.read(P.FINAL_FILE)
+    assert final["probe"]["count"] == len(env.probe)  # item 6: FinalInputs from the run
+    assert final["calibrations"]["student_bf16"]["source"].endswith(P.SELECT_CALIBRATION)
     report = env.read(P.FINAL_REPORT)
     assert report["c42"]["bars"]
     assert report["c43"]["bars"]
@@ -668,6 +774,19 @@ def check_final_and_bundle(env: Env) -> None:
     assert all(any(u.encode() in blob for blob in blobs) for u in trained)
 
 
+def check_edge(env: Env) -> None:
+    """Item 8 / r11: the board's answers are compared with quant's selection predictions."""
+    manifest = env.read("edge/nano/edge_manifest.json")
+    selection = env.read("dataset/manifest.json")["counts"]["selection"]
+    assert manifest["n_records"] == selection + len(env.probe)
+    assert manifest["expected_cap"] == 4 * 1024**3
+    assert manifest["cap"]["effective_memory_max"] == 2**32
+    assert manifest["agreement"]["n_compared"] > 0  # never an empty overlap
+    assert manifest["agreement"]["reference"] == "distill/quant/deployed_predictions.json"
+    written = (env.base / "edge" / "nano" / "edge_predictions.json").read_text()
+    assert not any(json.dumps(p.id) in written for p in env.probe)
+
+
 def check_upload(env: Env) -> None:
     result = env.read(P.UPLOAD_FILE)
     assert result["applied"] is True
@@ -702,12 +821,12 @@ def check_final_is_once(env: Env) -> None:
     assert read_manifest(env.base, "final")["status"] == "failed"  # recorded, not smoothed over
 
 
-def test_the_cli_lists_all_fourteen_stages_and_status_sees_the_run(env):
+def test_the_cli_lists_all_fifteen_stages_and_status_sees_the_run(env):
     env.capsys.readouterr()
     assert main(["distill", "--json"]) == 0
     listed = json.loads(env.capsys.readouterr().out)["stages"]
     assert [s["stage"] for s in listed] == STAGES
-    assert len(STAGES) == 14
+    assert len(STAGES) == 15
     env.apply("preregister")
     assert main(["status", str(env.work), "--json"]) == 0
     rows = {s["stage"]: s for s in json.loads(env.capsys.readouterr().out)["distill_stages"]}

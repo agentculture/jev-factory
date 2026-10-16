@@ -4,13 +4,17 @@ Input is a list of :class:`~jev_factory.distill.records.Record` (typed-decisions
 and the jev-bench configs). The build
 
 1. refuses duplicate ids,
-2. keeps only records whose licence is exactly ``apache-2.0`` or ``mit``
-   (case-insensitive, whitespace-trimmed; any compound or ambiguous string such
-   as ``cc-by-4.0 (PolyAI; mirror: mit)`` is NOT allowed) and writes a
-   per-source licence table into the manifest for operator review,
-3. drops every record whose rendered state + questions exceed ``max_tokens``
-   student tokens (counted by an injectable counter; nothing is truncated) and
-   counts the drops per source,
+2. keeps only records whose licence is exactly ``apache-2.0``, ``mit`` or
+   ``cc-by-4.0`` (case-insensitive, whitespace-trimmed; any compound or ambiguous
+   string such as ``cc-by-4.0 (PolyAI; mirror: mit)`` is NOT allowed). A
+   ``cc-by-4.0`` record also needs a non-empty ``attribution``. The manifest
+   carries a per-source licence table and a per-licence table (counts and the
+   attribution strings),
+3. refuses every record with a question of more than ``max_slots`` options
+   (``over_slots``; the student's ``num_slots``) or whose rendered state +
+   questions exceed ``max_tokens`` student tokens (``over_length``; counted by an
+   injectable counter). Nothing is truncated; refusals are counted by reason
+   in ``refused`` and the length drops also per source,
 4. keeps each source's own ``test`` split as the test side, never trains on it,
 5. carves a sealed held-out set, then grouped train / fit / selection sides, out of
    each source's ``train`` split with :func:`jev_factory.core.split.make_folds`
@@ -38,10 +42,12 @@ from typing import Any
 
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from jev_factory.core.split import make_folds
-from jev_factory.distill.records import Record
+from jev_factory.distill.records import ATTRIBUTION_LICENCES, Record
 
 STAGE = "distill-dataset"
 MAX_TOKENS = 4096
+#: The student's ``num_slots`` (2610 strands_decider_config.json): most options per question.
+DEFAULT_MAX_SLOTS = 24
 DEFAULT_SEED = 27
 DEFAULT_HELD_OUT_FRACTION = 0.10
 #: Fractions of the pool left after the held-out carve; selection is the remainder.
@@ -49,7 +55,7 @@ DEFAULT_HELD_OUT_FRACTION = 0.10
 DEFAULT_TRAIN_FRACTION = 0.70
 DEFAULT_FIT_FRACTION = 0.15
 #: Exact, normalised licence strings that pass; everything else is excluded.
-ALLOWED_LICENCES: frozenset[str] = frozenset({"apache-2.0", "mit"})
+ALLOWED_LICENCES: frozenset[str] = frozenset({"apache-2.0", "mit", "cc-by-4.0"})
 TRAIN_SPLIT = "train"
 TEST_SPLIT = "test"
 SIDES = ("train", "fit", "selection", "held_out", "test")
@@ -58,8 +64,28 @@ TokenCounter = Callable[[str], int]
 
 
 def licence_allowed(licence: str) -> bool:
-    """True only for exactly Apache-2.0 or MIT; compound/ambiguous strings are refused."""
+    """True only for exactly Apache-2.0, MIT or CC-BY-4.0; compound strings are refused."""
     return str(licence).strip().lower() in ALLOWED_LICENCES
+
+
+def normalise_licence(licence: str) -> str:
+    return str(licence).strip().lower()
+
+
+def attribution_ok(record: Record) -> bool:
+    """A cc-by-4.0 record needs a non-empty attribution string; other licences need none."""
+    if normalise_licence(record.licence) not in ATTRIBUTION_LICENCES:
+        return True
+    return isinstance(record.attribution, str) and bool(record.attribution.strip())
+
+
+def admitted(record: Record) -> bool:
+    return licence_allowed(record.licence) and attribution_ok(record)
+
+
+def option_count(record: Record) -> int:
+    """The most options any one question of *record* offers."""
+    return max((len(q.criteria) for q in record.questions.values()), default=0)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -221,11 +247,24 @@ def _licence_table(records: Sequence[Record]) -> dict[str, dict[str, Any]]:
         )
         row["licences"].add(r.licence)
         row["total"] += 1
-        if not licence_allowed(r.licence):
+        if not admitted(r):
             row["excluded"] += 1
             row["allowed"] = False
     for row in table.values():
         row["licences"] = sorted(row["licences"])
+    return dict(sorted(table.items()))
+
+
+def _per_licence_table(records: Sequence[Record]) -> dict[str, dict[str, Any]]:
+    """Admitted records by normalised licence: count and the attribution strings seen."""
+    table: dict[str, dict[str, Any]] = {}
+    for r in records:
+        row = table.setdefault(normalise_licence(r.licence), {"count": 0, "attributions": set()})
+        row["count"] += 1
+        if r.attribution:
+            row["attributions"].add(r.attribution.strip())
+    for row in table.values():
+        row["attributions"] = sorted(row["attributions"])
     return dict(sorted(table.items()))
 
 
@@ -282,6 +321,7 @@ def build_dataset(
     token_counter: TokenCounter,
     seed: int = DEFAULT_SEED,
     max_tokens: int = MAX_TOKENS,
+    max_slots: int = DEFAULT_MAX_SLOTS,
     held_out_fraction: float = DEFAULT_HELD_OUT_FRACTION,
     train_fraction: float = DEFAULT_TRAIN_FRACTION,
     fit_fraction: float = DEFAULT_FIT_FRACTION,
@@ -298,10 +338,19 @@ def build_dataset(
             remediation="record ids must be unique across sources",
         )
     licences = _licence_table(recs)
-    licensed = [r for r in recs if licence_allowed(r.licence)]
-    counts = _count_tokens(licensed, token_counter)
-    kept = [r for r, n in zip(licensed, counts) if n <= max_tokens]
-    dropped = Counter(r.source for r, n in zip(licensed, counts) if n > max_tokens)
+    licensed = [r for r in recs if admitted(r)]
+    slotted = [r for r in licensed if option_count(r) <= max_slots]
+    counts = _count_tokens(slotted, token_counter)
+    kept = [r for r, n in zip(slotted, counts) if n <= max_tokens]
+    dropped = Counter(r.source for r, n in zip(slotted, counts) if n > max_tokens)
+    refused = {
+        "licence": sum(1 for r in recs if not licence_allowed(r.licence)),
+        "missing_attribution": sum(
+            1 for r in recs if licence_allowed(r.licence) and not attribution_ok(r)
+        ),
+        "over_slots": len(licensed) - len(slotted),
+        "over_length": sum(dropped.values()),
+    }
 
     unused = Counter(r.split for r in kept if r.split not in (TRAIN_SPLIT, TEST_SPLIT))
     test_recs = [r for r in kept if r.split == TEST_SPLIT]
@@ -327,13 +376,17 @@ def build_dataset(
         "knobs": {
             "seed": seed,
             "max_tokens": max_tokens,
+            "max_slots": max_slots,
             "held_out_fraction": held_out_fraction,
             "train_fraction": train_fraction,
             "fit_fraction": fit_fraction,
             "licence_allowlist": sorted(ALLOWED_LICENCES),
         },
         "max_tokens": max_tokens,
+        "max_slots": max_slots,
         "licences": licences,
+        "licence_table": _per_licence_table(kept),
+        "refused": refused,
         "dropped_too_long": dict(sorted(dropped.items())),
         "unused_splits": dict(sorted(unused.items())),
         "counts": {

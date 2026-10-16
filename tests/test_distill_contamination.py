@@ -15,7 +15,7 @@ def test_banking77_and_clinc150_overlap_unlisted_clean():
     assert rep["clean"] == ["my_private_set"]
 
 
-def test_alias_and_v21_training_match():
+def test_alias_and_training_match():
     rep = c.check_sources(["PolyAI/banking77", "nyu-mll/glue", "clinc_oos"])
     assert all(r["status"] == "overlapping" for r in rep["results"].values())
 
@@ -27,7 +27,7 @@ def test_every_manifest_entry_cites_a_url():
         s["source_url"].startswith("https://") and s["card"].startswith("https://")
         for s in m["sources"]
     )
-    assert {s["role"] for s in m["sources"]} >= {"v21-training", "clef-decision-index-eval"}
+    assert {s["role"] for s in m["sources"]} >= {"training", "clef-decision-index-eval"}
 
 
 def test_matches_carry_url():
@@ -48,18 +48,18 @@ def test_bad_manifest(tmp_path):
         c.load_manifest(p)
 
 
-def test_hate_speech_is_v21_evaluated_and_civil_comments_overlapping():
+def test_hate_speech_is_stock_evaluated_and_civil_comments_overlapping():
     rep = c.check_sources(["civil_comments", "measuring_hate_speech", "jev-bench:banking77"])
     r = rep["results"]
     assert r["civil_comments"]["status"] == "overlapping"
     assert r["jev-bench:banking77"]["status"] == "overlapping"
-    assert r["measuring_hate_speech"]["status"] == "v21-evaluated"
-    assert rep["v21_evaluated"] == ["measuring_hate_speech"]
+    assert r["measuring_hate_speech"]["status"] == "stock-evaluated"
+    assert rep["stock_evaluated"] == ["measuring_hate_speech"]
 
 
 def test_eval_only_source_gets_separate_status():
     rep = c.check_sources(["hotpotqa", "massive", "emotion"])
-    assert {v["status"] for v in rep["results"].values()} == {"v21-evaluated"}
+    assert {v["status"] for v in rep["results"].values()} == {"stock-evaluated"}
     assert rep["overlapping"] == []
     assert rep["clean"] == []
 
@@ -69,10 +69,57 @@ def test_hf_id_match_beats_name():
     assert rep["results"]["mystery"]["status"] == "overlapping"
 
 
-def test_all_29_v21_ids_present():
-    names = {s["name"] for s in c.load_manifest()["sources"] if s["card"].endswith("sources.md")}
-    assert len(names) >= 29
-    assert {"legacy-datasets/banking77", "ucberkeley-dlab/measuring-hate-speech"} <= names
+def test_manifest_lists_the_48_card_datasets_and_clef_suites():
+    """t6 criterion 1: exactly the 2610 card's 48 datasets plus Clef Decision Index suites."""
+    sources = c.load_manifest()["sources"]
+    card = [s for s in sources if s["source_url"].endswith("/README.md")]
+    clef = [s for s in sources if s["role"] == "clef-decision-index-eval"]
+    assert len(card) == 48
+    assert len({s["name"] for s in card}) == 48
+    assert clef
+    assert "216d1ccb46a9e9b036eb9187b248db98480f77d4" in card[0]["source_url"]
+    assert {"legacy-datasets/banking77", "tasksource/tasksource-jev-typed-decisions"} <= {
+        s["name"] for s in card
+    }
+
+
+def test_non_card_training_sources_from_sources_md_are_overlapping():
+    """Deviation d1: 2610 trained on sources missing from its card; they check overlapping."""
+    sources = c.load_manifest()["sources"]
+    extra = [s for s in sources if s["source_url"].endswith("/training/sources.md")]
+    names = {s["name"] for s in extra}
+    assert {"MuSiQue", "fancyzhx/ag_news", "Yelp/yelp_review_full"} <= names
+    assert {s["role"] for s in extra} == {"training"}
+    report = c.check_sources(["MuSiQue", "lang_id", "yahoo_topics"])
+    assert report["overlapping"] == ["MuSiQue", "lang_id", "yahoo_topics"]
+
+
+def test_eval_only_label_is_model_neutral():
+    """t6 criterion 1: no manifest role or status is named after v21."""
+    roles = {s["role"] for s in c.load_manifest()["sources"]}
+    assert roles == {"training", "stock-evaluated", "clef-decision-index-eval"}
+    assert c.STOCK_EVALUATED == "stock-evaluated"
+
+
+def test_tasksource_typed_decisions_hf_id_is_overlapping():
+    """t6 criterion 2: a record with hf_id tasksource/tasksource-jev-typed-decisions overlaps."""
+    rep = c.check_sources(
+        ["some-source"], hf_ids={"some-source": "tasksource/tasksource-jev-typed-decisions"}
+    )
+    assert rep["results"]["some-source"]["status"] == "overlapping"
+
+
+def test_localllama_typed_decisions_is_overlapping_fail_closed():
+    """t6 criterion 2: LocalLLaMA/typed-decisions maps to the upstream set, so overlapping."""
+    rep = c.check_sources(["LocalLLaMA/typed-decisions"])
+    assert rep["results"]["LocalLLaMA/typed-decisions"]["status"] == "overlapping"
+    assert rep["overlapping"] == ["LocalLLaMA/typed-decisions"]
+
+
+def test_jetson_ops_source_is_clean():
+    """t6 criterion 2: a Jetson-ops source is clean."""
+    rep = c.check_sources(["jetson-ops", "jetson-ops/hand-written-v1"])
+    assert rep["clean"] == ["jetson-ops", "jetson-ops/hand-written-v1"]
 
 
 def test_hf_id_is_derived_from_records_automatically():

@@ -101,11 +101,20 @@ def test_dry_run_returns_the_plan_and_writes_nothing(tmp_path):
         str(tmp_path / "out"),
         "--bits",
         "8",
+        "--embedding-bits",
+        "4",
+        "--block-group-size",
+        "256",
+        "--embedding-group-size",
+        "128",
         "--base-revision",
         REV,
         "--device",
         "cuda",
     ]
+    assert plan["scheme"] == qz.QuantScheme(block_bits=8).record()
+    assert plan["size_budget_bytes"] == 10**9
+    assert plan["tensor_policy"] == qz.tensor_policy()
     path = plan["env"]["PYTHONPATH"].split(os.pathsep)
     assert path[:2] == [str(tmp_path / "sd"), str(tmp_path / "sd" / "src")]
     assert (Path(path[2]) / "jev_factory" / "backbones" / "pointer" / "quantized.py").is_file()
@@ -275,7 +284,7 @@ def test_a_complete_artifact_reads_back(tmp_path):
     m = info["manifest"]
     assert (m["format"], m["bits"], m["head_dtype"]) == ("torch_int4_wo", 4, "float32")
     assert m["artifact_format"] == qz.ARTIFACT_FORMAT
-    assert set(m["files"]) == {qz.TORSO_FILE, player.HEAD, player.CONFIG}
+    assert set(m["files"]) == {qz.TORSO_FILE, player.HEAD, player.CONFIG, *player.TOKENIZER_FILES}
     assert m["torchao_version"] == "0.18.0"
     assert m["torch_version"] == "2.12.1"
     assert m["base_model_revision"] == REV
@@ -529,24 +538,93 @@ def test_importing_the_module_loads_no_heavy_package():
 # --------------------------------------------------------------------- torch / torchao
 
 
-def test_weight_only_quantization_replaces_linear_weights_and_roundtrips(tmp_path):
+def _toy_torso(torch):
+    """A two-block decoder-shaped module with the names the policy keys on."""
+
+    class Block(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.input_layernorm = torch.nn.LayerNorm(256)
+            self.linear_attn = torch.nn.Module()
+            self.linear_attn.in_proj_qkv = torch.nn.Linear(256, 256, bias=False)
+            self.linear_attn.in_proj_a = torch.nn.Linear(256, 8, bias=False)
+            self.linear_attn.A_log = torch.nn.Parameter(torch.zeros(8))
+            self.mlp = torch.nn.Module()
+            self.mlp.gate_proj = torch.nn.Linear(256, 256, bias=False)
+
+        def forward(self, x):
+            h = self.input_layernorm(x)
+            return x + self.mlp.gate_proj(self.linear_attn.in_proj_qkv(h))
+
+    class Torso(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.embed_tokens = torch.nn.Embedding(1000, 256)
+            self.layers = torch.nn.ModuleList([Block(), Block()])
+            self.visual = torch.nn.Linear(4, 4)
+            self.mtp = torch.nn.Linear(4, 4)
+
+        def forward(self, ids):
+            x = self.embed_tokens(ids)
+            for block in self.layers:
+                x = block(x)
+            return x
+
+    return Torso()
+
+
+def test_packed_embedding_keeps_every_row_and_roundtrips(tmp_path):
+    """c9: the full-vocabulary embedding is packed int4 / int8 and reloads bit-identically."""
+    torch = pytest.importorskip("torch")
+    for bits, qdtype in ((4, torch.uint8), (8, torch.int8)):
+        torso = _toy_torso(torch).to(torch.bfloat16)
+        ids = torch.randint(0, 1000, (2, 9))
+        want = torso.embed_tokens(ids).float()
+        dropped = qz.drop_unused(torso)
+        assert [d["module"] for d in dropped] == ["visual", "mtp"]
+        record = qz.pack_embedding(torso, qz.QuantScheme(embedding_bits=bits))
+        assert (record["rows"], record["dim"], record["bits"]) == (1000, 256, bits)
+        got = torso.embed_tokens(ids)
+        assert got.dtype == torch.bfloat16
+        tolerance = 0.08 if bits == 4 else 0.01
+        assert (got.float() - want).abs().max() <= tolerance * want.abs().max()
+        state = torso.state_dict()
+        assert state["embed_tokens.qweight"].dtype == qdtype
+        assert state["embed_tokens.qweight"].shape[0] == 1000  # every row kept
+        assert not any(k.startswith(("visual", "mtp")) for k in state)
+        torch.save(state, tmp_path / f"e{bits}.pt")
+        fresh = _toy_torso(torch).to(torch.bfloat16)
+        qz.drop_unused(fresh)
+        qz.install_packed_embedding(fresh, record)
+        fresh.load_state_dict(torch.load(tmp_path / f"e{bits}.pt", weights_only=True), assign=True)
+        assert torch.equal(fresh.embed_tokens(ids), got)
+
+
+def test_weight_only_quantization_follows_the_tensor_policy_and_roundtrips(tmp_path):
+    """c9: block linears quantized, in_proj_a / A_log / norms kept, embedding packed."""
     torch = pytest.importorskip("torch")
     pytest.importorskip("torchao")
-    for bits in (8,):  # int4 needs a CUDA kernel; int8 runs on CPU
-        model = torch.nn.Sequential(torch.nn.Linear(256, 256), torch.nn.ReLU())
-        model = model.to(torch.bfloat16)
-        x = torch.randn(2, 256, dtype=torch.bfloat16)
-        want = model(x)
-        api = qz.quantize_torso(model, bits)
-        assert api in qz.TORCHAO_APIS[bits]
-        assert type(model[0].weight.detach()) is not torch.Tensor  # a torchao subclass
-        got = model(x)
-        assert torch.allclose(want.float(), got.float(), atol=0.1, rtol=0.1)
-        path = tmp_path / f"t{bits}.pt"
-        torch.save(model.state_dict(), path)
-        fresh = torch.nn.Sequential(torch.nn.Linear(256, 256), torch.nn.ReLU())
-        qz.load_quantized_state(fresh, path, device="cpu")
-        assert torch.allclose(fresh(x).float(), got.float())
+    # int4 blocks need a CUDA kernel (torchao 0.18 on CPU: "Requires mslk >= 1.0.0"); int8
+    # runs on CPU. An int8 embedding keeps the tolerance about the block linears.
+    scheme = qz.QuantScheme(block_bits=8, embedding_bits=8, block_group_size=128)
+    torso = _toy_torso(torch).to(torch.bfloat16)
+    ids = torch.randint(0, 1000, (2, 9))
+    want = torso(ids)
+    record = qz.quantize_torso(torso, scheme)
+    assert record["torchao_api"] in qz.TORCHAO_APIS[8]
+    state = torso.state_dict()
+    summary = qz.check_inventory(qz.state_inventory(state), scheme)
+    assert summary["tensors"][qz.BLOCK_LINEAR] == 4
+    assert type(state["layers.0.linear_attn.in_proj_a.weight"]) is torch.Tensor
+    got = torso(ids)
+    assert torch.allclose(want.float(), got.float(), atol=0.1, rtol=0.1)
+    path = tmp_path / "t8.pt"
+    torch.save(state, path)
+    fresh = _toy_torso(torch).to(torch.bfloat16)
+    qz.drop_unused(fresh)
+    qz.install_packed_embedding(fresh, record["embedding"])
+    qz.load_quantized_state(fresh, path, device="cpu")
+    assert torch.allclose(fresh(ids).float(), got.float())
 
 
 # --------------------------------------------------------------------- live (opt-in)
@@ -651,3 +729,753 @@ def test_the_build_entry_refuses_a_checkpoint_member_symlink_before_loading_torc
     assert qz.main(argv) == EXIT_USER_ERROR
     assert "escapes" in capsys.readouterr().err
     assert not (tmp_path / "out").exists()
+
+
+# --------------------------------------------------------------------- #20 t10: the scheme
+
+
+def test_the_default_scheme_is_int4_blocks_and_an_int4_embedding():
+    """c9: text-block linears 4-bit, embedding INT4 by default; INT8 is a recorded choice."""
+    scheme = qz.QuantScheme()
+    assert (scheme.block_bits, scheme.embedding_bits) == (4, 4)
+    assert qz.as_scheme(8) == qz.QuantScheme(block_bits=8)
+    assert qz.as_scheme(qz.QuantScheme(embedding_bits=8)).embedding_bits == 8
+
+
+@pytest.mark.parametrize(
+    "fields, match",
+    [
+        ({"block_bits": 2}, "block_bits"),
+        ({"embedding_bits": 16}, "embedding_bits"),
+        ({"block_group_size": 0}, "block_group_size"),
+        ({"embedding_group_size": True}, "embedding_group_size"),
+    ],
+)
+def test_a_scheme_outside_int4_int8_or_a_bad_group_is_refused(fields, match):
+    scheme = qz.QuantScheme(**fields)
+    with pytest.raises(CliError, match=match):
+        scheme.validated()
+
+
+def test_the_build_argv_carries_the_whole_scheme(tmp_path):
+    scheme = qz.QuantScheme(block_bits=8, embedding_bits=8, embedding_group_size=64)
+    _ckpt, plan = _plan(tmp_path, bits=scheme)
+    flags = dict(zip(plan["argv"][6::2], plan["argv"][7::2]))
+    assert flags["--bits"] == "8"
+    assert flags["--embedding-bits"] == "8"
+    assert flags["--block-group-size"] == "256"
+    assert flags["--embedding-group-size"] == "64"
+    assert plan["scheme"] == scheme.record()
+    assert plan["format"] == "torch_int8_wo"
+
+
+def test_the_build_entry_parses_the_scheme_flags(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(qz, "_build_in_env", lambda *a: seen.append(a) or 0)
+    argv = ["build", "c", "o", "--bits", "4", "--embedding-bits", "8", "--base-revision", REV]
+    assert qz.main(argv) == 0
+    assert seen[0][2] == qz.QuantScheme(block_bits=4, embedding_bits=8)
+
+
+# --------------------------------------------------------------------- the tensor policy
+
+
+@pytest.mark.parametrize(
+    "name, cls",
+    [
+        ("model.layers.3.self_attn.q_proj", qz.BLOCK_LINEAR),
+        ("model.layers.3.self_attn.o_proj", qz.BLOCK_LINEAR),
+        ("model.layers.0.linear_attn.in_proj_qkv", qz.BLOCK_LINEAR),
+        ("model.layers.0.linear_attn.in_proj_z", qz.BLOCK_LINEAR),
+        ("model.layers.0.linear_attn.out_proj", qz.BLOCK_LINEAR),
+        ("model.layers.0.mlp.down_proj", qz.BLOCK_LINEAR),
+        ("model.layers.0.linear_attn.in_proj_a", qz.KEEP),
+        ("model.layers.0.linear_attn.in_proj_b", qz.KEEP),
+        ("model.layers.0.linear_attn.conv1d", qz.KEEP),
+        ("model.layers.0.linear_attn.norm", qz.KEEP),
+        ("model.layers.0.input_layernorm", qz.KEEP),
+        ("model.norm", qz.KEEP),
+        ("model.embed_tokens", qz.EMBEDDING),
+        ("model.language_model.embed_tokens", qz.EMBEDDING),
+        ("model.visual.blocks.0.attn.qkv", qz.DROP),
+        ("visual.merger.mlp.0", qz.DROP),
+        ("mtp.layers.0.mlp.gate_proj", qz.DROP),
+        ("model.mtp_layers.0.fc", qz.DROP),
+    ],
+)
+def test_the_module_policy_names_each_tensor_class(name, cls):
+    """c9: block linears 4-bit; in_proj_a/b, conv1d, norms kept; vision and MTP dropped."""
+    assert qz.module_class(name) == cls
+
+
+def test_state_keys_take_their_modules_class():
+    assert qz.key_class("model.layers.0.linear_attn.A_log") == qz.KEEP
+    assert qz.key_class("model.layers.0.linear_attn.dt_bias") == qz.KEEP
+    assert qz.key_class("model.layers.0.mlp.up_proj.weight") == qz.BLOCK_LINEAR
+    assert qz.key_class("model.embed_tokens.qweight") == qz.EMBEDDING
+
+
+def _row(key, tensor_type="Tensor", dtype="torch.bfloat16"):
+    return {"key": key, "tensor_type": tensor_type, "dtype": dtype}
+
+
+GOOD_INVENTORY = [
+    _row("model.embed_tokens.qweight", dtype="torch.uint8"),
+    _row("model.embed_tokens.scales"),
+    _row("model.layers.0.self_attn.q_proj.weight", "AffineQuantizedTensor"),
+    _row("model.layers.0.linear_attn.in_proj_qkv.weight", "Int4TilePackedTo4dTensor"),
+    _row("model.layers.0.linear_attn.in_proj_a.weight"),
+    _row("model.layers.0.linear_attn.in_proj_b.weight"),
+    _row("model.layers.0.linear_attn.conv1d.weight"),
+    _row("model.layers.0.linear_attn.A_log", dtype="torch.float32"),
+    _row("model.layers.0.linear_attn.dt_bias"),
+    _row("model.layers.0.input_layernorm.weight"),
+    _row("model.norm.weight"),
+]
+
+
+def test_a_torso_that_follows_the_policy_passes_with_its_counts():
+    summary = qz.check_inventory(GOOD_INVENTORY, qz.QuantScheme())
+    assert summary["tensors"] == {
+        qz.DROP: 0,
+        qz.EMBEDDING: 2,
+        qz.BLOCK_LINEAR: 2,
+        qz.KEEP: 7,
+    }
+    assert summary["kept_unquantized"] == {
+        "A_log": 1,
+        "conv1d": 1,
+        "dt_bias": 1,
+        "in_proj_a": 1,
+        "in_proj_b": 1,
+        "norm": 2,
+    }
+
+
+@pytest.mark.parametrize(
+    "change, match",
+    [
+        ({"add": _row("model.visual.patch_embed.proj.weight")}, "vision tower or the MTP"),
+        ({"add": _row("mtp.fc.weight")}, "vision tower or the MTP"),
+        (
+            {"replace": 2, "row": _row("model.layers.0.self_attn.q_proj.weight")},
+            "left unquantized",
+        ),
+        ({"replace": 0, "row": _row("model.embed_tokens.weight")}, "not packed"),
+        (
+            {"replace": 0, "row": _row("model.embed_tokens.qweight", dtype="torch.int8")},
+            "not torch.uint8",
+        ),
+        (
+            {"replace": 4, "row": _row("model.layers.0.linear_attn.in_proj_a.weight", "AQT")},
+            "outside the text-block linears",
+        ),
+        (
+            {"replace": 7, "row": _row("model.layers.0.linear_attn.A_log", dtype="torch.int8")},
+            "unquantized floating",
+        ),
+        ({"replace": 10, "row": _row("model.norm.weight", "Int8Tensor")}, "outside the text"),
+    ],
+)
+def test_a_torso_that_breaks_the_policy_is_refused(change, match):
+    """c9: vision/MTP absent, block linears quantized, embedding packed, small params kept."""
+    rows = list(GOOD_INVENTORY)
+    if "add" in change:
+        rows.append(change["add"])
+    else:
+        rows[change["replace"]] = change["row"]
+    scheme = qz.QuantScheme()
+    with pytest.raises(CliError, match=match):
+        qz.check_inventory(rows, scheme)
+
+
+def test_an_int8_embedding_expects_int8_storage():
+    rows = list(GOOD_INVENTORY)
+    rows[0] = _row("model.embed_tokens.qweight", dtype="torch.int8")
+    summary = qz.check_inventory(rows, qz.QuantScheme(embedding_bits=8))
+    assert summary["tensors"][qz.EMBEDDING] == 2
+
+
+def test_a_torso_without_block_linears_or_embedding_is_refused():
+    keep_only = [r for r in GOOD_INVENTORY if qz.key_class(r["key"]) == qz.KEEP]
+    scheme = qz.QuantScheme()
+    with pytest.raises(CliError, match="no text-block linear"):
+        qz.check_inventory(keep_only, scheme)
+
+
+def test_every_tokenizer_id_needs_an_embedding_row():
+    """c9: full vocabulary; no id is unreachable."""
+    assert qz.check_full_vocabulary(248320, 248077)["full_vocabulary"] is True
+    assert qz.check_full_vocabulary(248320, 248320)["embedding_rows"] == 248320
+    with pytest.raises(CliError, match="every id"):
+        qz.check_full_vocabulary(50000, 248077)
+
+
+# --------------------------------------------------------------------- manifest: hashes, bytes
+
+
+def test_the_manifest_records_per_file_sha256_and_the_weight_byte_sum(tmp_path):
+    """c9/h21: per-file sha256 (tokenizer too) and the byte sum of the weight files."""
+    root = _artifact(tmp_path / "a", bits=4)
+    m = qz.read_artifact(root)["manifest"]
+    for name in (qz.TORSO_FILE, player.HEAD, player.CONFIG, *player.TOKENIZER_FILES):
+        assert m["files"][name] == hashlib.sha256((root / name).read_bytes()).hexdigest()
+    sizes = {n: (root / n).stat().st_size for n in qz.WEIGHT_FILES}
+    assert m["weight_files"] == sizes
+    assert m["weight_bytes"] == sum(sizes.values())
+    assert m["size_budget_bytes"] == 10**9
+    assert m["within_size_budget"] is True
+    assert m["scheme"] == qz.QuantScheme(block_bits=4).record()
+
+
+def test_a_weight_byte_sum_that_does_not_match_the_files_is_refused(tmp_path):
+    root = _artifact(tmp_path / "a")
+    _rewrite(root, weight_bytes=1)
+    with pytest.raises(CliError, match="weight_bytes"):
+        qz.read_artifact(root)
+
+
+def test_the_weight_record_checks_the_budget_exactly_at_ten_to_the_ninth(tmp_path):
+    """c9/h21: 10^9 bytes is over budget; 10^9 - 1 is within (sparse files, no disk used)."""
+    for total, within in ((10**9, False), (10**9 - 1, True)):
+        root = tmp_path / str(total)
+        root.mkdir()
+        with (root / qz.TORSO_FILE).open("wb") as fh:
+            fh.truncate(total - 7)
+        (root / player.HEAD).write_bytes(b"x" * 7)
+        record = qz.weight_record(root)
+        assert record["weight_bytes"] == total
+        assert record["within_size_budget"] is within
+
+
+def test_a_scheme_that_disagrees_with_bits_is_refused(tmp_path):
+    root = _artifact(tmp_path / "a", bits=4)
+    _rewrite(root, scheme=qz.QuantScheme(block_bits=8).record())
+    with pytest.raises(CliError, match="block_bits"):
+        qz.read_artifact(root)
+
+
+def test_the_source_tokenizer_ships_unmodified(tmp_path):
+    """c9: the artifact's tokenizer files are the source checkpoint's, byte for byte."""
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    source = qz.source_record(ckpt)
+    for name in player.TOKENIZER_FILES:
+        assert source["sha256"][name] == player.sha256_file(ckpt / name)
+    root = _artifact(tmp_path / "a", source=source)
+    tok = qz.read_artifact(root)["manifest"]["tokenizer"]
+    assert tok["unmodified"] is True
+    assert set(tok["source_sha256"]) == set(player.TOKENIZER_FILES)
+
+
+def test_a_tokenizer_that_differs_from_its_source_is_refused(tmp_path):
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    (ckpt / "tokenizer.json").write_text('{"model": "edited"}')
+    source = qz.source_record(ckpt)  # the artifact keeps the original "{}"
+    root = _artifact(tmp_path / "a", source=source)
+    assert _manifest(root)["tokenizer"]["unmodified"] is False
+    with pytest.raises(CliError, match="tokenizer"):
+        qz.read_artifact(root)
+
+
+def test_a_manifest_missing_a_tokenizer_hash_is_refused(tmp_path):
+    root = _artifact(tmp_path / "a")
+    files = dict(_manifest(root)["files"])
+    files.pop("tokenizer.json")
+    _rewrite(root, files=files)
+    with pytest.raises(CliError, match="tokenizer.json"):
+        qz.read_artifact(root)
+
+
+# --------------------------------------------------------------------- /v1/bundle, /v1/stats
+
+
+def _tree(root: Path, *, cgroup: str, limits: dict, tegra: str | None, model: bytes | None):
+    """A fake /proc, /sys/fs/cgroup, /etc and device tree under *root*."""
+    proc = root / "proc"
+    (proc / "self").mkdir(parents=True)
+    (proc / "self" / "status").write_text("Name:\tpython\nVmRSS:\t  812340 kB\nVmSwap:\t0 kB\n")
+    (proc / "self" / "cgroup").write_text(cgroup)
+    (proc / "meminfo").write_text(
+        "MemTotal:        7799340 kB\nMemAvailable:    5123456 kB\nCached: 1 kB\n"
+    )
+    cg = root / "cgroup"
+    for rel, value in limits.items():
+        (cg / rel).mkdir(parents=True, exist_ok=True)
+        name = "memory.max" if not rel.startswith("memory") else "memory.limit_in_bytes"
+        (cg / rel / name).write_text(value + "\n")
+    if tegra is not None:
+        (root / "etc").mkdir()
+        (root / "etc" / "nv_tegra_release").write_text(tegra)
+    models = []
+    if model is not None:
+        (root / "dt").mkdir()
+        (root / "dt" / "model").write_bytes(model)
+        models.append(root / "dt" / "model")
+    return qz.HostPaths(
+        proc=proc,
+        cgroup_root=cg,
+        tegra_release=root / "etc" / "nv_tegra_release",
+        device_models=(*models, root / "dmi" / "product_name"),
+    )
+
+
+SCOPE = "user.slice/user-1000.slice/user@1000.service/app.slice/run-u7.scope"
+TEGRA = "# R36 (release), REVISION: 4.3, GCID: 38968081, BOARD: generic, EABI: aarch64\n"
+
+
+def test_host_stats_reports_rss_memavailable_board_l4t_and_the_cgroup_cap(tmp_path):
+    """c1/h1: RSS, MemAvailable, device model, nv_tegra_release and the cgroup memory.max."""
+    paths = _tree(
+        tmp_path,
+        cgroup=f"0::/{SCOPE}\n",
+        limits={SCOPE: "4294967296", "user.slice": "max"},
+        tegra=TEGRA,
+        model=b"NVIDIA Jetson Orin Nano Engineering Reference Developer Kit Super\x00",
+    )
+    stats = qz.host_stats(paths)
+    assert stats["rss_bytes"] == 812340 * 1024
+    assert stats["mem_available_bytes"] == 5123456 * 1024
+    assert stats["device_model"] == (
+        "NVIDIA Jetson Orin Nano Engineering Reference Developer Kit Super"
+    )
+    assert stats["nv_tegra_release"] == TEGRA.strip()
+    assert stats["cgroup"] == {
+        "version": 2,
+        "path": "/" + SCOPE,
+        "memory_max": 4294967296,
+        "effective_memory_max": 4294967296,
+    }
+
+
+def test_host_stats_without_a_tegra_release_or_a_cap_says_so(tmp_path):
+    """c1/h1: nv_tegra_release only when present; an uncapped cgroup reports 'max'."""
+    paths = _tree(tmp_path, cgroup=f"0::/{SCOPE}\n", limits={SCOPE: "max"}, tegra=None, model=None)
+    stats = qz.host_stats(paths)
+    assert stats["nv_tegra_release"] is None
+    assert stats["device_model"] is None
+    assert stats["cgroup"]["memory_max"] == "max"
+    assert stats["cgroup"]["effective_memory_max"] is None
+
+
+def test_an_ancestor_cap_is_the_effective_cap(tmp_path):
+    paths = _tree(
+        tmp_path,
+        cgroup=f"0::/{SCOPE}\n",
+        limits={SCOPE: "max", "user.slice/user-1000.slice": "8589934592"},
+        tegra=None,
+        model=None,
+    )
+    cgroup = qz.cgroup_memory(paths)
+    assert cgroup["memory_max"] == "max"
+    assert cgroup["effective_memory_max"] == 8589934592
+
+
+def test_a_cgroup_v1_memory_limit_is_read_too(tmp_path):
+    paths = _tree(
+        tmp_path,
+        cgroup="5:cpuset:/\n4:memory:/jev\n",
+        limits={"memory/jev": "4294967296", "memory": str(1 << 63)},
+        tegra=None,
+        model=None,
+    )
+    cgroup = qz.cgroup_memory(paths)
+    assert cgroup["version"] == 1
+    assert cgroup["memory_max"] == 4294967296
+    assert cgroup["effective_memory_max"] == 4294967296
+
+
+def test_no_cgroup_file_reports_no_cap(tmp_path):
+    paths = qz.HostPaths(proc=tmp_path / "none", cgroup_root=tmp_path / "cg")
+    assert qz.cgroup_memory(paths)["memory_max"] is None
+
+
+@pytest.fixture
+def attesting(tmp_path):
+    art = _artifact(tmp_path / "a", bits=4)
+    paths = _tree(
+        tmp_path / "host",
+        cgroup=f"0::/{SCOPE}\n",
+        limits={SCOPE: "4294967296"},
+        tegra=TEGRA,
+        model=b"NVIDIA Jetson AGX Orin Developer Kit\x00",
+    )
+    srv = qz.make_server(
+        "127.0.0.1",
+        0,
+        evaluate=lambda body: dict(ANSWER),
+        health=lambda: {"status": "ok"},
+        bundle=lambda: qz.bundle_attestation(art),
+        stats=lambda: qz.host_stats(paths),
+    )
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{srv.server_address[1]}", art
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def _get(url):
+    with urllib.request.urlopen(url, timeout=10) as resp:  # nosec B310 - loopback test server
+        return json.loads(resp.read())
+
+
+def test_get_bundle_answers_the_manifests_per_file_sha256(attesting):
+    """c1/h1: GET /v1/bundle carries the manifest's per-file sha256 and weight bytes."""
+    url, art = attesting
+    body = _get(url + "/v1/bundle")
+    manifest = _manifest(art)
+    assert body["files"] == manifest["files"]
+    assert body["weight_bytes"] == manifest["weight_bytes"]
+    assert body["within_size_budget"] is True
+    assert body["manifest_sha256"] == player.sha256_file(art / qz.MANIFEST_FILE)
+    assert body["format"] == "torch_int4_wo"
+    assert body["scheme"] == manifest["scheme"]
+
+
+def test_get_stats_answers_the_host_facts(attesting):
+    """c1/h1: GET /v1/stats: RSS, MemAvailable, board, L4T release and the cgroup cap."""
+    url, _art = attesting
+    body = _get(url + "/v1/stats")
+    assert body["rss_bytes"] == 812340 * 1024
+    assert body["mem_available_bytes"] == 5123456 * 1024
+    assert body["device_model"] == "NVIDIA Jetson AGX Orin Developer Kit"
+    assert body["nv_tegra_release"].startswith("# R36 (release)")
+    assert body["cgroup"]["memory_max"] == 4294967296
+
+
+def test_a_server_without_attestation_callables_answers_404(server):
+    url, _ = server
+    for path in ("/v1/bundle", "/v1/stats"):
+        with pytest.raises(urllib.error.HTTPError) as err:
+            urllib.request.urlopen(url + path, timeout=10)  # nosec B310
+        assert err.value.code == 404
+
+
+def test_a_failing_stats_read_is_a_500_not_a_dropped_connection(tmp_path):
+    def broken():
+        raise OSError("no /proc")
+
+    srv = qz.make_server("127.0.0.1", 0, evaluate=lambda b: {}, health=lambda: {}, stats=broken)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with pytest.raises(urllib.error.HTTPError) as err:
+            urllib.request.urlopen(  # nosec B310
+                f"http://127.0.0.1:{srv.server_address[1]}/v1/stats", timeout=10
+            )
+        assert err.value.code == 500
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+# --------------------------------------------------------------------- pruned vocabulary (c38/h9)
+
+KEPT = [0, 3, 4, 7, 151643]
+
+
+class FakeTokenizer:
+    all_special_ids = [151643, 151645]
+    added_tokens_decoder = {151644: "<|im_start|>", 151645: "<|im_end|>"}
+    pad_token_id = 151643
+    eos_token_id = 151645
+    bos_token_id = None
+    unk_token_id = None
+
+
+def _prompts(path: Path, sides=("train", "fit", "selection")) -> Path:
+    body = {"id": "r1", "state": "s", "questions": {"c": {"type": "choice", "criteria": {}}}}
+    path.write_text("".join(json.dumps({"side": s, "body": body}) + "\n" for s in sides))
+    return path
+
+
+def test_the_kept_vocabulary_is_the_prompt_ids_plus_the_special_tokens():
+    """h9: the embedding keeps only the ids the prompts use, plus the special tokens."""
+    special = qz.special_token_ids(FakeTokenizer())
+    assert special == [151643, 151644, 151645]
+    kept = qz.kept_vocabulary([7, 3, 3, 0, 4], special, vocab_rows=248320)
+    assert kept == [0, 3, 4, 7, 151643, 151644, 151645]
+
+
+def test_the_kept_vocabulary_refuses_an_id_without_a_row_or_an_empty_prompt_set():
+    with pytest.raises(CliError, match="outside the embedding"):
+        qz.kept_vocabulary([5, 300], [], vocab_rows=256)
+    with pytest.raises(CliError, match="empty"):
+        qz.kept_vocabulary([], [1, 2], vocab_rows=256)
+
+
+def test_a_pruned_manifest_records_the_kept_id_list_sha256_and_weight_bytes(tmp_path):
+    """h9: the pruned artifact's manifest records the kept id list sha256 and weight bytes."""
+    art = _artifact(tmp_path / "p", bits=4, kept_ids=KEPT)
+    manifest = qz.read_artifact(art)["manifest"]
+    record = manifest["pruned_vocabulary"]
+    on_disk = player.sha256_file(art / qz.KEPT_IDS_FILE)
+    assert record["kept_ids_sha256"] == on_disk
+    assert (
+        record["kept_ids_sha256"]
+        == hashlib.sha256(json.dumps(KEPT).replace(" ", "").encode()).hexdigest()
+    )
+    assert record["kept_ids_count"] == len(KEPT)
+    assert record["comparison_only"] is True
+    assert manifest["files"][qz.KEPT_IDS_FILE] == on_disk
+    assert manifest["weight_bytes"] == sum((art / n).stat().st_size for n in qz.WEIGHT_FILES)
+    assert manifest["format"] == "torch_int4_wo_pruned_vocab"
+    assert manifest["format"] not in qz.FORMAT_OF_BITS.values()  # never a shipped format name
+    assert qz.read_kept_ids(art) == KEPT
+    attested = qz.bundle_attestation(art)
+    assert attested["pruned_vocabulary"] == record
+    assert attested["weight_bytes"] == manifest["weight_bytes"]
+
+
+def test_a_full_vocabulary_manifest_is_not_pruned(tmp_path):
+    art = _artifact(tmp_path / "f", bits=4)
+    manifest = qz.read_artifact(art)["manifest"]
+    assert not qz.is_pruned(manifest)
+    assert manifest["format"] == "torch_int4_wo"
+    assert not (art / qz.KEPT_IDS_FILE).exists()
+    assert "pruned_vocabulary" not in qz.bundle_attestation(art)
+
+
+def test_an_edited_kept_id_list_is_refused(tmp_path):
+    art = _artifact(tmp_path / "p", bits=8, kept_ids=KEPT)
+    (art / qz.KEPT_IDS_FILE).write_text("[0,3,4,7,151643,9]")
+    with pytest.raises(CliError, match="sha256"):
+        qz.read_artifact(art)
+
+
+@pytest.mark.parametrize(
+    "changes, match",
+    [
+        ({"format": "torch_int8_wo"}, "does not match"),
+        ({"pruned_vocabulary": {"kept_ids_file": "x.json"}}, "must name"),
+    ],
+)
+def test_a_pruned_manifest_that_misdescribes_itself_is_refused(tmp_path, changes, match):
+    art = _artifact(tmp_path / "p", bits=8, kept_ids=KEPT)
+    _rewrite(art, **changes)
+    with pytest.raises(CliError, match=match):
+        qz.read_artifact(art)
+
+
+def test_a_pruned_manifest_must_stay_comparison_only(tmp_path):
+    art = _artifact(tmp_path / "p", bits=8, kept_ids=KEPT)
+    record = {**_manifest(art)["pruned_vocabulary"], "comparison_only": False}
+    _rewrite(art, pruned_vocabulary=record)
+    with pytest.raises(CliError, match="comparison only"):
+        qz.read_artifact(art)
+
+
+@pytest.mark.parametrize("ids", [[3, 1], [1, 1], [-1, 2], [], [True]])
+def test_a_kept_id_list_must_be_sorted_unique_non_negative_ids(tmp_path, ids):
+    root = tmp_path / "p"
+    with pytest.raises(CliError, match="kept_ids"):
+        _artifact(root, bits=8, kept_ids=ids)
+
+
+def test_the_pruned_build_plan_carries_the_prompt_set_and_writes_nothing(tmp_path):
+    """h9: the pruned build is planned with the run's prompt set; dry-run writes nothing."""
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    prompts = _prompts(tmp_path / "prompts.jsonl")
+    plan = qz.build_pruned_vocabulary(
+        ckpt, tmp_path / "out", 4, prompts, python="py", base_revision=REV
+    )
+    assert plan["dry_run"] is True
+    assert plan["format"] == "torch_int4_wo_pruned_vocab"
+    assert plan["comparison_only"] is True
+    assert plan["argv"][-2:] == ["--prompts", str(prompts)]
+    assert plan["prompt_set"]["counts"] == {"train": 1, "fit": 1, "selection": 1}
+    assert plan["prompt_set"]["sha256"] == player.sha256_file(prompts)
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("side", ["test", "held_out", "heldout", None])
+def test_a_prompt_set_with_a_protected_or_unknown_side_is_refused(tmp_path, side):
+    """h9: only train/fit/selection prompts shape the kept ids (test and held-out never do)."""
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    prompts = _prompts(tmp_path / "prompts.jsonl", sides=("train", side))
+    args = dict(python="py", base_revision=REV, prompts=prompts)
+    with pytest.raises(CliError, match="may not shape"):
+        qz.plan_weight_only(ckpt, tmp_path / "out", 8, **args)
+
+
+def test_an_empty_or_missing_prompt_set_is_refused(tmp_path):
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    empty = tmp_path / "empty.jsonl"
+    empty.write_text("\n")
+    args = dict(python="py", base_revision=REV, prompts=empty)
+    with pytest.raises(CliError, match="holds no prompts"):
+        qz.plan_weight_only(ckpt, tmp_path / "out", 8, **args)
+    with pytest.raises(CliError, match="does not exist"):
+        qz.read_prompt_set(tmp_path / "missing.jsonl")
+
+
+def test_apply_builds_and_verifies_the_pruned_artifact(tmp_path):
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    prompts = _prompts(tmp_path / "prompts.jsonl")
+    seen = []
+
+    def runner(argv, env):
+        seen.append(list(argv))
+        _artifact(Path(argv[5]), bits=int(argv[7]), kept_ids=KEPT)
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    info = qz.build_pruned_vocabulary(
+        ckpt,
+        tmp_path / "out",
+        8,
+        prompts,
+        apply=True,
+        python="py",
+        base_revision=REV,
+        runner=runner,
+        memory_max="90G",
+    )
+    assert info["artifact"]["manifest"]["pruned_vocabulary"]["kept_ids_count"] == len(KEPT)
+    assert "--prompts" in seen[0]
+
+
+def test_a_pruned_build_that_left_a_full_vocabulary_artifact_is_refused(tmp_path):
+    ckpt = _checkpoint(tmp_path / "ckpt")
+    prompts = _prompts(tmp_path / "prompts.jsonl")
+
+    def runner(argv, env):
+        _artifact(Path(argv[5]), bits=int(argv[7]))
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    args = dict(apply=True, python="py", base_revision=REV, runner=runner, memory_max="9G")
+    with pytest.raises(CliError, match="full-vocabulary artifact"):
+        qz.build_pruned_vocabulary(ckpt, tmp_path / "out", 8, prompts, **args)
+
+
+def test_the_build_entry_passes_the_prompt_set(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(qz, "_build_in_env", lambda *a: seen.append(a) or 0)
+    argv = ["build", "c", "o", "--bits", "4", "--base-revision", REV, "--prompts", "p.jsonl"]
+    assert qz.main(argv) == 0
+    assert seen[0][-1] == Path("p.jsonl")
+    assert qz.main(["build", "c", "o", "--bits", "4", "--base-revision", REV]) == 0
+    assert seen[1][-1] is None
+
+
+def test_the_pruned_vocabulary_check_matches_rows_to_kept_ids():
+    record = qz.check_pruned_vocabulary(KEPT, 248320, {"rows": len(KEPT), "vocab_rows": 248320})
+    assert record["full_vocabulary"] is False
+    assert record["kept_ids_sha256"] == qz.kept_ids_sha256(KEPT)
+    with pytest.raises(CliError, match="rows"):
+        qz.check_pruned_vocabulary(KEPT, 248320, {"rows": 4})
+    with pytest.raises(CliError, match="not a tokenizer id"):
+        qz.check_pruned_vocabulary(KEPT, 1000, {"rows": len(KEPT)})
+
+
+@pytest.fixture
+def oov_server():
+    def evaluate(body):
+        def call():
+            if "unseen" in body.get("state", ""):
+                raise qz.OutOfVocabulary([248000, 5, 248000])
+            return dict(ANSWER)
+
+        return qz.refuse_out_of_vocabulary(call)
+
+    srv = qz.make_server("127.0.0.1", 0, evaluate=evaluate, health=lambda: {"status": "ok"})
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{srv.server_address[1]}"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_a_request_outside_the_kept_ids_is_refused_out_of_vocabulary(oov_server):
+    """h9: a token outside the kept ids is refused with out_of_vocabulary, never answered."""
+    status, body = _post(oov_server, {"state": "an unseen word", "questions": {}})
+    assert status == 422
+    assert body["detail"]["error"] == "out_of_vocabulary"
+    assert body["detail"]["token_ids"] == [5, 248000]
+    assert "decision" not in json.dumps(body)  # no answer rides along with the refusal
+    status, _ = _post(oov_server, {"state": "seen", "questions": {}})
+    assert status == 200
+
+
+def test_the_shared_client_sees_the_out_of_vocabulary_reason(oov_server):
+    from jev_factory.backbones.pointer import serve as pserve
+
+    record = {"id": "r", "state": "unseen", "questions": {"c": {"type": "choice", "criteria": {}}}}
+    result = pserve.PointerClient(oov_server, model="p").ask(record)
+    assert "out_of_vocabulary" in result.error
+
+
+def test_pruned_embedding_answers_kept_rows_and_refuses_any_other_id(tmp_path):
+    """h9: the pruned embedding returns each kept id's own row and raises OutOfVocabulary
+    for any other id before reading a row (so it is never answered from a wrong row)."""
+    torch = pytest.importorskip("torch")
+    kept = [0, 3, 17, 500, 999]
+    for bits in (4, 8):
+        full = _toy_torso(torch).to(torch.bfloat16)
+        pruned = _toy_torso(torch).to(torch.bfloat16)
+        pruned.load_state_dict(full.state_dict())
+        qz.pack_embedding(full, qz.QuantScheme(embedding_bits=bits))
+        record = qz.pack_embedding(pruned, qz.QuantScheme(embedding_bits=bits), kept)
+        assert (record["rows"], record["vocab_rows"], record["pruned"]) == (5, 1000, True)
+        ids = torch.tensor([[999, 0, 17], [3, 500, 3]])
+        assert torch.equal(pruned.embed_tokens(ids), full.embed_tokens(ids))
+        for bad in ([[1]], [[0, 998]], [[1000]], [[-1]]):
+            outside = torch.tensor(bad)
+            with pytest.raises(qz.OutOfVocabulary):
+                pruned.embed_tokens(outside)
+        state = pruned.state_dict()
+        assert state["embed_tokens.qweight"].shape[0] == 5
+        assert "embed_tokens.id_map" not in state  # rebuilt from the kept list at load
+        torch.save(state, tmp_path / f"p{bits}.pt")
+        fresh = _toy_torso(torch).to(torch.bfloat16)
+        qz.drop_unused(fresh)
+        qz.install_packed_embedding(fresh, record, kept)
+        fresh.load_state_dict(torch.load(tmp_path / f"p{bits}.pt", weights_only=True), assign=True)
+        assert torch.equal(fresh.embed_tokens(ids), pruned.embed_tokens(ids))
+        unkept = torch.tensor([[2]])
+        with pytest.raises(qz.OutOfVocabulary):
+            fresh.embed_tokens(unkept)
+
+
+def test_a_base_with_no_causal_lm_class_gets_no_torso_shell(monkeypatch):
+    """r9: a config the causal-LM auto class cannot build falls back to loading the base."""
+    import contextlib
+    from types import SimpleNamespace
+
+    def no_class(*a, **k):
+        raise ValueError("Unrecognized configuration class")
+
+    cfg = SimpleNamespace(get_text_config=lambda: cfg)
+    fakes = {
+        "transformers": SimpleNamespace(
+            AutoConfig=SimpleNamespace(from_pretrained=lambda *a, **k: cfg),
+            AutoModelForCausalLM=SimpleNamespace(from_config=no_class),
+        ),
+        "torch": SimpleNamespace(bfloat16="bf16"),
+        "accelerate": SimpleNamespace(init_empty_weights=lambda **k: contextlib.nullcontext()),
+    }
+    monkeypatch.setattr(qz, "_load", fakes.__getitem__)
+    config = SimpleNamespace(base_model="some/base", torch_dtype="bfloat16")
+    assert qz._torso_shell(config, "0" * 40) is None
+
+
+def test_the_attestation_reuses_the_loads_verification(tmp_path, monkeypatch):
+    """Review of PR #21: the server hashes its ~1 GB artifact once, not twice."""
+    art = _artifact(tmp_path / "art")
+    info = qz.read_artifact(art)
+    monkeypatch.setattr(qz, "read_artifact", lambda *a, **k: pytest.fail("hashed twice"))
+    assert qz.bundle_attestation(art, info)["files"] == info["manifest"]["files"]
+
+
+def test_a_changed_file_changes_the_snapshot_the_bundle_route_checks(tmp_path):
+    """/v1/bundle re-verifies from disk once a file's size, ctime or inode moved."""
+    art = _artifact(tmp_path / "art")
+    before = qz.file_snapshot(art)
+    assert qz.file_snapshot(art) == before
+    (art / qz.TORSO_FILE).write_bytes(b"swapped-torso-bytes")
+    assert qz.file_snapshot(art) != before
+    with pytest.raises(CliError):
+        qz.bundle_attestation(art)  # the swapped torso no longer matches its manifest

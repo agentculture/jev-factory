@@ -1,0 +1,821 @@
+{
+  "plan_slug": "orin-nano-jetson-ops-decider",
+  "schema_version": 2,
+  "created": "2026-10-15T17:16:36Z",
+  "updated": "2026-10-16T13:44:53Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "contamination manifest also lists 2610's non-card training sources from training/sources.md (e.g. MuSiQue), beyond t6's 'exactly the 48 card datasets'",
+      "task_ref": "t6",
+      "reason": "operator: fail closed \u2014 a source 2610 trained on but missing from the card would otherwise check clean",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "add a task: jev review --serve gains a gold page over t8's ledger (approve / edit / reject per record)",
+      "task_ref": "t8",
+      "reason": "operator: ~200-300 test records are approved one by one; t8 shipped CLI-only because server.py was outside its files",
+      "affects": [
+        "t23"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "dataset sources: drop lobes-cli evidence and nvsh verbs (the operator's own stack); keep jetson-containers (JP6.2), jetson-ai-lab tutorials and NVIDIA's skills; add agent-drafted general-knowledge records (own text, Apache-2.0) on Orin boards (Nano, NX, AGX 32/64GB), jtop, JetPack 7.2 vs 6.2 and Jetson defaults, and standard Ubuntu commands used on Jetson; tegrastats GR3D follows NVIDIA's docs",
+      "task_ref": "t22",
+      "reason": "operator: the model must not be opinionated about the operator's personal tech stack; it should know the public Jetson Orin tooling and defaults",
+      "affects": [
+        "t9"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "add a task: the local jev review site gains a draft-review mode (all splits, evidence quotes, keep / drop / edit gold / note) for drafted records, beside the gold approval page",
+      "task_ref": "t24",
+      "reason": "operator wants a site to work with when reviewing drafted records before and during the fan-out",
+      "affects": [
+        "t22"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "the draft-review page (t25) is redesigned with a light theme by default plus a selected dark theme and a toggle, a dataset overview (record strip by source and review status; breakdowns by status, evidence tag, question kind and split, clickable as filters) and validated colour palettes; the review site's CSP allows the Google Fonts origins",
+      "task_ref": "t25",
+      "reason": "operator asked for light mode and a frontend-design + dataviz experience that reflects the data",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "jev review --serve gains --allow-host NAME so a tailnet proxy (tailscale serve) can reach the review site; the socket still binds 127.0.0.1 and the token is still required",
+      "task_ref": "t25",
+      "reason": "operator wants the review site on the tailnet",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "jev review --drafts gains soft gold (per-option probabilities; argmax is the label), add_option (an option the draft missed, e.g. escalate / do_not_proceed) and restore (undo a question's or the whole record's edits and added options); status is edited while the ledger changes the record",
+      "task_ref": "t25",
+      "reason": "operator review of the pilot: none of the drafted options was right (escalate / do not run was), gold must be probabilities not one answer, and a chosen edit had no clear way back to the drafted gold",
+      "affects": [
+        "t22"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "Jetson-ops drafted records use choice questions only, each ending with [not_sure, \"I'm not sure.\"]: true/false claims become choice true/false/not_sure and ratings become level_0..level_n plus not_sure (replaces the 50/30/20 choice/noul/score mix; the shapes keep that mix); the gate then fits one question kind for these records, while the typed-decisions guard keeps its noul/score questions",
+      "task_ref": "t22",
+      "reason": "operator rule: always offer an I'm-not-sure option; the systemone noul type is fixed to true/false and score levels are ordered, so only a choice can carry it",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "not_sure is no longer drafted onto every question (amends d8): drafters write choice questions without it, and the operator adds not_sure ('I'm not sure.') where a question needs it with a one-click button on the review page, beside escalate and do_not_proceed; questions stay choice-only so any of them can take the option",
+      "task_ref": "t22",
+      "reason": "operator: with the add-option buttons there is no need to put not_sure on every question; they add it as needed",
+      "affects": [
+        "t25"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 9
+    },
+    {
+      "id": "d10",
+      "what": "Proving run of t23 overnight on unverified model-drafted gold for every side (train targets, fit/selection evals, held-out and test): final runs in an unverified-gold mode that needs this deviation id and reports an UNVERIFIED c17 block on clean model-drafted test records beside the (empty) human-gold headline; one-point knob grid (alpha 0.7, temperature 1.0, epochs 2, lr 1e-4, init continue, teacher_filter all, weak floor 0.6, teacher_only), heal 2 epochs / lr 1e-4 with the 0.5/0.5 mix placeholder; pilot not fully reviewed, gold not cross-checked by other models",
+      "task_ref": "t23",
+      "reason": "operator 2026-10-16: continue with the unverified gold, marked with its unverified share, on all datasets just to prove the process, and have a trained, healed and tested 2B model by morning",
+      "affects": [
+        "t22",
+        "t14",
+        "t4"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 10
+    },
+    {
+      "id": "d11",
+      "what": "Second heal round of torch_int4_wo in the t23 proving run, with heal.mix 1.0 bf16_student / 0.0 clef instead of the registered 0.5/0.5 placeholder. Round 1 (registered mix, QAT) left agreement with the bf16 student at 0.775 on fit+selection (0.938 fit, 0.745 selection), below the 0.97 bar; selection accuracy 0.593 vs bf16 0.658. quantize gains a heal_mix knob that is refused without a deviation id; the heal log records the used and the registered mix",
+      "task_ref": "t23",
+      "reason": "operator 2026-10-16: chose a 2nd heal with a bf16-only mix after quantize stopped (stop_escalate); the bar measures agreement with the bf16 student and round 1 half-targeted Clef. If it still misses 0.97, stop and report",
+      "affects": [
+        "t12",
+        "t23"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 11
+    },
+    {
+      "id": "d12",
+      "what": "quantize gains a gating knob (gating=clean, needs a deviation id): accuracy, calibration, the heal trigger and agreement with the bf16 student read only the contamination stage clean sources (the Jetson-ops sources); the typed-decisions guard is reported per format and fails a format only when its selection raw accuracy is more than 5 points below stock (benchmark stage predictions). The pruned-vocabulary comparison stays pooled (reported, never a candidate); the train selection rule is not changed (the proving run has one candidate, so it decides nothing)",
+      "task_ref": "t23",
+      "reason": "operator 2026-10-16: the guard is a non-regression check, not a target (spec: typed-decisions agreement is never gated); pooled, it was 68% of the fit+selection agreement questions and 81% of selection, with weak gold (Clef 0.634) and overlapping contamination. Operator asked to run the measure-only per-source re-measure first",
+      "affects": [
+        "t12",
+        "t23"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 12
+    },
+    {
+      "id": "d13",
+      "what": "Third heal round of torch_int4_wo in the t23 proving run, balanced: gating=clean (d12), heal_mix 1.0 bf16_student, heal set rows repeated domain x3 / guard x2 (new heal_repeat knob, deviation-gated, needs gating; registered heal epochs 2 / lr 1e-4 unchanged). d12 refined: a guard below its floor (stock - 5 points) is now a heal reason and a healed build must clear it, instead of removing the format before any heal. Also fixed (052831a): score answers mapped to levels positionally, scrambling every score question read back from a sorted-key prediction file; earlier guard numbers (student 337/715, stock 346/715) were wrong; corrected stock .625, bf16 student .592",
+      "task_ref": "t23",
+      "reason": "operator 2026-10-16 chose a balanced third heal after the per-source re-measure: int4 pre-heal passes Jetson-ops (agreement .976, accuracy >= bf16) but its guard is .469 (floor .575); round 2 recovered guard to .557 but Jetson-ops agreement fell to .961. Scaling heal strength cannot clear both bars, so the heal set weighs the domain rows up while still training the guard",
+      "affects": [
+        "t12",
+        "t23"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 13
+    },
+    {
+      "id": "d14",
+      "what": "Ship the un-healed torch_int4_wo in the t23 proving run, with the quant rules on the clean (Jetson-ops) sources and the typed-decisions guard report-only: new gating value clean-report (deviation-gated) records the guard beside stock and never heals or fails a format on it. The pre-heal int4 passes every domain bar (Jetson-ops agreement .976 = 322/330, selection accuracy .952 vs bf16 .940, 985,675,969 weight bytes); its guard selection accuracy .469 is 15.6 points below stock (.625) and 12.3 below the bf16 student (.592), reported in final. Three heal rounds (d11 bf16 mix, d13 balanced repeat) each lowered Jetson-ops agreement to .961-.964 and none cleared both bars; their outputs are kept as evidence",
+      "task_ref": "t23",
+      "reason": "operator 2026-10-16 chose option 1: the spec says typed-decisions agreement is never gated; the Nano model is a Jetson-ops specialist, and the most accurate domain build is the un-healed int4",
+      "affects": [
+        "t12",
+        "t14",
+        "t23"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 14
+    },
+    {
+      "id": "d15",
+      "what": "Second final run of the t23 proving run (test and held-out touched twice), after fixing Clef auth in benchmark/final (5679a19): the first final (kept as distill/final.run1) had Clef 401 on all 538 records, so the within-5-points-of-Clef bar was unmeasured. All four models re-measured; stock, bf16 and int4 are deterministic and expected to repeat the first run. Carries d10 unverified-gold mode",
+      "task_ref": "t23",
+      "reason": "operator 2026-10-16 chose to rerun final rather than a Clef-only supplement",
+      "affects": [
+        "t14",
+        "t23"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 15
+    },
+    {
+      "id": "d16",
+      "what": "edge in the t23 proving run uses the fit fold (all Jetson-ops, non-test, not sealed) as distill_probe_set, because the private probe set is not on this machine; edge runs on the AGX Orin (label agx-orin), not the Nano (its image has torchao 0.13 and cannot load the torchao 0.16 int4 artifact); edge measures the same attested server final used (127.0.0.1:18092, unit jev-quant-final) with distill_edge_memory_cap 8G, since the server peaks at ~5 GB RSS (risk r9: it loads the bf16 base before swapping in int4) and a 4G cap fails",
+      "task_ref": "t23",
+      "reason": "operator 2026-10-16 chose the fit fold as the probe set",
+      "affects": [
+        "t15",
+        "t23"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 16
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/test_distill_edge.py::test_bundle_mismatch_refused tests/test_distill_edge.py::test_reference_from_another_bundle_refused_before_any_request",
+      "behavior_text": "the named pytest tests assert: the bundle measured on the AGX Orin or Nano has the same per-file sha256 as the bundle final measured; a mismatch exits non-zero before any request",
+      "contract_text": "the bundle measured on the AGX Orin or Nano has the same per-file sha256 as the bundle final measured; a mismatch exits non-zero before any request",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/test_distill_records.py::test_unknown_question_kind_refused_with_record_id tests/test_distill_records.py::test_invalid_systemone_body_refused_with_record_id",
+      "behavior_text": "the named pytest tests assert: every Jetson-ops record parses as a /v1/systemone body with question kinds only in {choice, noul, score}; anything else is refused with its id",
+      "contract_text": "every Jetson-ops record parses as a /v1/systemone body with question kinds only in {choice, noul, score}; anything else is refused with its id",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/test_distill_bundle.py::test_model_bundle_has_the_layout_and_the_fitted_temperatures tests/test_distill_bundle.py::test_the_bundle_ships_the_fitted_gate_from_the_gate_stage tests/test_distill_bundle.py::test_notice_lists_every_manifest_attribution_in_both_bundles tests/test_pointer_quantized.py::test_serve_argv_is_loopback_only tests/test_pointer_quantized.py::test_the_serve_entry_refuses_a_non_loopback_host_before_loading_anything",
+      "behavior_text": "the named pytest tests assert: the bundle holds the quantized weights, calibration.json, gate.json, NOTICE (CC-BY-4.0 attribution) and the loader-contract doc; the serve wrapper loads it with no network access and answers /v1/systemone on 127.0.0.1",
+      "contract_text": "the bundle holds the quantized weights, calibration.json, gate.json, NOTICE (CC-BY-4.0 attribution) and the loader-contract doc; the serve wrapper loads it with no network access and answers /v1/systemone on 127.0.0.1",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "5 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/test_distill_pins.py::test_default_pins_carry_full_2610_digests_and_base_revision tests/test_distill_pins.py::test_no_v21_left_in_pins_module tests/test_distill_prereg.py::test_lora_hyperparameters_come_from_the_2610_adapter_config tests/test_distill_prereg.py::test_lora_targets_are_exactly_the_12_modules_of_2610",
+      "behavior_text": "the named pytest tests assert: pins name strands-decider-2B-qwen3.5-v1-2610 @216d1ccb with adapter sha256 ae1d0cd1... and head sha256 ace56742...; the prereg example's lora r/alpha/targets equal lora/adapter_config.json (r48, alpha 96, 12 targets); no v21 repo id, digest or stock_v21 row remains",
+      "contract_text": "pins name strands-decider-2B-qwen3.5-v1-2610 @216d1ccb with adapter sha256 ae1d0cd1... and head sha256 ace56742...; the prereg example's lora r/alpha/targets equal lora/adapter_config.json (r48, alpha 96, 12 targets); no v21 repo id, digest or stock_v21 row remains",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "4 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/test_distill_dataset.py::test_licence_allowlist_is_explicit_and_rejects_compound tests/test_distill_dataset.py::test_ccby_with_attribution_admitted_and_listed_in_manifest tests/test_distill_dataset.py::test_ccby_without_attribution_is_refused_by_the_build tests/test_distill_dataset.py::test_other_licence_is_refused_and_counted",
+      "behavior_text": "the named pytest tests assert: apache-2.0, mit and cc-by-4.0 are admitted; a cc-by-4.0 record without an attribution entry, or any other licence, is refused; the manifest has a per-licence table",
+      "contract_text": "apache-2.0, mit and cc-by-4.0 are admitted; a cc-by-4.0 record without an attribution entry, or any other licence, is refused; the manifest has a per-licence table",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "4 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/test_distill_report.py::test_the_headline_counts_only_approved_human_gold_test_records tests/test_distill_report.py::test_headline_is_human_gold_from_clean_sources_and_overlap_is_reported_apart",
+      "behavior_text": "the named pytest tests assert: headline bars are computed only on approved human-gold test records (n printed); the Clef probe-set table carries no pass/fail",
+      "contract_text": "headline bars are computed only on approved human-gold test records (n printed); the Clef probe-set table carries no pass/fail",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/test_distill_quant.py::test_a_build_at_or_over_the_size_budget_is_unavailable_never_a_candidate tests/test_distill_quant.py::test_the_size_is_measured_from_the_files_on_disk tests/test_distill_quant.py::test_every_build_over_the_size_budget_ships_nothing",
+      "behavior_text": "the named pytest tests assert: the on-disk weight size is the byte sum of the bundle's weight files; a build at or over the budget is recorded unavailable, never shipped",
+      "contract_text": "the on-disk weight size is the byte sum of the bundle's weight files; a build at or over the budget is recorded unavailable, never shipped",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "3 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "tests/test_distill_quant.py::test_a_second_heal_of_the_same_format_needs_a_deviation_id tests/test_distill_quant.py::test_agreement_is_computed_on_fit_and_selection_only tests/test_distill_quant.py::test_a_protected_id_in_the_heal_input_exits_non_zero_before_the_round",
+      "behavior_text": "the named pytest tests assert: a second heal of the same format is refused without a deviation id; heal agreement is computed on fit and selection records only and a test or held-out id in its input exits non-zero",
+      "contract_text": "a second heal of the same format is refused without a deviation id; heal agreement is computed on fit and selection records only and a test or held-out id in its input exits non-zero",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "3 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/test_bundle_format_doc.py::test_every_file_the_bundle_stage_writes_is_in_the_doc tests/test_bundle_format_doc.py::test_the_check_fails_on_a_file_the_doc_does_not_list",
+      "behavior_text": "the named pytest tests assert: docs name every file the bundle stage writes, its dtype/quant scheme and the loader entry point; a test fails when the bundle writes a file the doc does not list",
+      "contract_text": "docs name every file the bundle stage writes, its dtype/quant scheme and the loader entry point; a test fails when the bundle writes a file the doc does not list",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "tests/test_distill_systemone.py::test_non_localhost_refused tests/test_distill_systemone.py::test_headers_carry_bearer_and_model_header",
+      "behavior_text": "the named pytest tests assert: a non-127.0.0.1 URL is refused; requests carry Authorization: Bearer from the env var named in config and X-Lobes-Model: decider:general; the key value never appears in a manifest, log or exception text",
+      "contract_text": "a non-127.0.0.1 URL is refused; requests carry Authorization: Bearer from the env var named in config and X-Lobes-Model: decider:general; the key value never appears in a manifest, log or exception text",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "tests/test_distill_boundaries.py::test_every_distill_stage_dry_runs_and_applies_with_loopback_only_connections tests/test_distill_teacher.py::test_mode_recorded_and_per_question_sends_one_each",
+      "behavior_text": "the named pytest tests assert: no stage opens a connection to any host other than 127.0.0.1; teacher labelling sends one request at a time",
+      "contract_text": "no stage opens a connection to any host other than 127.0.0.1; teacher labelling sends one request at a time",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "tests/test_distill_report.py::test_every_c17_bar_is_computed_for_bf16_and_quant_with_paired_ci_and_n tests/test_distill_report.py::test_c17_follows_the_locked_prereg_and_a_tightened_bar_misses tests/test_distill_report.py::test_latency_and_memory_are_reported_for_all_three_on_the_same_box",
+      "behavior_text": "the named pytest tests assert: each bar is computed for both the bf16 student and the shipped quant with a paired bootstrap CI and cited against the hashed prereg; latency median and p95 are reported without a pass/fail",
+      "contract_text": "each bar is computed for both the bf16 student and the shipped quant with a paired bootstrap CI and cited against the hashed prereg; latency median and p95 are reported without a pass/fail",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "3 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 28
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o13",
+      "test_ref": "tests/test_distill_contamination.py::test_tasksource_typed_decisions_hf_id_is_overlapping tests/test_distill_contamination.py::test_localllama_typed_decisions_is_overlapping_fail_closed",
+      "behavior_text": "the named pytest tests assert: with the 2610 manifest, a record from tasksource/tasksource-jev-typed-decisions or LocalLLaMA/typed-decisions is reported overlapping",
+      "contract_text": "with the 2610 manifest, a record from tasksource/tasksource-jev-typed-decisions or LocalLLaMA/typed-decisions is reported overlapping",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 29
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o14",
+      "test_ref": "tests/test_distill_benchmark.py::test_reproduction_that_matches_the_card_is_recorded_without_mismatch tests/test_distill_benchmark.py::test_reproduction_whose_ci_excludes_the_card_marks_base_mismatch",
+      "behavior_text": "the named pytest tests assert: stock 2610 on JevBench w4096 is recorded with n and CI; a result outside the card's 0.7792 CI stops the train stage until a deviation is recorded",
+      "contract_text": "stock 2610 on JevBench w4096 is recorded with n and CI; a result outside the card's 0.7792 CI stops the train stage until a deviation is recorded",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o15",
+      "test_ref": "tests/test_review_gold.py::test_an_approve_entry_carries_sha_decision_and_iso_time tests/test_distill_final.py::test_a_test_record_without_an_approve_entry_is_refused_printing_ids_only tests/test_distill_final.py::test_a_rejected_or_edited_after_approval_record_is_refused",
+      "behavior_text": "the named pytest tests assert: approving a drafted test record writes an append-only entry (record sha256, decision, time); final refuses any test record without a matching approved entry",
+      "contract_text": "approving a drafted test record writes an append-only entry (record sha256, decision, time); final refuses any test record without a matching approved entry",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "3 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 31
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o16",
+      "test_ref": "tests/test_distill_dataset.py::test_max_slots_default_is_24_and_a_knob tests/test_distill_dataset.py::test_over_length_counted_by_reason_and_never_truncated",
+      "behavior_text": "the named pytest tests assert: a question with more than 24 options or a record over 4096 student tokens is refused and counted by reason; none is truncated",
+      "contract_text": "a question with more than 24 options or a record over 4096 student tokens is refused and counted by reason; none is truncated",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 32
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o17",
+      "test_ref": "tests/test_distill_bundle.py::test_upload_refuses_a_secret tests/test_distill_bundle.py::test_upload_refuses_a_side_model_name_and_prints_file_and_line_only tests/test_distill_bundle.py::test_upload_refuses_a_probe_set_record_by_id_or_state",
+      "behavior_text": "the named pytest tests assert: upload refuses when scan-secrets, the hostname/IP scan or the side-model-name scan hits, or when the Clef probe set is present; it prints file and line only",
+      "contract_text": "upload refuses when scan-secrets, the hostname/IP scan or the side-model-name scan hits, or when the Clef probe set is present; it prints file and line only",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "3 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 33
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o18",
+      "test_ref": "tests/test_distill_quant.py::test_the_pruned_build_is_reported_beside_the_full_build_and_never_shipped tests/test_distill_quant.py::test_a_pruned_format_is_never_a_candidate",
+      "behavior_text": "the named pytest tests assert: the pruned-vocabulary build is recorded with its kept id list and is reported beside the full-vocabulary quant (weight bytes, selection-fold accuracy, count of records refused for out-of-vocabulary tokens); it is never selected as the shipped build",
+      "contract_text": "the pruned-vocabulary build is recorded with its kept id list and is reported beside the full-vocabulary quant (weight bytes, selection-fold accuracy, count of records refused for out-of-vocabulary tokens); it is never selected as the shipped build",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 34
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o1",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/edge/agx-orin/edge_manifest.json",
+      "behavior_text": "edge on the AGX Orin read /v1/bundle through the tunnel and matched final's per-file sha256 (torso 07101f79..., head 8a9757a0...) before any request; 877/883 selection answers agreed with the Spark measurement",
+      "contract_text": "the bundle measured on the AGX Orin or Nano has the same per-file sha256 as the bundle final measured; a mismatch exits non-zero before any request",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T09:34:11",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 35
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o10",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/final.run1/predictions/clef.json",
+      "behavior_text": "final run 1 (d10) asked Clef through benchmark/final's own client without the bearer key or X-Lobes-Model: all 538 records got HTTP 401, although SystemOneClient carries them when given; fixed in 5679a19 (_clef_client), and final run 2 (d15) got 538/538 answers",
+      "contract_text": "a non-127.0.0.1 URL is refused; requests carry Authorization: Bearer from the env var named in config and X-Lobes-Model: decider:general; the key value never appears in a manifest, log or exception text",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-16T11:45:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 36
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o10",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/final/predictions/clef.json",
+      "behavior_text": "after 5679a19, final run 2 (d15) asked Clef with the key named by DISTILL_TEACHER_KEY and the model header over the 127.0.0.1 tunnel: 538/538 records answered, no error",
+      "contract_text": "a non-127.0.0.1 URL is refused; requests carry Authorization: Bearer from the env var named in config and X-Lobes-Model: decider:general; the key value never appears in a manifest, log or exception text",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T12:05:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 37
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o13",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/contamination.json",
+      "behavior_text": "the contamination stage on the live inputs reported LocalLLaMA/typed-decisions overlapping and the five jetson-ops sources clean",
+      "contract_text": "with the 2610 manifest, a record from tasksource/tasksource-jev-typed-decisions or LocalLLaMA/typed-decisions is reported overlapping",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T07:45:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 38
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o14",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/benchmark/stock_reproduction.json",
+      "behavior_text": "stock 2610 on JevBench w4096: 165/213 = 0.775, Wilson CI 0.714-0.826 covers the card's 0.7792, base_mismatch false; train ran after it",
+      "contract_text": "stock 2610 on JevBench w4096 is recorded with n and CI; a result outside the card's 0.7792 CI stops the train stage until a deviation is recorded",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T07:48:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 39
+    },
+    {
+      "id": "e24",
+      "obligation_ref": "o7",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/quant/measurements.json",
+      "behavior_text": "the shipped int4 build measured 985,675,969 weight bytes on disk (< 10^9) and /v1/bundle attested the same; the int8 build at 1,655,785,029 bytes was recorded unavailable",
+      "contract_text": "the on-disk weight size is the byte sum of the bundle's weight files; a build at or over the budget is recorded unavailable, never shipped",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:20:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 40
+    },
+    {
+      "id": "e25",
+      "obligation_ref": "o8",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/quant/heal_log.jsonl",
+      "behavior_text": "heal rounds 2 and 3 ran only with fresh deviation ids d11 and d13; agreement was computed on fit+selection only",
+      "contract_text": "a second heal of the same format is refused without a deviation id; heal agreement is computed on fit and selection records only and a test or held-out id in its input exits non-zero",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:10:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 41
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "drafted gold can be per-option probabilities (argmax = label), an option can be added in review and a question's or record's edits restored",
+      "caused_by": [
+        "d7"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "Jetson-ops questions are choice-only (true/false claims and level_0..n ratings become choice options) with required instructions",
+      "caused_by": [
+        "d8"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "the review page adds an \"I'm not sure.\" option with one click; drafters do not add it",
+      "caused_by": [
+        "d9"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "added",
+      "behavior_text": "final --knob unverified_gold=true (deviation id required) reports an UNVERIFIED c17 block on model-drafted test gold beside the human-gold headline",
+      "caused_by": [
+        "d10"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "added",
+      "behavior_text": "quantize --knob heal_mix sets a later heal round's bf16/Clef target mix; refused without a deviation id; the heal log records both mixes",
+      "caused_by": [
+        "d11"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "amended",
+      "behavior_text": "with --knob gating=clean, quantize's accuracy, calibration, heal trigger and agreement read only the contamination stage's clean sources; the guard is reported and a guard below stock-5 is a heal reason",
+      "caused_by": [
+        "d12"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "added",
+      "behavior_text": "quantize --knob heal_repeat repeats the heal set's domain and guard rows (deviation id and gating required)",
+      "caused_by": [
+        "d13"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b8",
+      "kind": "amended",
+      "behavior_text": "with --knob gating=clean-report the guard is reported beside stock's and never heals or fails a format; the un-healed int4 is the shipped build",
+      "caused_by": [
+        "d14"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b9",
+      "kind": "amended",
+      "behavior_text": "benchmark and final ask Clef with the bearer key and model header; final may run a second time only under a recorded deviation",
+      "caused_by": [
+        "d15"
+      ],
+      "evidence_refs": [
+        "e21"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b10",
+      "kind": "amended",
+      "behavior_text": "edge may measure the shipped quant on the AGX Orin with the fit fold as its probe set and the server's real cgroup cap",
+      "caused_by": [
+        "d16"
+      ],
+      "evidence_refs": [
+        "e19"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
+  "supersessions": []
+}

@@ -44,6 +44,8 @@ class TeacherConfig:
     engine: str
     joint: bool = True
     timeout: float = 120.0
+    auth_env: str | None = None  # NAME of the env var holding the bearer key
+    model_header: str | None = None  # sent as X-Lobes-Model
 
     def __post_init__(self) -> None:
         for name in ("base_url", "model", "repo_id", "revision", "build_id", "engine"):
@@ -151,7 +153,13 @@ def label_records(
     stage_dir = Path(stage_dir)
     cache = stage_dir / CACHE_DIR
     cache.mkdir(parents=True, exist_ok=True)
-    client = client or SystemOneClient(cfg.base_url, model=cfg.model, timeout=cfg.timeout)
+    client = client or SystemOneClient(
+        cfg.base_url,
+        model=cfg.model,
+        timeout=cfg.timeout,
+        auth_env=cfg.auth_env,
+        model_header=cfg.model_header,
+    )
 
     rows: list[dict[str, Any]] = []
     sent = hits = 0
@@ -182,6 +190,8 @@ def label_records(
         "status": "complete",
         **cfg.provenance(),
         "joint": cfg.joint,
+        "auth_env": cfg.auth_env,
+        "model_header": cfg.model_header,
         "records": len(records),
         "rows": len(rows),
         "labelled": len(rows) - errors,

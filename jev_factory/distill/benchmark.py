@@ -1,4 +1,4 @@
-"""Zero-shot benchmark of the teacher (Clef) and stock v21 on the fit/selection folds (t16).
+"""Zero-shot benchmark of the teacher (Clef) and the stock model on the fit/selection folds (t16).
 
 Each model is served in turn (one GPU job at a time): ``start`` brings the server up, every
 record of the requested folds is sent through :class:`SystemOneClient`, the answers are kept
@@ -467,3 +467,230 @@ def _gold_true(gold) -> bool | None:
 def _normalise(probs: Sequence[float]) -> list[float]:
     total = math.fsum(probs)
     return [p / total for p in probs]
+
+
+# ---------------------------------------------------------------------------
+# Stock reproduction (t13): does the served stock 2610 reproduce the card's JevBench w4096?
+# ---------------------------------------------------------------------------
+
+#: The 2610 card's ``eval/jevbench-w4096`` result: 180 right of 231 public tasks (0.7792).
+CARD_N = 231
+CARD_CORRECT = 180
+CARD_ACCURACY = CARD_CORRECT / CARD_N
+#: ``run_meta.json`` ``tasks_sha256`` of the card's task file (informational: our task file is
+#: the operator's :class:`Record` conversion, so its hash is recorded, not required to match).
+CARD_TASKS_SHA256 = "771ea8ac252af155606eeb09cad920b32b326c5c2b1e9c9af868be00fe8e2fad"
+#: The card publishes no interval for 180/231; this stage defines it as the two-sided 95%
+#: Wilson score interval of the *measured* correct/n (z = 1.96), a closed form that needs no
+#: resampling and behaves at the edges. Seed-to-seed spread on the card (179.7 +- 3.8 of 231)
+#: is context, not part of the test.
+CI_METHOD = "wilson-95"
+WILSON_Z = 1.959964
+#: Both relative to the run dir (``<work>``), beside the benchmark stage's own outputs.
+REPRODUCTION_REL = "distill/benchmark/stock_reproduction.json"
+STOCK_SETS_REL = "distill/benchmark/stock_measurements.json"
+PROBE_SET = "probe"
+JEVBENCH_SET = "jevbench"
+#: Sets whose per-record rows are never written out (the Clef probe set is private).
+PRIVATE_SETS = (PROBE_SET,)
+
+
+def wilson_interval(correct: int, n: int, z: float = WILSON_Z) -> tuple[float, float]:
+    """Two-sided Wilson score interval for ``correct`` of ``n`` (``(0.0, 1.0)`` for no data)."""
+    if n <= 0:
+        return 0.0, 1.0
+    p = correct / n
+    denom = 1.0 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def _top1_hit(rec: Record, qid: str, ans: Mapping[str, Any]) -> bool | None:
+    """Whether the answer's argmax is the gold, or ``None`` when it cannot be judged."""
+    gold = rec.gold.get(qid)
+    if gold is None or ans["error"] or qid not in rec.questions:
+        return None
+    if ans["kind"] == "noul":
+        want = _gold_true(gold)
+        return None if want is None or ans["p_true"] is None else (ans["p_true"] >= 0.5) == want
+    dist = ans["distribution"]
+    if not dist or gold.label not in dist:
+        return None
+    return max(dist, key=lambda k: dist[k]) == gold.label
+
+
+def top1_summary(records: Sequence[Record], rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Top-1 accuracy over the gold-bearing questions answered in *rows*, with a Wilson CI.
+
+    A question the server failed on counts as wrong (the card's 180/231 counts failures
+    against the model too); a question with no gold is left out of both counts.
+    """
+    by_id = {r.id: r for r in records}
+    correct = n = 0
+    for row in rows:
+        rec = by_id.get(row["record_id"])
+        if rec is None:
+            continue
+        for qid, ans in row["questions"].items():
+            hit = _top1_hit(rec, qid, ans)
+            if hit is None and ans["error"] and qid in rec.gold:
+                hit = False
+            if hit is None:
+                continue
+            n += 1
+            correct += int(hit)
+    lo, hi = wilson_interval(correct, n)
+    return {
+        "n": n,
+        "n_correct": correct,
+        "accuracy": correct / n if n else None,
+        "ci_low": lo if n else None,
+        "ci_high": hi if n else None,
+        "ci_method": CI_METHOD,
+    }
+
+
+def _file_sha256(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_jevbench(path: Path | str) -> list[Record]:
+    """Read the JevBench public tasks (231, :class:`Record` jsonl), refusing a sealed file name."""
+    path = Path(path)
+    stem = path.stem.lower()
+    if stem in SEALED_NAMES or any(stem.startswith(n + ".") for n in SEALED_NAMES):
+        raise _refuse(f"{path.name}: sealed side refused as a JevBench task file")
+    return check_records(read_records(path), origin=str(path))
+
+
+def reproduce_stock(
+    target: Target,
+    tasks: Sequence[Record],
+    *,
+    base_revision: str,
+    tasks_path: Path | str | None = None,
+    memory_probe: MemoryProbe | None = None,
+    client: SystemOneClient | None = None,
+) -> dict[str, Any]:
+    """Serve stock 2610 on the pinned base, score JevBench w4096 and compare with the card.
+
+    Records n, accuracy and the Wilson CI. ``base_mismatch`` is true when that CI excludes the
+    card's 0.7792 (180/231): the served base is then not the one the card was measured on, and
+    :func:`require_base_match` makes ``train`` refuse until a deviation is recorded. A task set
+    whose size differs from the card's 231 is refused outright (it is not the same benchmark).
+    """
+    if len(tasks) != CARD_N:
+        raise _refuse(
+            f"JevBench has {len(tasks)} tasks, the card's w4096 run has {CARD_N}",
+            "pass the 231 public tasks; a different set is not a reproduction",
+        )
+    if not base_revision:
+        raise _refuse("reproduction needs the pinned base revision", "pass base_revision")
+    res = benchmark_model(target, {JEVBENCH_SET: tasks}, memory_probe=memory_probe, client=client)
+    summary = top1_summary(tasks, res["predictions"])
+    lo, hi = summary["ci_low"], summary["ci_high"]
+    out = {
+        "stage": "distill-stock-reproduction",
+        "model": target.name,
+        "served_model": target.model,
+        "base_revision": base_revision,
+        "tasks_sha256": _file_sha256(Path(tasks_path)) if tasks_path else None,
+        "card_tasks_sha256": CARD_TASKS_SHA256,
+        "card": {"n": CARD_N, "n_correct": CARD_CORRECT, "accuracy": CARD_ACCURACY},
+        **summary,
+        "n_failed": res["n_failed"],
+        "latency": res["latency"],
+        "memory": res["memory"],
+        "base_mismatch": not (lo <= CARD_ACCURACY <= hi),
+    }
+    return out
+
+
+def write_reproduction(run_dir: Path | str, result: Mapping[str, Any]) -> Path:
+    """Persist the reproduction record where :func:`require_base_match` looks for it."""
+    import json
+
+    path = Path(run_dir) / REPRODUCTION_REL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+def require_base_match(
+    run_dir: Path | str, deviation_id: str | None = None, *, required: bool = False
+) -> None:
+    """Refuse (train) when the recorded reproduction marks a base mismatch, absent a deviation.
+
+    No record on disk is a refusal only when *required* (the distill run's train stage passes
+    it: an absent reproduction fails closed unless a deviation id is given); a bare train call
+    without a benchmark stage passes. A corrupt record is always refused, because it cannot be
+    trusted either way.
+    """
+    import json
+
+    path = Path(run_dir) / REPRODUCTION_REL
+    if not path.is_file():
+        if required and not (deviation_id or "").strip():
+            raise _refuse(
+                f"{path}: no stock reproduction record; the served base is unverified",
+                "run the distill benchmark stage (it reproduces JevBench w4096), or record a "
+                "deviation and pass its id (--deviation-id <id>)",
+            )
+        return
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+        mismatch = bool(rec["base_mismatch"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise _refuse(
+            f"{path}: unreadable stock reproduction record ({exc})",
+            "rerun the benchmark stage",
+        ) from exc
+    if mismatch and not (deviation_id or "").strip():
+        raise _refuse(
+            "stock 2610 did not reproduce the card's JevBench w4096 result (base-mismatch) "
+            "and no deviation id was given: "
+            f"{rec.get('n_correct')}/{rec.get('n')} with CI "
+            f"[{rec.get('ci_low'):.4f}, {rec.get('ci_high'):.4f}] "
+            f"excludes {CARD_ACCURACY:.4f}",
+            "record a deviation and pass its id (--deviation <id>), or fix the served base",
+        )
+
+
+def measure_stock(
+    target: Target,
+    sets: Mapping[str, Sequence[Record]],
+    *,
+    memory_probe: MemoryProbe | None = None,
+    client: SystemOneClient | None = None,
+    sealed: Sequence[SealedSide] = (),
+) -> dict[str, Any]:
+    """Measure the stock model itself on the Clef probe set and the Jetson-ops fit/selection folds.
+
+    *sets* maps ``probe`` / ``fit`` / ``selection`` to records; every figure comes from this
+    server session, none is copied from elsewhere. Sealed records are refused. The probe set is
+    private, so its per-record rows are left out of the result (counts and accuracy only).
+    """
+    unknown = set(sets) - {PROBE_SET, *FOLDS}
+    if unknown:
+        raise _refuse(f"unknown stock measurement sets {sorted(unknown)}")
+    if not sets:
+        raise _refuse("no sets given", "pass probe and/or fit and selection")
+    checked = {k: check_records(v, sealed=sealed, origin=f"set {k!r}") for k, v in sets.items()}
+    res = benchmark_model(target, checked, memory_probe=memory_probe, client=client)
+    out_sets: dict[str, Any] = {}
+    for name, recs in checked.items():
+        rows = [p for p in res["predictions"] if p["fold"] == name]
+        out_sets[name] = top1_summary(recs, rows)
+    public = [p for p in res["predictions"] if p["fold"] not in PRIVATE_SETS]
+    return {
+        "stage": "distill-stock-measurement",
+        "model": target.name,
+        "sets": out_sets,
+        "n_failed": res["n_failed"],
+        "latency": res["latency"],
+        "memory": res["memory"],
+        "predictions": public,
+    }

@@ -29,8 +29,29 @@ def _td(i: int, split: str = "train", state: str | None = None) -> records.Recor
     return records.from_typed_decisions_row(row)
 
 
+def _fit_slots(row: dict, slots: int = 24) -> dict:
+    """Trim a real row's question to the student's 24 slots (the real go_emotions has 28)."""
+    q = row["question"]
+    q = json.loads(q) if isinstance(q, str) else dict(q)
+    crit = q["criteria"]
+    if isinstance(crit, dict):
+        names = list(crit)[:slots]
+        q["criteria"] = {k: crit[k] for k in names}
+    else:
+        names = crit[:slots]
+        q["criteria"] = names
+    row["question"] = json.dumps(q)
+    soft = row.get("soft_label")
+    if soft:
+        soft = json.loads(soft) if isinstance(soft, str) else dict(soft)
+        row["soft_label"] = json.dumps({k: v for k, v in soft.items() if k in names})
+    return row
+
+
 def _jb(name: str, i: int, split: str = "train", licence: str | None = None) -> records.Record:
     row = _row(name)
+    if "go_emotions" in name:
+        _fit_slots(row)
     row["id"] = f"{row['source']}/{split}/{i}"
     row["split"] = split
     row["state"] = json.dumps(f"text {i}")
@@ -67,7 +88,9 @@ def _build(recs=None, **kw):
         ("apache-2.0", True),
         (" MIT ", True),
         ("cc-by-4.0 (PolyAI; mirror: mit)", False),
-        ("cc-by-4.0", False),
+        ("cc-by-4.0", True),
+        (" CC-BY-4.0 ", True),
+        ("cc-by-4.0 or mit", False),
         ("apache-2.0 OR gpl-3.0", False),
         ("mit/apache-2.0", False),
         ("", False),
@@ -343,3 +366,79 @@ def test_train_ids_from_dataset_and_from_directory(tmp_path):
     assert Path(out["train"]).name == "train.jsonl"
     man = json.loads(Path(out["manifest"]).read_text(encoding="utf-8"))
     assert man["counts"]["train"] == len(want)
+
+
+# --- t7: cc-by-4.0, slots, length reasons -----------------------------------
+
+
+def _ccby(i: int, attribution: str | None = "Ann Author, CC BY 4.0") -> records.Record:
+    return replace(_td(i), id=f"cc_{i:04d}", licence="CC-BY-4.0", attribution=attribution)
+
+
+def _many_options(i: int, n: int) -> records.Record:
+    base = _td(i)
+    q = records.Question(type="choice", criteria=tuple((f"o{k}", "") for k in range(n)))
+    return replace(
+        base, id=f"opt_{i}_{n}", questions={"q": q}, gold={"q": records.Gold(label="o0")}
+    )
+
+
+def test_allowlist_admits_apache_mit_ccby_only():
+    """AC1: apache-2.0, mit and cc-by-4.0 pass; anything else is refused."""
+    assert dataset.licence_allowed("CC-BY-4.0") is True
+    assert dataset.licence_allowed("cc-by-sa-4.0") is False
+    assert dataset.licence_allowed("gpl-3.0") is False
+
+
+def test_ccby_with_attribution_admitted_and_listed_in_manifest():
+    """AC1: licence table carries per-licence counts and attribution strings."""
+    recs = [_ccby(1), _ccby(2, "Bob, CC BY 4.0"), _td(3), replace(_td(4), licence="mit")]
+    ds = _build(recs)
+    table = ds.manifest["licence_table"]
+    assert table["cc-by-4.0"]["count"] == 2
+    assert table["cc-by-4.0"]["attributions"] == ["Ann Author, CC BY 4.0", "Bob, CC BY 4.0"]
+    assert table["apache-2.0"]["count"] == 1
+    assert table["mit"]["count"] == 1
+    assert table["mit"]["attributions"] == []
+
+
+def test_ccby_without_attribution_is_refused_by_the_build():
+    """AC1: a cc-by-4.0 record lacking attribution never reaches a side."""
+    bad = _ccby(1)
+    object.__setattr__(bad, "attribution", None)  # bypass Record.validate to test the stage
+    ds = _build([bad, _td(2)])
+    seen = {r.id for r in ds.all_records()} | set(ds.held_out.ids) | set(ds.test.ids)
+    assert bad.id not in seen
+    assert ds.manifest["refused"]["missing_attribution"] == 1
+    assert ds.manifest["licence_table"].get("cc-by-4.0") is None
+
+
+def test_other_licence_is_refused_and_counted():
+    ds = _build([replace(_td(1), licence="gpl-3.0"), _td(2)])
+    assert ds.manifest["refused"]["licence"] == 1
+
+
+def test_max_slots_default_is_24_and_a_knob():
+    """AC2: 24 options pass, 25 are refused as over_slots; the knob is recorded."""
+    assert dataset.DEFAULT_MAX_SLOTS == 24
+    ok, over = _many_options(1, 24), _many_options(2, 25)
+    ds = _build([ok, over])
+    seen = {r.id for r in ds.all_records()} | set(ds.held_out.ids) | set(ds.test.ids)
+    assert ok.id in seen
+    assert over.id not in seen
+    assert ds.manifest["refused"]["over_slots"] == 1
+    assert ds.manifest["max_slots"] == 24
+    ds = _build([over], max_slots=25)
+    assert ds.manifest["refused"]["over_slots"] == 0
+    assert ds.manifest["knobs"]["max_slots"] == 25
+
+
+def test_over_length_counted_by_reason_and_never_truncated():
+    """AC2: over_length is counted in the manifest; kept records are whole."""
+    long_state = " ".join(["w"] * 5000)
+    ds = _build(_corpus() + [_td(700, state=long_state)])
+    assert ds.manifest["refused"]["over_length"] == 1
+    assert ds.manifest["refused"]["over_slots"] == 0
+    assert ds.manifest["max_tokens"] == 4096
+    for r in ds.all_records():
+        assert _words(dataset.render_prompt(r)) <= 4096

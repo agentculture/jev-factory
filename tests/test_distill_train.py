@@ -579,3 +579,46 @@ def test_vector_is_not_fitted_over_an_open_label_set():
     assert out["by_kind"]["choice"]["temperature"] == pytest.approx(
         cal.fit_temperature(fit["choice"])
     )
+
+
+@pytest.mark.parametrize("allow", [False, True])
+def test_served_scorer_passes_allow_foreign_to_the_gpu_guard(tmp_path, monkeypatch, allow):
+    seen = {}
+
+    class Stop(Exception):
+        pass
+
+    def guard(stage, **kw):
+        seen.update(stage=stage, **kw)
+        raise Stop
+
+    monkeypatch.setattr(T.gpu, "assert_gpu_free", guard)
+    (tmp_path / "c000" / "bundle").mkdir(parents=True)
+    score = T.served_scorer(
+        env=None, jobdir=tmp_path, port=1, base_revision="0" * 40, allow_foreign=allow
+    )
+    candidate = T.Candidate("c000", {})
+    checkpoint = tmp_path / "c000" / "checkpoint"
+    with pytest.raises(Stop):
+        score(candidate, checkpoint, {})
+    assert seen == {"stage": "measure", "allow_foreign": allow}
+
+
+def test_a_score_answer_maps_levels_by_description_not_by_position():
+    """A stored prediction file has its keys sorted; the levels must survive that."""
+    q = Question("score", [("0", "No sign."), ("1", "Mild."), ("2", "Clearly unhappy.")])
+    rec = Record(
+        id="r",
+        state="s",
+        questions={"q": q},
+        gold={"q": Gold(label="0")},
+        split="train",
+        source="src",
+        licence="mit",
+        gold_provenance="human",
+    )
+    served = {"No sign.": 0.7, "Mild.": 0.2, "Clearly unhappy.": 0.1}
+    stored = dict(sorted(served.items()))  # "Clearly unhappy." first
+    for dist in (served, stored):
+        assert T._answer_probs(rec, "q", {"distribution": dist}) == {"0": 0.7, "1": 0.2, "2": 0.1}
+    assert T._answer_probs(rec, "q", {"distribution": {"a": 0.5, "b": 0.3, "c": 0.2}}) is None

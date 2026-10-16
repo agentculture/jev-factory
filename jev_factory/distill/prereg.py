@@ -16,10 +16,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from jev_factory.backbones.pointer.quantized import SIZE_BUDGET_BYTES
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.factory import safepath
 
-SCHEMA_VERSION = 1
+#: 2 = the Jetson-ops (#20) shape: ``bars.c17`` replaces #18's gap-closure / latency bars as the
+#: run's success bars and the upstream seed is strands-decider-2B-qwen3.5-v1-2610. A v1
+#: (#18-shape) file is refused by name, never reinterpreted.
+SCHEMA_VERSION = 2
 PREREG_REL = "distill/prereg.json"
 LOCK_REL = "distill/prereg.lock.json"
 
@@ -34,15 +38,15 @@ KNOB_NAMES: tuple[str, ...] = (
     "lr",
 )
 TEACHER_FILTERS = ("all", "agrees_with_gold")
-REFERENCE_ROWS = ("clef", "stock_v21")
+REFERENCE_ROWS = ("clef", "stock")
 
 #: bar name -> (kind, bound); kind "rate" in [0, 1], "pos" > 0, "flag" must be bool.
 TEST_BARS: dict[str, str] = {
     "accuracy_diff_ci_lower_min": "rate",
     "gap_closure_min": "rate",
     "ece_max": "rate",
-    "ece_no_worse_than_v21": "flag",
-    "confident_wrong_no_worse_than_v21": "flag",
+    "ece_no_worse_than_stock": "flag",
+    "confident_wrong_no_worse_than_stock": "flag",
     "latency_ratio_max": "pos",
 }
 QUANT_BARS: dict[str, str] = {
@@ -50,6 +54,48 @@ QUANT_BARS: dict[str, str] = {
     "ece_max": "rate",
     "heal_rounds_max": "int",
 }
+#: The c17 success bars (issue #20), pre-registered per build: ``bf16`` (the student) and
+#: ``quant`` (the shipped quantized student), on the human-gold Jetson-ops test side.
+C17_BUILDS: tuple[str, ...] = ("bf16", "quant")
+#: top-1 must beat stock by at least this many points ...
+C17_STOCK_MARGIN_POINTS = 10.0
+#: ... and may trail Clef W4A16 by at most this many points.
+C17_CLEF_W4A16_ALLOWANCE_POINTS = 5.0
+C17_AGREEMENT_MIN = 0.97
+#: bar name -> (kind, weakest allowed value); ``min`` bars may be stricter (larger), ``max``
+#: bars stricter (smaller), but a registration weaker than this floor is refused.
+C17_TOP1_BARS: dict[str, tuple[str, float]] = {
+    "top1_over_stock_min_points": ("min", C17_STOCK_MARGIN_POINTS),
+    "top1_under_clef_w4a16_max_points": ("max", C17_CLEF_W4A16_ALLOWANCE_POINTS),
+}
+C17_QUANT_ONLY_BARS: dict[str, tuple[str, float]] = {
+    "quant_vs_bf16_agreement_min": ("min", C17_AGREEMENT_MIN),
+    "weight_bytes_max": ("max", float(SIZE_BUDGET_BYTES)),
+}
+#: Latency is reported, never gated: each build lists the statistics it must report.
+C17_LATENCY_REPORTED: tuple[str, ...] = ("median", "p95")
+V1_REFUSAL = (
+    "this is a #18-shape (schema_version 1) distill pre-registration; the Jetson-ops run "
+    "(#20) needs schema_version 2 with bars.c17"
+)
+
+
+def example_c17_bars() -> dict[str, Any]:
+    """The c17 bars as pre-registered for the Jetson-ops run (a draft until the lock)."""
+    out: dict[str, Any] = {}
+    for build in C17_BUILDS:
+        bars: dict[str, Any] = {
+            "top1_over_stock_min_points": C17_STOCK_MARGIN_POINTS,
+            "top1_under_clef_w4a16_max_points": C17_CLEF_W4A16_ALLOWANCE_POINTS,
+        }
+        if build == "quant":
+            bars["quant_vs_bf16_agreement_min"] = C17_AGREEMENT_MIN
+            bars["weight_bytes_max"] = SIZE_BUDGET_BYTES
+        bars["latency_reported"] = list(C17_LATENCY_REPORTED)
+        out[build] = bars
+    return out
+
+
 #: Question kinds the decision gate is fitted for (deviation d4), one threshold set each.
 GATE_KINDS: tuple[str, ...] = ("choice", "noul", "score")
 #: The gate thresholds swept per kind (floor, margin, max_entropy; ``None`` = disabled).
@@ -133,9 +179,12 @@ def _nonempty_str(v: Any) -> bool:
 #: Where every ``upstream_knobs`` value in :func:`example_doc` was read (once, by hand):
 #: ``<UPSTREAM_SOURCE>/<source_file>``, key ``source_key``. Placeholders for the operator to
 #: confirm before the lock; nothing fetches these at run time.
-UPSTREAM_SOURCE = "https://huggingface.co/StrandsAgents/strands-decider-2B-hobson-v21/raw/main"
+UPSTREAM_MODEL = "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610"
+UPSTREAM_REVISION = "216d1ccb46a9e9b036eb9187b248db98480f77d4"
+UPSTREAM_SOURCE = f"https://huggingface.co/{UPSTREAM_MODEL}/raw/{UPSTREAM_REVISION}"
 TRAIN_CONFIG = "train_config.json"
 DECIDER_CONFIG = "strands_decider_config.json"
+ADAPTER_CONFIG = "lora/adapter_config.json"
 #: Where the heal recipe in :func:`example_doc` comes from: nvsh's d18, a short bf16
 #: continuation (not quantization-aware training) from the healed model's own checkpoint.
 HEAL_SOURCE = (
@@ -144,8 +193,18 @@ HEAL_SOURCE = (
     "heal = 1 epoch, lr 5e-5, continuing from the model's own checkpoint on the frozen "
     "train set (a plain continued fine-tune, not QAT)"
 )
-#: v21's ``lora_targets`` (train_config.json and strands_decider_config.json agree).
-V21_LORA_TARGETS = (
+#: The heal's soft-target mix (c10): weight on the bf16 distilled student's per-option
+#: distribution and on Clef's. A draft for the operator to confirm before the lock.
+HEAL_MIX = {"bf16_student": 0.5, "clef": 0.5}
+HEAL_MIX_SOURCE = (
+    "spec 2026-10-15-orin-nano-jetson-ops-decider c10: heal trains the quantized student "
+    "against the bf16 distilled student's and Clef's soft labels; the equal split is an "
+    "operator placeholder until the lock"
+)
+#: The stock model's ``lora_targets``: exactly the 12 modules of 2610's
+#: ``lora/adapter_config.json`` ``target_modules`` (its train_config.json and
+#: strands_decider_config.json list the same set).
+STOCK_LORA_TARGETS = (
     "q_proj",
     "k_proj",
     "v_proj",
@@ -161,8 +220,16 @@ V21_LORA_TARGETS = (
 )
 
 
+#: ``temperature_by_kind`` in 2610's strands_decider_config.json (the stock calibration).
+STOCK_TEMPERATURE_BY_KIND = {
+    "noul": 1.0704394404346953,
+    "choice": 0.8629556148274228,
+    "score": 1.834409163182587,
+}
+
+
 def example_doc() -> dict[str, Any]:
-    """A valid pre-registration draft, seeded from strands-decider-2B-hobson-v21.
+    """A valid pre-registration draft, seeded from strands-decider-2B-qwen3.5-v1-2610 @ 216d1ccb.
 
     Carries every hyperparameter the pointer distill trainer resolves (``init_mode`` in the
     grid; the fixed upstream values, each citing :data:`UPSTREAM_SOURCE` file and key) and
@@ -183,24 +250,32 @@ def example_doc() -> dict[str, Any]:
         ("warmup_ratio", 0.03, TRAIN_CONFIG, "warmup_ratio"),
         ("max_grad_norm", 1.0, TRAIN_CONFIG, "max_grad_norm"),
         ("max_length", 4096, TRAIN_CONFIG, "max_length"),
-        ("seed", 5, TRAIN_CONFIG, "seed"),
+        ("seed", 0, TRAIN_CONFIG, "seed"),
         ("shuffle_options", True, TRAIN_CONFIG, "shuffle_options"),
         ("reverse_score_prob", 0.5, TRAIN_CONFIG, "reverse_score_prob"),
-        ("lora_r", 16, TRAIN_CONFIG, "lora_r"),
-        ("lora_alpha", 32, TRAIN_CONFIG, "lora_alpha"),
-        # train_config.json has no lora_dropout; the model config carries v21's value.
-        ("lora_dropout", 0.05, DECIDER_CONFIG, "lora_dropout"),
-        ("lora_targets", list(V21_LORA_TARGETS), TRAIN_CONFIG, "lora_targets"),
+        # 2610 trains with r48 / alpha 96: the adapter file and strands_decider_config.json say
+        # so (its train_config.json still lists the r16 / alpha 32 of the earlier recipe).
+        ("lora_r", 48, ADAPTER_CONFIG, "r"),
+        ("lora_alpha", 96, ADAPTER_CONFIG, "lora_alpha"),
+        ("lora_dropout", 0.05, ADAPTER_CONFIG, "lora_dropout"),
+        ("lora_targets", list(STOCK_LORA_TARGETS), ADAPTER_CONFIG, "target_modules"),
+        (
+            "temperature_by_kind",
+            dict(STOCK_TEMPERATURE_BY_KIND),
+            DECIDER_CONFIG,
+            "temperature_by_kind",
+        ),
     ]
     return {
         "schema_version": SCHEMA_VERSION,
         "bars": {
+            "c17": example_c17_bars(),
             "test": {
                 "accuracy_diff_ci_lower_min": 0.0,
                 "gap_closure_min": 0.5,
                 "ece_max": 0.10,
-                "ece_no_worse_than_v21": True,
-                "confident_wrong_no_worse_than_v21": True,
+                "ece_no_worse_than_stock": True,
+                "confident_wrong_no_worse_than_stock": True,
                 "latency_ratio_max": 0.2,
             },
             "quant": {
@@ -226,12 +301,16 @@ def example_doc() -> dict[str, Any]:
             "init_mode": ["continue", "merge_fresh"],
         },
         # The one heal round (distill quant): one more pass from the winner's own checkpoint
-        # on the same frozen train set, with the winner's other knobs. Each value must be in
-        # knob_grid (the trainer refuses an unregistered value).
+        # on the train records, with the winner's other knobs. Each value must be in
+        # knob_grid (the trainer refuses an unregistered value). ``mix`` weighs the heal's
+        # soft targets: the bf16 distilled student's and Clef's per-option distributions
+        # (c10); the 0.5 / 0.5 split is an operator placeholder until the lock.
         "heal": {
             "epochs": 1,
             "lr": 5e-5,
             "init_mode": "continue",
+            "mix": dict(HEAL_MIX),
+            "mix_source": HEAL_MIX_SOURCE,
             "source": HEAL_SOURCE,
         },
         # The decision gate (deviation d4): per question kind, sweep floor / margin /
@@ -250,8 +329,8 @@ def example_doc() -> dict[str, Any]:
         },
         "reference_rows": {
             "clef": {"model": "Clef 27B", "role": "teacher"},
-            "stock_v21": {
-                "model": "StrandsAgents/strands-decider-2B-hobson-v21",
+            "stock": {
+                "model": f"{UPSTREAM_MODEL}@{UPSTREAM_REVISION}",
                 "role": "stock baseline",
             },
         },
@@ -272,10 +351,58 @@ def _check_bar(section: str, name: str, kind: str, value: Any) -> None:
         raise _err(f"bars.{section}.{name} is invalid ({kind} expected)")
 
 
+def _check_c17_bar(build: str, name: str, spec: tuple[str, float], value: Any) -> None:
+    sense, limit = spec
+    where = f"bars.c17.{build}.{name}"
+    if name == "weight_bytes_max":
+        if not _is_int(value):
+            raise _err(f"{where} must be an integer number of bytes")
+    elif not _is_num(value):
+        raise _err(f"{where} must be a number")
+    weaker = value < limit if sense == "min" else value > limit
+    if weaker:
+        raise _err(
+            f"{where} is {value}, weaker than the c17 bar ({'>=' if sense == 'min' else '<='} "
+            f"{limit:g})",
+            "c17 bars may be tightened, never loosened; a change is a recorded deviation",
+        )
+
+
+def _c17_build(build: str, entry: Any) -> dict[str, Any]:
+    if not isinstance(entry, dict):
+        raise _err(f"bars.c17.{build} must be an object")
+    spec = dict(C17_TOP1_BARS)
+    if build == "quant":
+        spec.update(C17_QUANT_ONLY_BARS)
+    missing = [n for n in (*spec, "latency_reported") if n not in entry]
+    if missing:
+        raise _err(f"bars.c17.{build} missing: {', '.join(missing)}")
+    extra = sorted(set(entry) - set(spec) - {"latency_reported"})
+    if extra:
+        raise _err(f"bars.c17.{build} has unknown bars: {', '.join(extra)}")
+    for name, limit in spec.items():
+        _check_c17_bar(build, name, limit, entry[name])
+    if entry["latency_reported"] != list(C17_LATENCY_REPORTED):
+        raise _err(
+            f"bars.c17.{build}.latency_reported must be exactly {list(C17_LATENCY_REPORTED)} "
+            "(latency is reported with no bar)"
+        )
+    return dict(entry)
+
+
+def _c17(doc: Any) -> dict[str, Any]:
+    if not isinstance(doc, dict):
+        raise _err("bars.c17 must be an object")
+    extra = sorted(set(doc) - set(C17_BUILDS))
+    if extra:
+        raise _err(f"bars.c17 has unknown builds: {', '.join(extra)}")
+    return {build: _c17_build(build, doc.get(build)) for build in C17_BUILDS}
+
+
 def _bars(doc: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(doc, dict):
         raise _err("bars must be an object")
-    out: dict[str, dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = {"c17": _c17(doc.get("c17"))}
     for section, spec in (("test", TEST_BARS), ("quant", QUANT_BARS)):
         entry = doc.get(section)
         if not isinstance(entry, dict):
@@ -409,6 +536,8 @@ def validate(doc: Any) -> DistillPrereg:
     """Validate a parsed distill pre-registration; raise CliError on the first problem."""
     if not isinstance(doc, dict):
         raise _err("distill pre-registration must be a JSON object")
+    if doc.get("schema_version") == 1:
+        raise _err(V1_REFUSAL, "re-seed the file from `example_doc()` (schema_version 2)")
     if doc.get("schema_version") != SCHEMA_VERSION:
         raise _err(f"schema_version must be {SCHEMA_VERSION}")
     return DistillPrereg(

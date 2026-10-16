@@ -1,42 +1,55 @@
-"""The distill final report: a paired gate over Clef, stock v21 and the deployed student.
+"""The distill final report: the c17 bars over Clef, the stock model and both student builds.
 
 Built from the single final measurement (:mod:`jev_factory.distill.final`), never from a new
-one. Every item of a pool is one gold-bearing question ``(record id, qid)``; the three models
-are **resampled jointly**: each bootstrap draw picks one list of item indices and every model
-(and every difference between models) is computed on those same indices, so the CIs are on
-paired per-item differences.
+one. Every item of a pool is one gold-bearing question ``(record id, qid)``; the models are
+**resampled jointly**: each bootstrap draw picks one list of item indices and every model
+(and every difference or agreement between models) is computed on those same indices, so the
+CIs are on paired per-item differences.
+
+Models: Clef (W4A16, as served), the stock model, the distilled **bf16 student**
+(``student_bf16``) and the **shipped quant** (``student``, the deployed artifact).
 
 Pools, per sealed side (``test`` and ``held_out``):
 
-* ``headline``: records whose gold is **human** (``Record.gold_provenance == "human"``) and
-  whose source :func:`jev_factory.distill.contamination.check_sources` marks ``clean``. The
-  c42 bars are computed here, on the test side only (held-out is reported, not gated).
-* ``overlapping`` and ``v21_evaluated``: human-gold records from sources v21 trained on (or a
-  Clef Decision Index suite), or that v21 only evaluated on. Reported separately, not gated.
-* ``model_generated``: records whose gold a model produced (LocalLLaMA/typed-decisions). Their
-  accuracy is **agreement** with that gold, reported as a secondary table, never gated.
+* ``headline``: records whose gold is **human** (``Record.gold_provenance == "human"``), whose
+  id the operator **approved** in the gold ledger (:func:`jev_factory.review.gold.approved_ids`)
+  and whose source :func:`jev_factory.distill.contamination.check_sources` marks ``clean``.
+  The c17 bars are computed here, on the test side only, with n.
+* ``overlapping`` and ``stock_evaluated``: approved human-gold records from sources the stock
+  model trained on, or that it only evaluated on. Reported separately, not gated.
+* ``unapproved_human``: records labelled human gold without an approve entry. They never
+  count as human gold (the final refuses such a test record outright); reported only.
+* ``model_generated``: records whose gold a model produced. Their accuracy is **agreement**
+  with that gold, reported as a secondary table, never gated.
 
-Every bar is read from the locked distill pre-registration (``bars.test`` for c42,
-``bars.quant`` for c43) and carries its value, n and CI. c43 (quant drop vs its own bf16,
-heal count, recalibrated ECE) is read from ``distill/quant/quant_manifest.json``, not
-re-measured. A bar that cannot be computed (no items, no v21-to-Clef gap) is a miss with the
-reason; a miss is recorded as a miss and the report is still written. Student accuracy above
-v21 with ECE above v21 is flagged as a regression. Latency (median/p95) and peak memory are
-reported for all three models with the host they ran on, so "same box" is checkable.
-Given the fitted decision gate (deviation d4, ``distill/gate/gate.json``), the student's
-calibrated final predictions are gated per kind and their coverage and selective accuracy
-(with CIs) are reported under ``decision_gate``; reported only, not a c42/c43 bar.
+c17 (the run's success bars, ``bars.c17`` of the locked, hashed distill pre-registration, cited
+by sha256), for **each** build (``bf16`` and ``quant``): top-1 over stock (points, >= the
+bar) and top-1 under Clef W4A16 (points, <= the bar); for the quant also its agreement with the
+bf16 student (same draws) and its attested weight bytes (strictly below the bar: '< 1 GB' means
+< 10^9 bytes). Every bar carries its value, n and paired-bootstrap CI and is compared on its
+point value. A bar that cannot be computed is a miss with the reason; a miss is recorded as a
+miss and the report is still written. A build with higher accuracy and higher ECE than stock is
+flagged as a regression and fails the run.
 
-A failed or unanswered question counts as wrong for accuracy and confident-wrong and is left
-out of ECE (it has no confidence); the per-model ``unanswered`` count says how many.
-Stdlib only.
+Reported, never pass/fail: latency median/p95 per build (and per model with its host, so "same
+box" is checkable) and peak memory; the Clef probe-set table (general ability, loss of it
+measured, nothing gated); the #18-shape ``c42`` (``bars.test``) and ``c43`` (``bars.quant``)
+tables, kept for comparison with the earlier run (c43 is read from
+``distill/quant/quant_manifest.json``); and, given the fitted decision gate (deviation d4,
+``distill/gate/gate.json``), the shipped student's per-kind coverage and selective accuracy
+under ``decision_gate``.
+
+A failed or unanswered question counts as wrong for accuracy and confident-wrong, as a
+disagreement for quant-vs-bf16 agreement, and is left out of ECE (it has no confidence); the
+per-model ``unanswered`` count says how many. Stdlib only.
 """
 
 from __future__ import annotations
 
 import math
 import random
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from jev_factory.core import metrics as core_metrics
@@ -47,9 +60,15 @@ from jev_factory.distill import train as dtrain
 from jev_factory.distill.records import JEV_BENCH_SOURCE, Record
 
 CLEF = "clef"
-V21 = "stock_v21"
+STOCK = "stock"
+#: The shipped quantized student (the deployed artifact the final attested).
 STUDENT = "student"
-MODELS = (CLEF, V21, STUDENT)
+#: The distilled bf16 student the quant was built from.
+STUDENT_BF16 = "student_bf16"
+MODELS = (CLEF, STOCK, STUDENT_BF16, STUDENT)
+#: c17 build (``bars.c17`` key) -> the model row it is measured on.
+C17_MODELS = {"bf16": STUDENT_BF16, "quant": STUDENT}
+AGREEMENT = "quant_vs_bf16_agreement"
 #: The extra row when Clef has a calibration of its own (reported, never gated).
 CLEF_CALIBRATED = "clef_calibrated"
 
@@ -57,12 +76,17 @@ GATED_SIDE = "test"
 SIDES = ("test", "held_out")
 HEADLINE = "headline"
 OVERLAPPING = "overlapping"
-V21_EVALUATED = "v21_evaluated"
+STOCK_EVALUATED = "stock_evaluated"
+UNAPPROVED = "unapproved_human"
 MODEL_GENERATED = "model_generated"
-POOLS = (HEADLINE, OVERLAPPING, V21_EVALUATED, MODEL_GENERATED)
+POOLS = (HEADLINE, OVERLAPPING, STOCK_EVALUATED, UNAPPROVED, MODEL_GENERATED)
 
 PASSED = "pass"  # a bar result, not a secret
 MISSED = "miss"
+#: A row that is reported with no pass/fail (latency).
+REPORTED = "reported"
+#: Point comparisons tolerate float noise (``100 * (0.85 - 0.75)`` is not exactly 10).
+_EPS = 1e-9
 
 Unit = tuple[bool, "float | None"]
 
@@ -112,13 +136,18 @@ def source_table(
     return table
 
 
-def pool_of(rec: Record, sources: Mapping[str, Mapping[str, Any]]) -> str:
+def pool_of(
+    rec: Record, sources: Mapping[str, Mapping[str, Any]], approved: Collection[str]
+) -> str:
+    """The pool *rec* is reported in; human gold counts only with an approve entry."""
     if rec.gold_provenance != "human":
         return MODEL_GENERATED
+    if rec.id not in approved:
+        return UNAPPROVED
     status = sources[rec.source]["status"]
     if status == contamination.CLEAN:
         return HEADLINE
-    return OVERLAPPING if status == contamination.OVERLAPPING else V21_EVALUATED
+    return OVERLAPPING if status == contamination.OVERLAPPING else STOCK_EVALUATED
 
 
 # --------------------------------------------------------------------- per-item outcomes
@@ -134,18 +163,18 @@ def item_keys(records: Sequence[Record]) -> list[tuple[str, str]]:
     return keys
 
 
-def outcomes(
+def predicted(
     records: Sequence[Record],
     rows: Sequence[Mapping[str, Any]],
     calibration: Mapping[str, Any] | None,
-) -> dict[tuple[str, str], Unit]:
-    """``(record id, qid) -> (correct, top probability or None)`` for one model.
+) -> dict[tuple[str, str], tuple[Any, float | None]]:
+    """``(record id, qid) -> (top label, its probability)``, ``(None, None)`` when unanswered.
 
-    *calibration* (``temperature_by_kind`` / ``vector_by_kind``) is applied when given; an
-    unanswered question is ``(False, None)``.
+    Only gold-bearing questions are listed. *calibration* (``temperature_by_kind`` /
+    ``vector_by_kind``) is applied when given.
     """
     by_id = {str(r.get("record_id")): r for r in rows}
-    out: dict[tuple[str, str], Unit] = {}
+    out: dict[tuple[str, str], tuple[Any, float | None]] = {}
     for rec in records:
         row = by_id.get(rec.id) or {}
         answers = row.get("questions") or {}
@@ -153,7 +182,36 @@ def outcomes(
             gold = dtrain._gold_label(rec, qid)
             if gold is None:
                 continue
-            out[(rec.id, qid)] = _outcome(rec, qid, gold, row, answers.get(qid), calibration)
+            out[(rec.id, qid)] = _top(rec, qid, gold, row, answers.get(qid), calibration)
+    return out
+
+
+def outcomes(
+    records: Sequence[Record],
+    rows: Sequence[Mapping[str, Any]],
+    calibration: Mapping[str, Any] | None,
+) -> dict[tuple[str, str], Unit]:
+    """``(record id, qid) -> (correct, top probability or None)`` for one model.
+
+    *calibration* is applied when given; an unanswered question is ``(False, None)``.
+    """
+    gold = {(rec.id, qid): dtrain._gold_label(rec, qid) for rec in records for qid in rec.questions}
+    return {
+        key: (label is not None and label == gold[key], conf)
+        for key, (label, conf) in predicted(records, rows, calibration).items()
+    }
+
+
+def agreement_series(
+    keys: Sequence[tuple[str, str]],
+    a: Mapping[tuple[str, str], tuple[Any, float | None]],
+    b: Mapping[tuple[str, str], tuple[Any, float | None]],
+) -> list[float]:
+    """Per item, 1.0 when both models answered with the same top label, else 0.0."""
+    out = []
+    for key in keys:
+        la, lb = a.get(key, (None, None))[0], b.get(key, (None, None))[0]
+        out.append(1.0 if la is not None and la == lb else 0.0)
     return out
 
 
@@ -177,21 +235,20 @@ def _calibrated_item(
     return item
 
 
-def _outcome(
+def _top(
     rec: Record,
     qid: str,
     gold: Any,
     row: Mapping[str, Any],
     ans: Mapping[str, Any] | None,
     calibration: Mapping[str, Any] | None,
-) -> Unit:
-    """One gold-bearing question's ``(correct, top probability or None)``."""
+) -> tuple[Any, float | None]:
+    """One gold-bearing question's ``(top label, top probability)`` or ``(None, None)``."""
     probs = _answered_probs(rec, qid, row, ans)
     if probs is None:
-        return (False, None)
+        return (None, None)
     item = _calibrated_item(rec, qid, probs, gold, calibration)
-    label, conf = core_metrics.top_candidate({name: item.probs[name] for name in item.labels})
-    return (label == gold, conf)
+    return core_metrics.top_candidate({name: item.probs[name] for name in item.labels})
 
 
 def _mean(values: Sequence[float]) -> float | None:
@@ -217,17 +274,50 @@ def _diff(a: float | None, b: float | None) -> float | None:
     return None if a is None or b is None else a - b
 
 
-def gap_closure(student: float | None, v21: float | None, clef: float | None) -> float | None:
-    """Share of the v21-to-Clef accuracy gap the student closes; ``None`` without a gap."""
-    if student is None or v21 is None or clef is None or clef - v21 <= 0:
+def gap_closure(student: float | None, stock: float | None, clef: float | None) -> float | None:
+    """Share of the stock-to-Clef accuracy gap the student closes; ``None`` without a gap."""
+    if student is None or stock is None or clef is None or clef - stock <= 0:
         return None
-    return (student - v21) / (clef - v21)
+    return (student - stock) / (clef - stock)
+
+
+def _points(value: float | None) -> float | None:
+    return None if value is None else 100.0 * value
+
+
+def c17_key(build: str, name: str) -> str:
+    """The joint-statistics key of one c17 quantity of *build* (``bf16`` or ``quant``)."""
+    return f"c17.{build}.{name}"
+
+
+def _c17_stats(stats: Mapping[str, Mapping[str, float | None]]) -> dict[str, float | None]:
+    """Top-1 over stock and under Clef, in points, for every build measured."""
+    out: dict[str, float | None] = {}
+    for build, model in C17_MODELS.items():
+        if model not in stats:
+            continue
+        acc = stats[model]["accuracy"]
+        if STOCK in stats:
+            out[c17_key(build, "top1_over_stock_points")] = _points(
+                _diff(acc, stats[STOCK]["accuracy"])
+            )
+        if CLEF in stats:
+            out[c17_key(build, "top1_under_clef_points")] = _points(
+                _diff(stats[CLEF]["accuracy"], acc)
+            )
+    return out
 
 
 def joint_stats(
-    per_model: Mapping[str, Sequence[Unit]], threshold: float
+    per_model: Mapping[str, Sequence[Unit]],
+    threshold: float,
+    series: Mapping[str, Sequence[float]] | None = None,
 ) -> Callable[[Sequence[int]], dict[str, float | None]]:
-    """The statistic of one draw: every model and every difference on the SAME indices."""
+    """The statistic of one draw: every model, difference and *series* on the SAME indices.
+
+    *series* are per-item values (e.g. quant-vs-bf16 agreement) whose mean is a statistic.
+    """
+    series = series or {}
 
     def stat(indices: Sequence[int]) -> dict[str, float | None]:
         out: dict[str, float | None] = {}
@@ -236,15 +326,18 @@ def joint_stats(
             stats[name] = model_stats([units[i] for i in indices], threshold)
             for metric, value in stats[name].items():
                 out[f"{name}.{metric}"] = value
-        if {CLEF, V21, STUDENT} <= set(stats):
-            s, v, c = stats[STUDENT], stats[V21], stats[CLEF]
-            out["accuracy_diff_student_v21"] = _diff(s["accuracy"], v["accuracy"])
-            out["accuracy_diff_clef_v21"] = _diff(c["accuracy"], v["accuracy"])
+        for name, values in series.items():
+            out[name] = _mean([values[i] for i in indices])
+        if {CLEF, STOCK, STUDENT} <= set(stats):
+            s, v, c = stats[STUDENT], stats[STOCK], stats[CLEF]
+            out["accuracy_diff_student_stock"] = _diff(s["accuracy"], v["accuracy"])
+            out["accuracy_diff_clef_stock"] = _diff(c["accuracy"], v["accuracy"])
             out["gap_closure"] = gap_closure(s["accuracy"], v["accuracy"], c["accuracy"])
-            out["ece_diff_student_v21"] = _diff(s["ece"], v["ece"])
-            out["confident_wrong_diff_student_v21"] = _diff(
+            out["ece_diff_student_stock"] = _diff(s["ece"], v["ece"])
+            out["confident_wrong_diff_student_stock"] = _diff(
                 s["confident_wrong"], v["confident_wrong"]
             )
+        out.update(_c17_stats(stats))
         return out
 
     return stat
@@ -341,6 +434,9 @@ def _le(a: float | None, b: float | None) -> bool | None:
     return None if a is None or b is None else a <= b
 
 
+LATENCY_NOT_GATED = "latency is reported, never gated (bars.c17 latency_reported)"
+
+
 def latency_ratio(runtime: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     """Student median latency over Clef median latency, from the same final run."""
     s = ((runtime.get(STUDENT) or {}).get("latency") or {}).get("median_s")
@@ -356,11 +452,11 @@ def c42_bars(
     runtime: Mapping[str, Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     """Every ``bars.test`` bar, computed from one pool's paired-bootstrap statistics."""
-    diff = stats.get("accuracy_diff_student_v21")
+    diff = stats.get("accuracy_diff_student_stock")
     gap = stats.get("gap_closure")
-    s_ece, v_ece = stats.get(f"{STUDENT}.ece"), stats.get(f"{V21}.ece")
+    s_ece, v_ece = stats.get(f"{STUDENT}.ece"), stats.get(f"{STOCK}.ece")
     s_cw = stats.get(f"{STUDENT}.confident_wrong")
-    v_cw = stats.get(f"{V21}.confident_wrong")
+    v_cw = stats.get(f"{STOCK}.confident_wrong")
     lat = latency_ratio(runtime)
 
     def value(stat: Mapping[str, Any] | None) -> float | None:
@@ -381,22 +477,22 @@ def c42_bars(
             gap,
             None if value(gap) is None else value(gap) >= bars["gap_closure_min"],
             reason=(
-                "no v21-to-Clef accuracy gap to close"
-                if value(gap) is None and value(stats.get("accuracy_diff_clef_v21")) is not None
+                "no stock-to-Clef accuracy gap to close"
+                if value(gap) is None and value(stats.get("accuracy_diff_clef_stock")) is not None
                 else None
             ),
         ),
         _bar("ece_max", bars["ece_max"], s_ece, _le(value(s_ece), bars["ece_max"])),
     ]
     for name, mine, theirs in (
-        ("ece_no_worse_than_v21", s_ece, v_ece),
-        ("confident_wrong_no_worse_than_v21", s_cw, v_cw),
+        ("ece_no_worse_than_stock", s_ece, v_ece),
+        ("confident_wrong_no_worse_than_stock", s_cw, v_cw),
     ):
         if bars[name]:
             out.append(
                 _bar(
                     name,
-                    {"v21": value(theirs)},
+                    {"stock": value(theirs)},
                     mine,
                     _le(value(mine), value(theirs)),
                 )
@@ -405,14 +501,10 @@ def c42_bars(
             row = _bar(name, False, mine, True)
             row["reason"] = "not gated: the pre-registration sets this bar to false"
             out.append(row)
-    out.append(
-        _bar(
-            "latency_ratio_max",
-            bars["latency_ratio_max"],
-            lat,
-            _le(lat["value"], bars["latency_ratio_max"]),
-        )
-    )
+    row = _bar("latency_ratio_max", bars["latency_ratio_max"], lat, True)
+    row["result"] = REPORTED
+    row["reason"] = LATENCY_NOT_GATED
+    out.append(row)
     return out
 
 
@@ -435,24 +527,146 @@ def c43_bars(quant_manifest: Mapping[str, Any], bars: Mapping[str, Any]) -> list
 
 
 def _verdict(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    missed = [r["bar"] for r in rows if r["result"] != PASSED]
+    missed = [r["bar"] for r in rows if r["result"] == MISSED]
     return {"result": MISSED if missed else PASSED, "missed": missed, "bars": list(rows)}
 
 
-def regression(stats: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
-    """Student accuracy above v21 with ECE above v21 is a regression, not a win."""
+def regression(stats: Mapping[str, Mapping[str, Any]], model: str = STUDENT) -> dict[str, Any]:
+    """*model* accuracy above stock with ECE above stock is a regression, not a win."""
 
     def v(key: str) -> float | None:
         return (stats.get(key) or {}).get("value")
 
-    acc_s, acc_v = v(f"{STUDENT}.accuracy"), v(f"{V21}.accuracy")
-    ece_s, ece_v = v(f"{STUDENT}.ece"), v(f"{V21}.ece")
+    acc_s, acc_v = v(f"{model}.accuracy"), v(f"{STOCK}.accuracy")
+    ece_s, ece_v = v(f"{model}.ece"), v(f"{STOCK}.ece")
     flagged = None not in (acc_s, acc_v, ece_s, ece_v) and acc_s > acc_v and ece_s > ece_v
     return {
         "regression": bool(flagged),
-        "rule": "student accuracy > v21 accuracy and student ECE > v21 ECE",
-        "student": {"accuracy": acc_s, "ece": ece_s},
-        "stock_v21": {"accuracy": acc_v, "ece": ece_v},
+        "model": model,
+        "rule": f"{model} accuracy > stock accuracy and {model} ECE > stock ECE",
+        model: {"accuracy": acc_s, "ece": ece_s},
+        "stock": {"accuracy": acc_v, "ece": ece_v},
+    }
+
+
+# --------------------------------------------------------------------- c17
+
+
+def _ge(a: float | None, b: float | None) -> bool | None:
+    return None if a is None or b is None else a >= b - _EPS
+
+
+def _le_eps(a: float | None, b: float | None) -> bool | None:
+    return None if a is None or b is None else a <= b + _EPS
+
+
+def _weight_bar(threshold: Any, bundle: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The attested weight bytes of the shipped bundle, strictly below the bar (no CI)."""
+    value = (bundle or {}).get("weight_bytes")
+    ok = None if not isinstance(value, int) or isinstance(value, bool) else value < threshold
+    row = _bar(
+        "weight_bytes_max",
+        threshold,
+        {"n": None, "value": value},
+        ok,
+        reason=None if ok is not None else "the final attested no weight_bytes for the bundle",
+    )
+    row["compared"] = "value < threshold"
+    row["source"] = "GET /v1/bundle weight_bytes (the attested deployed bundle)"
+    return row
+
+
+def build_latency(runtime: Mapping[str, Mapping[str, Any]], model: str) -> dict[str, Any]:
+    """Median and p95 latency of *model* in the final, reported with no pass/fail."""
+    meta = runtime.get(model) or {}
+    lat = meta.get("latency") or {}
+    return {
+        "model": model,
+        "host": meta.get("host"),
+        "n": lat.get("n"),
+        "median_s": lat.get("median_s"),
+        "p95_s": lat.get("p95_s"),
+        "gated": False,
+        "reason": LATENCY_NOT_GATED,
+    }
+
+
+def c17_build_bars(
+    build: str,
+    stats: Mapping[str, Mapping[str, Any]],
+    bars: Mapping[str, Any],
+    bundle: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Every ``bars.c17.<build>`` bar from one pool's paired-bootstrap statistics."""
+
+    def stat(name: str) -> Mapping[str, Any] | None:
+        return stats.get(c17_key(build, name))
+
+    def value(entry: Mapping[str, Any] | None) -> float | None:
+        return (entry or {}).get("value")
+
+    over, under = stat("top1_over_stock_points"), stat("top1_under_clef_points")
+    rows = [
+        _bar(
+            "top1_over_stock_min_points",
+            bars["top1_over_stock_min_points"],
+            over,
+            _ge(value(over), bars["top1_over_stock_min_points"]),
+        ),
+        _bar(
+            "top1_under_clef_w4a16_max_points",
+            bars["top1_under_clef_w4a16_max_points"],
+            under,
+            _le_eps(value(under), bars["top1_under_clef_w4a16_max_points"]),
+        ),
+    ]
+    if "quant_vs_bf16_agreement_min" in bars:
+        agree = stats.get(AGREEMENT)
+        rows.append(
+            _bar(
+                "quant_vs_bf16_agreement_min",
+                bars["quant_vs_bf16_agreement_min"],
+                agree,
+                _ge(value(agree), bars["quant_vs_bf16_agreement_min"]),
+            )
+        )
+    if "weight_bytes_max" in bars:
+        rows.append(_weight_bar(bars["weight_bytes_max"], bundle))
+    return rows
+
+
+def c17_report(
+    pool: Mapping[str, Any],
+    bars: Mapping[str, Mapping[str, Any]],
+    *,
+    bundle: Mapping[str, Any] | None,
+    runtime: Mapping[str, Mapping[str, Any]],
+    prereg_sha256: str,
+) -> dict[str, Any]:
+    """c17 for both builds on the test headline pool, citing the hashed pre-registration."""
+    stats = pool["stats"]
+    builds: dict[str, Any] = {}
+    missed: list[str] = []
+    for build, model in C17_MODELS.items():
+        block = _verdict(c17_build_bars(build, stats, bars[build], bundle))
+        reg = regression(stats, model)
+        if reg["regression"]:
+            block = {**block, "result": MISSED, "missed": [*block["missed"], "regression"]}
+        block.update(model=model, regression=reg, latency=build_latency(runtime, model))
+        builds[build] = block
+        missed += [f"{build}.{name}" for name in block["missed"]]
+    return {
+        "side": GATED_SIDE,
+        "pool": HEADLINE,
+        "n_records": pool["records"],
+        "n_items": pool["items"],
+        "prereg_sha256": prereg_sha256,
+        "cites": f"bars.c17 of the locked distill pre-registration (sha256 {prereg_sha256})",
+        "compared": "point value; n and the paired-bootstrap CI are reported beside it",
+        "clef_reference": "Clef W4A16 as served in the final (raw)",
+        "builds": builds,
+        "result": MISSED if missed else PASSED,
+        "missed": missed,
     }
 
 
@@ -547,16 +761,21 @@ def _pool_block(
     resamples: int,
 ) -> dict[str, Any]:
     keys = item_keys(records)
-    views = {}
+    tops = {}
     for name in MODELS:
-        views[name] = outcomes(records, predictions.get(name, ()), calibrations.get(name))
+        tops[name] = predicted(records, predictions.get(name, ()), calibrations.get(name))
+    views = {
+        name: outcomes(records, predictions.get(name, ()), calibrations.get(name))
+        for name in MODELS
+    }
     if calibrations.get(CLEF_CALIBRATED):
         views[CLEF_CALIBRATED] = outcomes(
             records, predictions.get(CLEF, ()), calibrations[CLEF_CALIBRATED]
         )
     per_model = {name: [view[k] for k in keys] for name, view in views.items()}
+    series = {AGREEMENT: agreement_series(keys, tops[STUDENT], tops[STUDENT_BF16])}
     stats = paired_bootstrap(
-        len(keys), joint_stats(per_model, threshold), seed=seed, resamples=resamples
+        len(keys), joint_stats(per_model, threshold, series), seed=seed, resamples=resamples
     )
     return {
         "items": len(keys),
@@ -568,8 +787,28 @@ def _pool_block(
     }
 
 
+PROBE_NOT_GATED = "the Clef probe set measures general ability; reported, gates nothing"
+
+
+def probe_table(
+    records: Sequence[Record],
+    predictions: Mapping[str, Sequence[Mapping[str, Any]]],
+    calibrations: Mapping[str, Mapping[str, Any] | None],
+    threshold: float,
+    seed: int,
+    resamples: int,
+) -> dict[str, Any]:
+    """Every model on the (private) Clef probe set: no pass/fail, no ids, no sources."""
+    if not records:
+        return {"measured": False, "gated": False, "reason": "no probe set was given"}
+    block = _pool_block(records, predictions, calibrations, threshold, seed, resamples)
+    block.pop("sources")
+    block.pop("regression")
+    return {"measured": True, "gated": False, "reason": PROBE_NOT_GATED, **block}
+
+
 def runtime_table(runtime: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
-    """Latency and peak memory per model, plus whether all three ran on one host."""
+    """Latency and peak memory per model, plus whether all of them ran on one host."""
     rows = {}
     for name in MODELS:
         meta = runtime.get(name) or {}
@@ -584,7 +823,110 @@ def runtime_table(runtime: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
             "memory_measured": bool(mem.get("measured")),
         }
     hosts = {r["host"] for r in rows.values()}
-    return {"models": rows, "same_box": len(hosts) == 1 and None not in hosts}
+    return {
+        "models": rows,
+        "same_box": len(hosts) == 1 and None not in hosts,
+        "gated": False,
+        "reason": LATENCY_NOT_GATED,
+    }
+
+
+@dataclass(frozen=True)
+class ReportContext:
+    """What the report cites beyond the predictions: the hashed prereg, bundle, approvals."""
+
+    prereg: dp.DistillPrereg
+    prereg_sha256: str
+    #: Record ids with an approve entry in the gold ledger (``approved_ids``).
+    approved_ids: Collection[str]
+    quant_manifest: Mapping[str, Any]
+    #: The attested deployed bundle (``files``, ``manifest_sha256``, ``weight_bytes``).
+    bundle: Mapping[str, Any] | None = None
+    contamination_manifest: Mapping[str, Any] | None = None
+    gate: Mapping[str, Any] | None = None
+    probe_records: Sequence[Record] = ()
+    seed: int = core_metrics.DEFAULT_BOOTSTRAP_SEED
+    resamples: int = core_metrics.DEFAULT_BOOTSTRAP_RESAMPLES
+    #: Proving mode (deviation d10): also compute the c17 bars on model-drafted gold,
+    #: marked UNVERIFIED (``unverified_c17``); ``c17`` and ``result`` are unchanged.
+    unverified_gold: bool = False
+
+
+UNVERIFIED = "unverified"
+UNVERIFIED_NOTE = (
+    "UNVERIFIED: model-drafted gold, never approved by a human; proves the process only, "
+    "never a ship or quality claim"
+)
+
+
+def unverified_c17(
+    records_by_side: Mapping[str, Sequence[Record]],
+    predictions: Mapping[str, Sequence[Mapping[str, Any]]],
+    calibrations: Mapping[str, Mapping[str, Any] | None],
+    runtime: Mapping[str, Mapping[str, Any]],
+    sources: Mapping[str, Mapping[str, Any]],
+    headline_records: int,
+    ctx: ReportContext,
+) -> dict[str, Any]:
+    """The c17 bars on the test side's model-drafted gold from clean sources (deviation d10).
+
+    Marked ``verified: False`` with the share of the test pool (unverified plus headline
+    records) whose gold no human approved. Never feeds ``result``.
+    """
+    threshold = float(ctx.prereg.selection_rule["confident_wrong_threshold"])
+    members = [
+        r
+        for r in records_by_side.get(GATED_SIDE, ())
+        if r.gold_provenance != "human" and sources[r.source]["status"] == contamination.CLEAN
+    ]
+    pool = _pool_block(members, predictions, calibrations, threshold, ctx.seed, ctx.resamples)
+    block = c17_report(
+        pool,
+        ctx.prereg.bars["c17"],
+        bundle=ctx.bundle,
+        runtime=runtime,
+        prereg_sha256=ctx.prereg_sha256,
+    )
+    total = len(members) + headline_records
+    block.update(
+        pool=UNVERIFIED,
+        verified=False,
+        unverified_share=1.0 if not headline_records else len(members) / total,
+        sources=sorted({r.source for r in members}),
+        note=UNVERIFIED_NOTE,
+    )
+    return block
+
+
+def _sides(
+    records_by_side: Mapping[str, Sequence[Record]],
+    predictions: Mapping[str, Sequence[Mapping[str, Any]]],
+    calibrations: Mapping[str, Mapping[str, Any] | None],
+    runtime: Mapping[str, Mapping[str, Any]],
+    sources: Mapping[str, Mapping[str, Any]],
+    ctx: ReportContext,
+) -> dict[str, Any]:
+    threshold = float(ctx.prereg.selection_rule["confident_wrong_threshold"])
+    approved = frozenset(ctx.approved_ids)
+    sides: dict[str, Any] = {}
+    for side in SIDES:
+        recs = list(records_by_side.get(side, ()))
+        pools = {}
+        for pool in POOLS:
+            members = [r for r in recs if pool_of(r, sources, approved) == pool]
+            pools[pool] = _pool_block(
+                members, predictions, calibrations, threshold, ctx.seed, ctx.resamples
+            )
+        bars = _verdict(c42_bars(pools[HEADLINE]["stats"], ctx.prereg.bars["test"], runtime))
+        bars["gated"] = False
+        sides[side] = {"pools": pools, "c42": bars}
+    return sides
+
+
+C42_NOT_GATED = (
+    "#18-shape bars (bars.test, bars.quant), reported for comparison; bars.c17 are this "
+    "run's success bars"
+)
 
 
 def build_report(
@@ -594,63 +936,80 @@ def build_report(
     calibrations: Mapping[str, Mapping[str, Any] | None],
     calibration_sources: Mapping[str, str],
     runtime: Mapping[str, Mapping[str, Any]],
-    prereg: dp.DistillPrereg,
-    quant_manifest: Mapping[str, Any],
-    contamination_manifest: Mapping[str, Any] | None = None,
-    seed: int = core_metrics.DEFAULT_BOOTSTRAP_SEED,
-    resamples: int = core_metrics.DEFAULT_BOOTSTRAP_RESAMPLES,
-    gate: Mapping[str, Any] | None = None,
+    context: ReportContext,
 ) -> dict[str, Any]:
     """The final report (see the module docstring); pure, writes nothing.
 
-    *gate* is the fitted ``distill/gate/gate.json``; when given, the student's final
-    predictions are gated with it and per-kind coverage and selective accuracy are reported
-    under ``decision_gate`` (reported only, never a bar).
+    ``context.gate`` is the fitted ``distill/gate/gate.json``; when given, the shipped
+    student's final predictions are gated with it and per-kind coverage and selective accuracy
+    are reported under ``decision_gate`` (reported only, never a bar).
     """
-    threshold = float(prereg.selection_rule["confident_wrong_threshold"])
+    ctx = context
+    threshold = float(ctx.prereg.selection_rule["confident_wrong_threshold"])
     every = [r for side in SIDES for r in records_by_side.get(side, ())]
-    sources = source_table(every, contamination_manifest)
-    sides: dict[str, Any] = {}
-    for side in SIDES:
-        recs = list(records_by_side.get(side, ()))
-        pools = {}
-        for pool in POOLS:
-            members = [r for r in recs if pool_of(r, sources) == pool]
-            pools[pool] = _pool_block(
-                members, predictions, calibrations, threshold, seed, resamples
-            )
-        bars = _verdict(c42_bars(pools[HEADLINE]["stats"], prereg.bars["test"], runtime))
-        bars["gated"] = side == GATED_SIDE
-        sides[side] = {"pools": pools, "c42": bars}
+    sources = source_table(every, ctx.contamination_manifest)
+    sides = _sides(records_by_side, predictions, calibrations, runtime, sources, ctx)
+    headline = sides[GATED_SIDE]["pools"][HEADLINE]
+    c17 = c17_report(
+        headline,
+        ctx.prereg.bars["c17"],
+        bundle=ctx.bundle,
+        runtime=runtime,
+        prereg_sha256=ctx.prereg_sha256,
+    )
     c42 = dict(sides[GATED_SIDE]["c42"])
-    c42["side"] = GATED_SIDE
-    c42["pool"] = HEADLINE
-    reg = sides[GATED_SIDE]["pools"][HEADLINE]["regression"]
+    c42.update(side=GATED_SIDE, pool=HEADLINE, reason=C42_NOT_GATED)
+    reg = headline["regression"]
     if reg["regression"]:
         c42 = {**c42, "result": MISSED, "missed": [*c42["missed"], "regression"]}
-    c43 = _verdict(c43_bars(quant_manifest, prereg.bars["quant"]))
-    return {
+    c43 = _verdict(c43_bars(ctx.quant_manifest, ctx.prereg.bars["quant"]))
+    c43.update(gated=False, reason=C42_NOT_GATED)
+    regressed = any(b["regression"]["regression"] for b in c17["builds"].values())
+    report = {
         "stage": "distill-report",
-        "headline_rule": "human-gold records from sources the contamination check marks clean",
+        "prereg": {"file": dp.PREREG_REL, "lock": dp.LOCK_REL, "sha256": ctx.prereg_sha256},
+        "headline_rule": (
+            "operator-approved human-gold test records from sources the contamination check "
+            "marks clean"
+        ),
+        "headline_n": {"records": headline["records"], "items": headline["items"]},
         "confident_wrong_threshold": threshold,
-        "seed": seed,
-        "resamples": resamples,
-        "paired": "one index draw per resample, shared by all models and differences",
-        "unanswered_rule": "counted wrong for accuracy and confident-wrong, left out of ECE",
+        "seed": ctx.seed,
+        "resamples": ctx.resamples,
+        "paired": "one index draw per resample, shared by all models, differences and agreement",
+        "unanswered_rule": (
+            "counted wrong for accuracy and confident-wrong, a disagreement for agreement, "
+            "left out of ECE"
+        ),
         "calibration_used": dict(calibration_sources),
         "sources": sources,
         "sides": sides,
+        "c17": c17,
         "c42": c42,
         "c43": c43,
-        "regression": reg["regression"],
+        "regression": regressed,
         "runtime": runtime_table(runtime),
+        "probe": probe_table(
+            ctx.probe_records, predictions, calibrations, threshold, ctx.seed, ctx.resamples
+        ),
         "decision_gate": decision_gate(
             records_by_side,
             predictions.get(STUDENT, ()),
             calibrations.get(STUDENT),
-            gate,
-            seed=seed,
-            resamples=resamples,
+            ctx.gate,
+            seed=ctx.seed,
+            resamples=ctx.resamples,
         ),
-        "result": PASSED if c42["result"] == PASSED and c43["result"] == PASSED else MISSED,
+        "result": c17["result"],
     }
+    if ctx.unverified_gold:
+        block = unverified_c17(
+            records_by_side, predictions, calibrations, runtime, sources, headline["records"], ctx
+        )
+        report["unverified_c17"] = block
+        report["unverified_result"] = block["result"]
+        report["verification"] = (
+            f"UNVERIFIED: {100 * block['unverified_share']:.1f}% of the test pool's gold is "
+            "model-drafted and unapproved; unverified_c17 proves the process only"
+        )
+    return report

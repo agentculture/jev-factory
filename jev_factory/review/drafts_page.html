@@ -1,0 +1,1027 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jetson-ops drafts review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,400;0,700;1,400&family=Source+Code+Pro:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  /* Tokens. Light is the default; dark is its own selected set, not an inversion. */
+  :root {
+    color-scheme: light;
+    /* reading tokens after Wikipedia's Vector 2022 / Codex: soft ink, quiet greys */
+    --page: #f8f9fa;
+    --surface: #ffffff;
+    --sunk: #f8f9fa;
+    --ink: #202122;
+    --ink-2: #54595d;
+    --ink-3: #72777d;
+    --hair: #c8ccd1;
+    --ring: #c8ccd1;
+    --focus: #3366cc;
+    /* evidence tags: categorical slots 1-3, validated all-pairs on this surface */
+    --tag-stated: #2a78d6;
+    --tag-traced: #eb6834;
+    --tag-general: #1baf7a;
+    /* review status: the reserved status palette, always with an icon and a word */
+    --st-unreviewed: #b9c3bf;
+    --st-kept: #0ca30c;
+    --st-edited: #fab219;
+    --st-dropped: #d03b3b;
+    --gold-wash: rgba(12, 163, 12, 0.12);
+    --edit-wash: rgba(250, 178, 25, 0.18);
+    --kind: #256abf;          /* single-hue magnitude for question kinds */
+    --mono: "Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: Lato, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #101418; --surface: #1b1f23; --sunk: #232830; --ink: #eaecf0; --ink-2: #c8ccd1;
+      --ink-3: #a2a9b1; --hair: #3a3f45; --ring: #3a3f45; --focus: #88a3e8;
+      --tag-stated: #3987e5; --tag-traced: #d95926; --tag-general: #199e70;
+      --st-unreviewed: #4a5550; --gold-wash: rgba(12, 163, 12, 0.18); --edit-wash: rgba(250, 178, 25, 0.16);
+      --kind: #5598e7;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #101418; --surface: #1b1f23; --sunk: #232830; --ink: #eaecf0; --ink-2: #c8ccd1;
+    --ink-3: #a2a9b1; --hair: #3a3f45; --ring: #3a3f45; --focus: #88a3e8;
+    --tag-stated: #3987e5; --tag-traced: #d95926; --tag-general: #199e70;
+    --st-unreviewed: #4a5550; --gold-wash: rgba(12, 163, 12, 0.18); --edit-wash: rgba(250, 178, 25, 0.16);
+    --kind: #5598e7;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 16px/1.6 var(--sans);
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  button, select, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 18px 20px 48px; }
+
+  /* Header */
+  header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 24px; line-height: 1.25; font-weight: 700; }
+  .tally { color: var(--ink-2); font-size: 15px; }
+  .tally b { color: var(--ink); }
+  .theme { margin: 0 0 0 auto; padding: 0; min-width: 0; display: inline-flex; border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; background: var(--surface); }
+  .theme button { border: 0; background: none; padding: 5px 12px; font-size: 14px; cursor: pointer; color: var(--ink-2); }
+  .theme button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+  .files { color: var(--ink-3); font-size: 12.5px; margin-top: 6px; overflow-wrap: anywhere; display: grid; gap: 2px; }
+  .files span { font-family: var(--mono); }
+  #error { color: var(--st-dropped); font-weight: 700; white-space: pre-wrap; margin: 8px 0 0; }
+  #error:empty { display: none; }
+
+  /* Overview: the record strip and the breakdowns */
+  .overview { margin-top: 16px; background: var(--surface); border: 1px solid var(--ring); border-radius: 4px; padding: 16px 18px 14px; }
+  .strip-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .strip-head h2, .bd h3 { margin: 0; font-size: 15px; font-weight: 700; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .strip { display: flex; flex-wrap: wrap; gap: 14px 18px; }
+  .group { min-width: 0; }
+  .group-name { font-size: 12.5px; color: var(--ink-2); margin-bottom: 4px; }
+  .cells { display: flex; flex-wrap: wrap; gap: 3px; max-width: 520px; }
+  .cell { width: 15px; height: 15px; border-radius: 4px; border: 0; padding: 0; cursor: pointer; background: var(--st-unreviewed); position: relative; }
+  .cell.test::after { content: ""; position: absolute; inset: 4.5px; border-radius: 50%; background: var(--surface); }
+  .cell.current { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+  .cell.dim { opacity: 0.22; }
+  .cell:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  .bds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--hair); }
+  @media (max-width: 1000px) { .bds { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .bds { grid-template-columns: 1fr; } }
+  .bd h3 { margin-bottom: 8px; }
+  .row { display: grid; grid-template-columns: 7.2em minmax(0, 1fr) 2.6em; align-items: center; gap: 8px; width: 100%;
+    border: 0; background: none; padding: 3px 4px; border-radius: 6px; cursor: pointer; text-align: left; font-size: 14px; }
+  .row:hover { background: var(--sunk); }
+  .row[aria-pressed="true"] { background: var(--sunk); box-shadow: inset 3px 0 0 var(--ink); }
+  .row .lbl { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .val { color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+  .track { height: 12px; display: flex; gap: 2px; }
+  .seg { height: 100%; border-radius: 0; }
+  .seg:first-child { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+  .seg:last-child { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+  .progress { height: 10px; display: flex; gap: 2px; margin-top: 4px; }
+
+  /* Filters */
+  .filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin: 18px 0 12px; font-size: 14px; color: var(--ink-2); }
+  .filters select { background: var(--surface); border: 1px solid var(--hair); border-radius: 8px; padding: 5px 10px; color: var(--ink); }
+  .filters .pos { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .clear { border: 1px solid var(--hair); background: none; border-radius: 8px; padding: 5px 10px; cursor: pointer; color: var(--ink-2); }
+
+  /* Workspace */
+  .work { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 16px; align-items: start; }
+  @media (max-width: 960px) { .work { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface); border: 1px solid var(--ring); border-radius: 4px; padding: 18px 20px; }
+  .rec-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .rec-id { font-family: var(--mono); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; color: var(--ink-2); }
+  .chip { font-size: 13px; border-radius: 999px; padding: 2px 10px; background: var(--sunk); color: var(--ink-2); }
+  .chip.test { background: var(--ink); color: var(--surface); }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; margin-left: auto; }
+  .status i { font-style: normal; width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px; color: #fff; }
+  .state { margin: 14px 0 6px; background: var(--sunk); border: 1px solid var(--hair); border-radius: 4px; padding: 14px 18px;
+    max-height: 56vh; overflow: auto; font-size: 16px; line-height: 1.7; max-width: 75ch; overflow-wrap: anywhere; }
+  .state p { margin: 0 0 0.6em; }
+  .state p:last-child { margin-bottom: 0; }
+  .state .cmd { display: block; font: 13.5px/1.55 var(--mono); white-space: pre-wrap; background: var(--surface);
+    border: 1px solid var(--hair); border-radius: 3px; padding: 6px 10px; margin: 0 0 0.6em; color: var(--ink); }
+  .state code, .opt code { font: 0.875em var(--mono); background: var(--surface); border: 1px solid var(--hair); border-radius: 3px; padding: 0 4px; }
+  .q { margin-top: 18px; }
+  .q-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .q-head strong { font-size: 16px; }
+  .q-kind { font-size: 13px; color: var(--ink-3); }
+  .q-edited { font-size: 13px; color: var(--ink-2); background: var(--edit-wash); border-radius: 6px; padding: 0 8px; }
+  .opts { margin-top: 6px; display: grid; gap: 4px; }
+  .opt { display: grid; grid-template-columns: 1.9em minmax(0, 1fr); gap: 8px; align-items: start; text-align: left; width: 100%;
+    border: 1px solid transparent; border-radius: 9px; background: none; padding: 7px 10px; cursor: default; line-height: 1.5; }
+  .opt .mk { width: 1.5em; height: 1.5em; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px;
+    border: 1.5px solid var(--hair); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .opt .nm { font-weight: 700; }
+  .opt .ds { color: var(--ink-2); }
+  .opt.gold { background: var(--gold-wash); }
+  .opt.gold .mk { background: var(--st-kept); border-color: var(--st-kept); color: #fff; }
+  .opt.changed { background: var(--edit-wash); }
+  .opt.changed .mk { background: var(--st-edited); border-color: var(--st-edited); color: #10201b; }
+  .opt.drafted .mk { border-style: dashed; border-color: var(--ink-3); }
+  .was { margin-left: 8px; font-size: 12.5px; color: var(--ink-3); border: 1px dashed var(--ink-3); border-radius: 6px; padding: 0 6px; white-space: nowrap; }
+  .editing .opt { cursor: pointer; border-color: var(--hair); }
+  .editing .opt:hover { border-color: var(--ink-2); }
+  .editing { border-left: 3px solid var(--st-edited); padding-left: 12px; margin-left: -15px; }
+
+  .restore { border: 1px solid var(--hair); background: var(--surface); color: var(--ink-2); border-radius: 6px; padding: 1px 8px; font-size: 13px; cursor: pointer; }
+  .restore:hover { border-color: var(--ink-2); color: var(--ink); }
+  .restore.wide { padding: 7px; font-size: 14px; }
+  .opt.has-p { grid-template-columns: 1.9em minmax(0, 1fr) 9.5em; }
+  .pbar { position: relative; height: 1.4em; display: flex; align-items: center; align-self: center; background: var(--sunk); border-radius: 3px; overflow: hidden; }
+  .pbar i { position: absolute; inset: 0 auto 0 0; background: var(--focus); opacity: 0.35; }
+  .pbar b { position: relative; font-size: 12.5px; padding-left: 6px; font-variant-numeric: tabular-nums; }
+  .pcell { display: inline-flex; gap: 4px; align-items: center; justify-self: end; color: var(--ink-3); }
+  .pin { width: 4.5em; border: 1px solid var(--hair); border-radius: 6px; padding: 3px 6px; background: var(--surface); color: var(--ink); font: inherit; text-align: right; }
+  .was.added { border-style: solid; }
+  .etools { margin-top: 10px; display: grid; gap: 8px; }
+  .etools .hint { margin: 0; font-size: 13.5px; color: var(--ink-3); }
+  .erow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .erow input { border: 1px solid var(--hair); border-radius: 6px; padding: 6px 8px; background: var(--surface); color: var(--ink); font: inherit; }
+  .erow .oname { width: 12em; font-family: var(--mono); font-size: 14px; }
+  .erow .odesc { flex: 1; min-width: 12em; }
+  .small { border: 1px solid var(--hair); background: var(--surface); color: var(--ink); border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 14px; }
+  .small.primary { background: var(--focus); border-color: var(--focus); color: #fff; font-weight: 700; }
+  .small:hover { border-color: var(--ink-2); }
+
+  .side { display: grid; gap: 16px; }
+  .ev-tag { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 700; }
+  .ev-tag .sw { width: 10px; height: 10px; }
+  blockquote { margin: 10px 0 12px; padding: 2px 0 2px 14px; border-left: 3px solid var(--hair); font-size: 16px; line-height: 1.6; overflow-wrap: anywhere; color: var(--ink); }
+  .why { color: var(--ink); margin: 0; }
+  blockquote code { font: 0.88em var(--mono); background: var(--sunk); border-radius: 4px; padding: 1px 4px; }
+  .group-path { margin-top: 12px; color: var(--ink-3); font-size: 13px; font-family: var(--mono); overflow-wrap: anywhere; }
+  .notes { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 14px; }
+  .notes li { color: var(--ink-2); }
+  .notes time { color: var(--ink-3); font-size: 12.5px; margin-right: 8px; }
+
+  .dock { display: grid; gap: 10px; }
+  .dock .btns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .act { border: 1px solid var(--hair); background: var(--surface); border-radius: 10px; padding: 10px 8px; cursor: pointer;
+    display: grid; justify-items: center; gap: 2px; font-weight: 700; }
+  .act kbd { font-weight: 400; }
+  .act.keep:hover { border-color: var(--st-kept); background: var(--gold-wash); }
+  .act.drop:hover { border-color: var(--st-dropped); background: rgba(208, 59, 59, 0.10); }
+  .act.edit:hover, .act.edit[aria-pressed="true"] { border-color: var(--st-edited); background: var(--edit-wash); }
+  .note-row { display: flex; gap: 8px; }
+  .note-row input { flex: 1; min-width: 0; border: 1px solid var(--hair); border-radius: 9px; padding: 8px 10px; background: var(--surface); }
+  .nav { display: flex; gap: 8px; }
+  .nav button { flex: 1; border: 1px solid var(--hair); background: none; border-radius: 9px; padding: 7px; cursor: pointer; color: var(--ink-2); }
+  kbd { font: 12px/1 var(--mono); border: 1px solid var(--hair); border-bottom-width: 2px; border-radius: 5px; padding: 2px 5px; color: var(--ink-2); background: var(--surface); }
+  .keys { margin-top: 18px; font-size: 13.5px; color: var(--ink-3); line-height: 2; }
+
+  /* structured state: fields, output, ask */
+  .fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; }
+  .fields dt { color: var(--ink-3); font-size: 14px; padding-top: 1px; }
+  .fields dd { margin: 0; color: var(--ink); }
+  .state .ask { margin-top: 12px; padding: 10px 12px; border-radius: 4px; background: var(--surface);
+    border: 1px solid var(--hair); border-left: 3px solid var(--focus); font-weight: 700; }
+  .state .ask span { display: block; font-weight: 400; font-size: 13px; color: var(--ink-3); }
+
+  /* momentum: what is left, the session, the pace */
+  .momentum { display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: baseline; margin-top: 12px; font-size: 15px; color: var(--ink-2); }
+  .momentum .left { font-size: 20px; color: var(--ink); font-weight: 700; }
+  .momentum b { color: var(--ink); }
+  .group-name .done { color: var(--st-kept); font-weight: 700; margin-left: 6px; }
+  .act.primary { background: var(--focus); border-color: var(--focus); color: #fff; }
+  .nav button.primary { background: var(--focus); border-color: var(--focus); color: #fff; font-weight: 700; }
+
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 16px); opacity: 0; z-index: 20;
+    background: var(--ink); color: var(--surface); padding: 12px 18px; border-radius: 6px; font-size: 15px;
+    transition: opacity 200ms, transform 200ms; max-width: min(92vw, 520px); text-align: center; }
+  #toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+  .finish { text-align: left; padding: 26px 28px; border-left: 4px solid var(--st-kept); }
+  .finish h2 { margin: 0 0 6px; font-size: 22px; }
+  .finish p { margin: 6px 0; max-width: 70ch; }
+  .finish .sum { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 14px 0; font-size: 16px; }
+  .finish code { font: 0.875em var(--mono); overflow-wrap: anywhere; }
+  @keyframes ripple { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+  .celebrate .cell { animation: ripple 520ms ease-out both; }
+  .orphans { color: var(--ink-3); font-size: 13px; }
+  .empty { padding: 40px 20px; text-align: center; color: var(--ink-2); }
+
+  /* Tooltip */
+  #tip { position: fixed; pointer-events: none; z-index: 10; background: var(--ink); color: var(--surface); border-radius: 8px;
+    padding: 6px 10px; font-size: 13px; max-width: 320px; opacity: 0; transition: opacity 80ms; }
+  #tip b { display: block; font-size: 14px; }
+  #tip.on { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { #toast, #tip { transition: none; } .cell:hover { transform: none; } }
+  @media (forced-colors: active) { .cell, .seg, .sw { forced-color-adjust: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Jetson-ops drafts</h1>
+    <span class="tally" id="tally"></span>
+    <fieldset class="theme" aria-label="Theme">
+      <button type="button" data-theme-set="auto">Auto</button>
+      <button type="button" data-theme-set="light">Light</button>
+      <button type="button" data-theme-set="dark">Dark</button>
+    </fieldset>
+  </header>
+  <div id="error" role="alert"></div>
+
+  <section class="overview" aria-label="Dataset overview">
+    <div class="strip-head">
+      <h2>Every record, by source</h2>
+      <div class="legend" id="status-legend"></div>
+    </div>
+    <div class="strip" id="strip"></div>
+    <div class="progress" id="progress" aria-hidden="true"></div>
+    <div class="momentum" id="momentum" aria-live="polite"></div>
+    <div class="bds">
+      <div class="bd"><h3>Review status</h3><div id="bd-status"></div></div>
+      <div class="bd"><h3>How the gold is known</h3><div id="bd-tag"></div></div>
+      <div class="bd"><h3>Question kinds</h3><div id="bd-kind"></div></div>
+      <div class="bd"><h3>Split</h3><div id="bd-split"></div></div>
+    </div>
+  </section>
+
+  <div class="filters">
+    <label>Split <select id="f-split"></select></label>
+    <label>Source <select id="f-source"></select></label>
+    <label>Status <select id="f-status"></select></label>
+    <label>Evidence <select id="f-tag"></select></label>
+    <button type="button" class="clear" id="clear">Clear filters</button>
+    <span class="pos" id="position"></span>
+  </div>
+
+  <div id="view"></div>
+
+  <p class="keys">
+    <kbd>k</kbd> keep &nbsp; <kbd>d</kbd> drop &nbsp; <kbd>e</kbd> edit gold, then <kbd>1</kbd>–<kbd>9</kbd> picks an option or type percentages
+    (<kbd>e</kbd> again moves to the next question, <kbd>Esc</kbd> stops; &#8634; restores the drafted gold) &nbsp; <kbd>n</kbd> write a note, <kbd>Enter</kbd> saves it &nbsp;
+    <kbd>j</kbd> or <kbd>&rarr;</kbd> next &nbsp; <kbd>&larr;</kbd> previous &nbsp; <kbd>u</kbd> next unreviewed.
+    Every decision is appended to the draft ledger straight away; the drafted file never changes.
+  </p>
+  <div class="files" id="files"></div>
+</div>
+<div id="tip" role="tooltip"></div>
+<output id="toast"></output>
+<script type="module">
+"use strict";
+const KEY = "__JEV_REVIEW_KEY__";
+const STATUSES = ["unreviewed", "kept", "edited", "dropped"];
+const STATUS_ICON = { unreviewed: "○", kept: "✓", edited: "✎", dropped: "✕" };
+const TAGS = ["stated", "traced", "general", "untagged"];
+const TAG_WORD = { stated: "Stated in the source", traced: "Traced through a script", general: "General knowledge", untagged: "No tag" };
+const KINDS = ["choice", "noul", "score"];
+let state = null;
+let currentId = null;
+let editQ = -1; // index of the question being edited, -1 for none
+
+/* ---------- theme ---------- */
+function storedTheme() { try { return localStorage.getItem("jev-review-theme") || "auto"; } catch (e) { return "auto"; } }
+function applyTheme(mode) {
+  if (mode === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = mode;
+  for (const b of document.querySelectorAll("[data-theme-set]")) b.setAttribute("aria-pressed", String(b.dataset.themeSet === mode));
+  try { localStorage.setItem("jev-review-theme", mode); } catch (e) { /* private window: theme just isn't remembered */ }
+}
+for (const b of document.querySelectorAll("[data-theme-set]")) b.onclick = () => applyTheme(b.dataset.themeSet);
+applyTheme(storedTheme());
+
+/* ---------- helpers ---------- */
+async function api(path, body) {
+  const init = { headers: { "X-Review-Key": KEY } };
+  if (body) { init.method = "POST"; init.body = JSON.stringify(body); }
+  const res = await fetch(path, init);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+function el(tag, props, ...kids) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === "style") node.style.cssText = v;
+    else if (k.startsWith("aria-") || k.startsWith("data-")) node.setAttribute(k, v);
+    else node[k] = v;
+  }
+  for (const k of kids) if (k !== null && k !== undefined) node.append(k);
+  return node;
+}
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function showError(msg) { document.getElementById("error").textContent = msg || ""; }
+function filt(id) { const node = document.getElementById(id); return node ? node.value : ""; }
+function tagOf(item) {
+  const why = item.evidence && item.evidence.why ? item.evidence.why : "";
+  const m = /^\s*\[(stated|traced|general)\]/.exec(why);
+  return m ? m[1] : "untagged";
+}
+function whyText(item) { return (item.evidence && item.evidence.why || "").replace(/^\s*\[(stated|traced|general)\]\s*/, ""); }
+function shortSource(s) { return String(s || "").replace(/^jetson-ops\//, ""); }
+function kindsOf(item) { return Object.values(item.questions).map(q => q.type); }
+
+/* ---------- tooltip ---------- */
+const tip = document.getElementById("tip");
+function tipOn(node, value, label) {
+  const show = ev => {
+    tip.replaceChildren(el("b", { textContent: value }), document.createTextNode(label));
+    const r = node.getBoundingClientRect();
+    const x = ev && ev.clientX ? ev.clientX : r.left + r.width / 2;
+    const y = ev && ev.clientY ? ev.clientY : r.top;
+    tip.style.left = Math.min(x + 12, window.innerWidth - 330) + "px";
+    tip.style.top = (y + 16) + "px";
+    tip.classList.add("on");
+  };
+  node.addEventListener("pointermove", show);
+  node.addEventListener("focus", () => show(null));
+  node.addEventListener("pointerleave", () => tip.classList.remove("on"));
+  node.addEventListener("blur", () => tip.classList.remove("on"));
+}
+
+/* ---------- filters ---------- */
+function matches(i, skip) {
+  return (skip === "split" || !filt("f-split") || i.split === filt("f-split")) &&
+    (skip === "source" || !filt("f-source") || i.source === filt("f-source")) &&
+    (skip === "status" || !filt("f-status") || i.status === filt("f-status")) &&
+    (skip === "tag" || !filt("f-tag") || tagOf(i) === filt("f-tag"));
+}
+function visible() { return state ? state.items.filter(i => matches(i)) : []; }
+function currentIndex(list) { const i = list.findIndex(x => x.id === currentId); return Math.max(0, i); }
+function fillSelect(id, label, values, words) {
+  const sel = document.getElementById(id);
+  const keep = sel.value;
+  sel.replaceChildren(el("option", { value: "", textContent: "All " + label }));
+  for (const v of values) sel.append(el("option", { value: v, textContent: words ? words[v] || v : v }));
+  sel.value = values.includes(keep) ? keep : "";
+}
+function setFilter(id, value) {
+  const sel = document.getElementById(id);
+  sel.value = sel.value === value ? "" : value;
+  editQ = -1;
+  render();
+}
+
+async function load() {
+  try {
+    state = await api("/api/state");
+    useLedger(state.ledger_file);
+    const order = new Map(state.items.map((it, n) => [it.id, n]));
+    state.items.sort((a, b) => {
+      if (a.source === b.source) return order.get(a.id) - order.get(b.id);
+      return a.source < b.source ? -1 : 1;
+    });
+    showError("");
+    fillSelect("f-split", "splits", state.splits);
+    fillSelect("f-source", "sources", state.sources, Object.fromEntries(state.sources.map(s => [s, shortSource(s)])));
+    fillSelect("f-status", "statuses", STATUSES);
+    fillSelect("f-tag", "evidence", TAGS, TAG_WORD);
+    if (currentId === null) {
+      const first = state.items.find(i => i.status === "unreviewed") || state.items[0];
+      currentId = first ? first.id : null;
+    }
+  } catch (err) {
+    state = null;
+    showError("Cannot read the drafts, evidence or ledger, so nothing was written. " + err.message);
+  }
+  render();
+}
+
+/* ---------- overview ---------- */
+function statusColor(s) { return cssVar("--st-" + s); }
+function renderLegend() {
+  const lg = document.getElementById("status-legend");
+  lg.replaceChildren(...STATUSES.map(s => el("span", {}, el("i", { className: "sw", style: "background:" + statusColor(s) }), STATUS_ICON[s] + " " + s)),
+    el("span", {}, el("i", { className: "sw", style: "background:" + cssVar("--st-unreviewed") + ";box-shadow: inset 0 0 0 4px " + cssVar("--st-unreviewed") + ", inset 0 0 0 7px " + cssVar("--surface") }), "dot = test record"));
+}
+const FILTER_IDS = ["f-split", "f-source", "f-status", "f-tag"];
+function clearFilters() {
+  for (const id of FILTER_IDS) {
+    document.getElementById(id).value = "";
+  }
+}
+function bySource(items) {
+  const groups = new Map();
+  for (const it of items) {
+    if (!groups.has(it.source)) {
+      groups.set(it.source, []);
+    }
+    groups.get(it.source).push(it);
+  }
+  return groups;
+}
+function cellClass(it) {
+  let cls = "cell";
+  if (it.split === "test") cls += " test";
+  if (it.id === currentId) cls += " current";
+  if (!matches(it)) cls += " dim";
+  return cls;
+}
+function stripCell(it) {
+  const c = el("button", { type: "button", className: cellClass(it),
+    style: "background:" + statusColor(it.status), "aria-label": it.id + ", " + it.split + ", " + it.status });
+  c.onclick = () => {
+    currentId = it.id;
+    editQ = -1;
+    if (!matches(it)) clearFilters();
+    render();
+  };
+  tipOn(c, it.id, it.split + " record, " + it.status + ", " + Object.keys(it.questions).length + " question(s)");
+  return c;
+}
+function stripGroup(src, items) {
+  const cells = el("div", { className: "cells" });
+  for (const it of items) cells.append(stripCell(it));
+  const allDone = items.every(i => i.status !== "unreviewed");
+  return el("div", { className: "group" }, el("div", { className: "group-name" }, shortSource(src) + "  (" + items.length + ")",
+    allDone ? el("span", { className: "done", textContent: "✓ done" }) : null), cells);
+}
+function renderStrip() {
+  const strip = document.getElementById("strip");
+  strip.replaceChildren();
+  for (const [src, items] of [...bySource(state.items)].sort()) {
+    strip.append(stripGroup(src, items));
+  }
+  const prog = document.getElementById("progress");
+  const total = state.items.length;
+  prog.replaceChildren(...STATUSES.filter(s => s !== "unreviewed" && state.counts[s]).map(s =>
+    el("div", { className: "seg", style: "flex:" + state.counts[s] + ";background:" + statusColor(s) })),
+    el("div", { className: "seg", style: "flex:" + (state.counts.unreviewed || 0) + ";background:" + cssVar("--sunk") }));
+  if (!total) prog.replaceChildren();
+}
+/* one horizontal bar per category; segments = review status, so every breakdown also shows progress */
+function wordFor(words, c) { return words ? words[c] || c : c; }
+function barTrack(r, max, colorOf) {
+  const track = el("div", { className: "track" });
+  if (colorOf) {
+    track.append(el("div", { className: "seg", style: "width:" + (100 * r.items.length / max) + "%;background:" + colorOf(r.c) }));
+    return track;
+  }
+  for (const s of STATUSES) {
+    const n = r.items.filter(i => i.status === s).length;
+    if (n) track.append(el("div", { className: "seg", style: "width:" + (100 * n / max) + "%;background:" + statusColor(s) }));
+  }
+  return track;
+}
+function statusParts(items) {
+  return STATUSES.map(s => [s, items.filter(i => i.status === s).length]).filter(p => p[1]).map(p => p[1] + " " + p[0]).join(", ");
+}
+function barRow(r, max, words, filterId, colorOf) {
+  const word = wordFor(words, r.c);
+  const row = el("button", { type: "button", className: "row", "aria-pressed": String(filt(filterId) === r.c) },
+    el("span", { className: "lbl", textContent: word }), barTrack(r, max, colorOf),
+    el("span", { className: "val", textContent: String(r.items.length) }));
+  const parts = statusParts(r.items);
+  tipOn(row, r.items.length + " record" + (r.items.length === 1 ? "" : "s"), word + (parts ? ": " + parts : ""));
+  row.onclick = () => setFilter(filterId, r.c);
+  return row;
+}
+function bars(hostId, cats, words, keyOf, filterId, colorOf) {
+  const host = document.getElementById(hostId);
+  host.replaceChildren();
+  const pool = state.items.filter(i => matches(i, filterId.slice(2)));
+  const rows = cats.map(c => ({ c, items: pool.filter(i => keyOf(i).includes(c)) })).filter(r => r.items.length || filt(filterId) === r.c);
+  const max = Math.max(1, ...rows.map(r => r.items.length));
+  for (const r of rows) host.append(barRow(r, max, words, filterId, colorOf));
+}
+function questionKinds(i) { return kindsOf(i); }
+function renderBreakdowns() {
+  bars("bd-status", STATUSES, Object.fromEntries(STATUSES.map(s => [s, STATUS_ICON[s] + " " + s])), i => [i.status], "f-status", s => statusColor(s));
+  bars("bd-tag", TAGS, { stated: "stated", traced: "traced", general: "general", untagged: "no tag" }, i => [tagOf(i)], "f-tag", t => cssVar("--tag-" + t) || cssVar("--st-unreviewed"));
+  bars("bd-kind", KINDS, null, questionKinds, "f-kind", null);
+  bars("bd-split", state.splits, null, i => [i.split], "f-split", null);
+  // question kinds are not a page filter; their rows just explain the mix
+  for (const b of document.querySelectorAll("#bd-kind .row")) { b.onclick = null; b.style.cursor = "default"; b.removeAttribute("aria-pressed"); }
+}
+
+/* ---------- record ---------- */
+function goldLabel(g) {
+  if (g && g.label !== undefined && g.label !== null) return g.label;
+  if (g && g.probability_true !== undefined) return g.probability_true >= 0.5 ? "true" : "false";
+  return "(no label)";
+}
+function optionWord(q, name) {
+  if (q.type === "score") return "level " + name;
+  return name;
+}
+function softOf(g, q) {
+  if (!g) return null;
+  if (q.type === "noul" && g.probability_true !== undefined && g.probability_true !== null && g.probability_true > 0 && g.probability_true < 1)
+    return { "true": g.probability_true, "false": 1 - g.probability_true };
+  if (g.probabilities) return g.probabilities;
+  return null;
+}
+function startingPercent(soft, label, name) {
+  if (soft) return Math.round((soft[name] || 0) * 100);
+  return name === label ? 100 : 0;
+}
+function startingProbs(item, qid) {
+  const q = item.questions[qid];
+  const soft = softOf(item.gold[qid], q);
+  const label = goldLabel(item.gold[qid]);
+  const out = {};
+  for (const [name] of q.criteria) out[name] = startingPercent(soft, label, name);
+  return out;
+}
+function isChanged(item, qid) {
+  return JSON.stringify(item.gold[qid]) !== JSON.stringify(item.original_gold[qid]) || ((item.added || {})[qid] || []).length > 0;
+}
+function questionBlock(item, qid, n) {
+  const q = item.questions[qid];
+  const now = goldLabel(item.gold[qid]);
+  const was = goldLabel(item.original_gold[qid]);
+  const soft = softOf(item.gold[qid], q);
+  const added = new Set(((item.added || {})[qid] || []).map(o => o[0]));
+  const changed = isChanged(item, qid);
+  const editing = editQ === n;
+  const box = el("div", { className: "q" + (editing ? " editing" : "") });
+  box.append(el("div", { className: "q-head" }, el("strong", { textContent: qid }),
+    el("span", { className: "q-kind", textContent: kindWord(q.type) }),
+    changed ? el("span", { className: "q-edited", textContent: now !== was ? "edited from " + was : "edited" }) : null,
+    changed ? el("button", { type: "button", className: "restore", title: "Undo every change to this question: gold, probabilities and added options", onclick: () => restore(item, qid) }, "↺ Restore drafted") : null));
+  if (q.instructions) box.append(el("div", { className: "q-kind", textContent: q.instructions }));
+  const opts = el("div", { className: "opts" });
+  const ctx = { item, qid, q, now, was, soft, added, changed, editing, inputs: {},
+    probs: editing ? startingProbs(item, qid) : null };
+  q.criteria.forEach(([name, text], k) => opts.append(optionRow(ctx, name, text, k)));
+  const inputs = ctx.inputs;
+  box.append(opts);
+  if (editing) box.append(editTools(item, qid, q, inputs));
+  return box;
+}
+function kindWord(type) {
+  if (type === "noul") return "true or false";
+  if (type === "score") return "ordered score";
+  return "choice";
+}
+function optionClass(isGold, changed, wasGold) {
+  let cls = "opt";
+  if (isGold) cls += changed ? " changed" : " gold";
+  if (wasGold) cls += " drafted";
+  return cls;
+}
+function optionMark(isGold, changed, k) {
+  if (!isGold) return String(k + 1);
+  return changed ? "✎" : "✓";
+}
+function probInput(ctx, name) {
+  const inputs = ctx.inputs;
+  const inp = el("input", { type: "number", min: "0", max: "100", step: "5", value: String(ctx.probs[name]), className: "pin", "aria-label": "probability of " + name + " in percent" });
+  inp.onclick = ev => ev.stopPropagation();
+  inp.onkeydown = ev => { ev.stopPropagation(); if (ev.key === "Enter") saveProbs(ctx.item, ctx.qid, inputs); };
+  inp.oninput = () => sumLine(inputs);
+  inputs[name] = inp;
+  return el("span", { className: "pcell" }, inp, "%");
+}
+function optionTail(ctx, name) {
+  if (ctx.editing) return probInput(ctx, name);
+  if (!ctx.soft) return null;
+  const v = Math.round((ctx.soft[name] || 0) * 100);
+  return el("span", { className: "pbar", title: v + "%" }, el("i", { style: "width:" + v + "%" }), el("b", { textContent: v + "%" }));
+}
+function optionRow(ctx, name, text, k) {
+  const isGold = name === ctx.now;
+  const wasGold = ctx.now !== ctx.was && name === ctx.was;
+  const mark = el("span", { className: "mk", textContent: optionMark(isGold, ctx.changed, k) });
+  const body = el("span", {}, el("span", { className: "nm", textContent: optionWord(ctx.q, name) }), text ? el("span", { className: "ds" }, " ", inlineMd(text)) : null,
+    wasGold ? el("span", { className: "was", textContent: "drafted gold" }) : null,
+    ctx.added.has(name) ? el("span", { className: "was added", textContent: "you added" }) : null);
+  const tail = optionTail(ctx, name);
+  const opt = el("div", { className: optionClass(isGold, ctx.changed, wasGold) + (tail ? " has-p" : ""), tabIndex: ctx.editing ? 0 : -1,
+    "aria-label": (isGold ? "gold: " : "option " + (k + 1) + ": ") + name }, mark, body, tail);
+  opt.onclick = () => { if (ctx.editing) setGold(ctx.item, ctx.qid, name); };
+  return opt;
+}
+function sumLine(inputs) {
+  const line = document.getElementById("psum");
+  if (!line) return;
+  const total = Object.values(inputs).reduce((a, i) => a + (Number(i.value) || 0), 0);
+  line.textContent = "Sum " + total + "%" + (total === 100 ? "" : " (saved scaled to 100%)");
+}
+function editTools(item, qid, q, inputs) {
+  const tools = el("div", { className: "etools" });
+  tools.append(el("p", { className: "hint", textContent: "Click an option for a sure answer (100%), or spread the percentages and save. The highest becomes the label." }),
+    el("div", { className: "erow" },
+      el("button", { type: "button", className: "small primary", onclick: () => saveProbs(item, qid, inputs) }, "Save probabilities"),
+      el("span", { id: "psum", className: "hint" })));
+  if (q.type === "choice") {
+    const name = el("input", { type: "text", placeholder: "option_name", className: "oname", "aria-label": "new option name" });
+    const desc = el("input", { type: "text", placeholder: "one-line description", className: "odesc", "aria-label": "new option description" });
+    for (const i of [name, desc]) i.onkeydown = ev => { ev.stopPropagation(); if (ev.key === "Enter") addOption(item, qid, name.value, desc.value); };
+    const quick = el("div", { className: "erow" }, el("span", { className: "hint", textContent: "Quick add:" }));
+    for (const [n, d] of QUICK_OPTIONS) {
+      if (q.criteria.some(c => c[0] === n)) continue;
+      quick.append(el("button", { type: "button", className: "small", title: d, onclick: () => addOption(item, qid, n, d) }, "+ " + n));
+    }
+    tools.append(el("div", { className: "erow add" }, name, desc,
+      el("button", { type: "button", className: "small", onclick: () => addOption(item, qid, name.value, desc.value) }, "Add option")), quick);
+  }
+  setTimeout(() => sumLine(inputs), 0);
+  return tools;
+}
+const QUICK_OPTIONS = [
+  ["not_sure", "I'm not sure."],
+  ["escalate", "hand the decision to the operator; do not act"],
+  ["do_not_proceed", "stop: the plan is not safe or not workable as proposed"],
+  ["need_more_info", "ask for the missing facts before deciding"],
+];
+async function saveProbs(item, qid, inputs) {
+  const raw = Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, Math.max(0, Number(i.value) || 0)]));
+  const total = Object.values(raw).reduce((a, b) => a + b, 0);
+  if (!total) { showError("Give at least one option a probability above 0."); return; }
+  const probabilities = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, Math.round((v / total) * 10000) / 10000]));
+  const label = Object.entries(probabilities).sort((a, b) => b[1] - a[1])[0][0];
+  const keep = editQ;
+  await decide(item, "edit", { question_id: qid, label, probabilities }, false);
+  editQ = keep; render();
+}
+async function addOption(item, qid, name, description) {
+  name = String(name || "").trim(); description = String(description || "").trim();
+  if (!name || !description) { showError("A new option needs a snake_case name and a one-line description."); return; }
+  const keep = editQ;
+  await decide(item, "add_option", { question_id: qid, name, description }, false);
+  editQ = keep; render();
+}
+async function restore(item, qid) {
+  await decide(item, "restore", { question_id: qid }, false);
+}
+function inlineMd(text) {
+  const frag = document.createDocumentFragment();
+  const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) frag.append(document.createTextNode(text.slice(last, m.index)));
+    const tok = m[0];
+    frag.append(tok.startsWith("**") ? el("strong", {}, inlineMd(tok.slice(2, -2))) : el("code", { textContent: tok.slice(1, -1) }));
+    last = m.index + tok.length;
+  }
+  frag.append(document.createTextNode(text.slice(last)));
+  return frag;
+}
+function looksLikeOutput(line) {
+  const t = line.trim();
+  if (!t) return false;
+  if (/^(\$|#|>>>)\s/.test(t)) return true;                         // prompts
+  const sym = (t.match(/[=@%|[\]{}<>/\\_]/g) || []).length;
+  const words = t.split(/\s+/).length;
+  return sym >= 4 && sym / words >= 0.5;                               // dense key=value / log text
+}
+// Linear-time line parsing (no backtracking regexes): a value is the rest of the line after
+// optional (Output:) or required (Field:) whitespace, and never spans a line break.
+const LINE_BREAK = /[\n\r\u2028\u2029]/;
+const FIELD_KEY = /^[A-Z][A-Za-z /-]{1,24}:/;
+function outputField(t) {
+  if (!t.startsWith("Output:")) return null;
+  const rest = t.slice("Output:".length).trimStart();
+  return LINE_BREAK.test(rest) ? null : rest;
+}
+function fieldOf(t) {
+  const key = FIELD_KEY.exec(t);
+  if (!key) return null;
+  const after = t.slice(key[0].length);
+  const value = after.trimStart();
+  if (value === after || !value || LINE_BREAK.test(value)) return null;
+  return { key: key[0].slice(0, -1), value };
+}
+function stripTrailingNewlines(s) {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === "\n") end--;
+  return s.slice(0, end);
+}
+function structured(text) {
+  const lines = String(text).split("\n");
+  return lines.length > 1 && /^Board:/.test(lines[0].trim()) && lines.some(l => /^Ask:/.test(l.trim()));
+}
+function structuredLine(raw, parsed, dl) {
+  const line = raw.trimEnd();
+  const t = line.trim();
+  const isAsk = t.startsWith("Ask:");
+  if (parsed.out !== null && !isAsk) {
+    if (t || parsed.out.length) parsed.out.push(line);
+    return;
+  }
+  if (isAsk) {
+    parsed.ask = t.slice("Ask:".length).trimStart();
+    return;
+  }
+  const o = outputField(t);
+  if (o !== null) {
+    parsed.out = o ? [o] : [];
+    return;
+  }
+  const f = fieldOf(t);
+  if (f) dl.append(el("dt", { textContent: f.key }), el("dd", {}, inlineMd(f.value)));
+  else if (t) dl.append(el("dt", { textContent: "" }), el("dd", {}, inlineMd(t)));
+}
+function renderStructured(text) {
+  const frag = document.createDocumentFragment();
+  const dl = el("dl", { className: "fields" });
+  const parsed = { out: null, ask: null };
+  for (const raw of String(text).split("\n")) structuredLine(raw, parsed, dl);
+  frag.append(dl);
+  const out = parsed.out;
+  if (out && out.join("").trim()) frag.append(el("span", { className: "cmd", style: "margin-top:10px", textContent: stripTrailingNewlines(out.join("\n")) }));
+  if (parsed.ask) frag.append(el("div", { className: "ask" }, el("span", { textContent: "The ask" }), inlineMd(parsed.ask)));
+  return frag;
+}
+function renderState(text) {
+  if (structured(text)) return renderStructured(text);
+  const frag = document.createDocumentFragment();
+  let para = [], out = [];
+  const flushPara = () => { if (para.length) { frag.append(el("p", {}, inlineMd(para.join(" ")))); para = []; } };
+  const flushOut = () => { if (out.length) { frag.append(el("span", { className: "cmd", textContent: out.join("\n") })); out = []; } };
+  for (const line of String(text).split("\n")) {
+    if (looksLikeOutput(line)) { flushPara(); out.push(line); }
+    else if (!line.trim()) { flushPara(); flushOut(); }
+    else { flushOut(); para.push(line.trim()); }
+  }
+  flushPara(); flushOut();
+  return frag;
+}
+function evidencePanel(item) {
+  const tag = tagOf(item);
+  const panel = el("section", { className: "panel", "aria-label": "Evidence" });
+  panel.append(el("div", { className: "ev-tag" }, el("i", { className: "sw", style: "background:" + (cssVar("--tag-" + tag) || cssVar("--st-unreviewed")) }), TAG_WORD[tag]));
+  if (!item.evidence) {
+    panel.append(el("p", { className: "why", textContent: "No evidence line for this record. Check the gold against the state alone, or drop it." }));
+  } else {
+    panel.append(el("blockquote", {}, inlineMd(item.evidence.quote)));
+    panel.append(el("p", { className: "why", textContent: whyText(item) }));
+  }
+  panel.append(el("div", { className: "group-path", textContent: item.group || (item.evidence && item.evidence.group) || "no source group" }));
+  if (item.notes.length) {
+    const ul = el("ul", { className: "notes" });
+    for (const n of item.notes) ul.append(el("li", {}, el("time", { textContent: n.at }), n.note));
+    panel.append(ul);
+  }
+  return panel;
+}
+function dock(item) {
+  const panel = el("section", { className: "panel dock", "aria-label": "Decision" });
+  const note = el("input", { type: "text", placeholder: "Add a note, Enter saves it", id: "note" });
+  note.onkeydown = ev => { if (ev.key === "Enter") saveNote(item); else if (ev.key === "Escape") note.blur(); };
+  panel.append(...[
+    el("div", { className: "btns" },
+      el("button", { type: "button", className: "act keep", onclick: () => decide(item, "keep", {}, true) }, "Keep", el("kbd", { textContent: "k" })),
+      el("button", { type: "button", className: "act drop", onclick: () => decide(item, "drop", {}, true) }, "Drop", el("kbd", { textContent: "d" })),
+      el("button", { type: "button", className: "act edit", "aria-pressed": String(editQ >= 0), onclick: () => toggleEdit(item) }, editQ >= 0 ? "Next question" : "Edit gold", el("kbd", { textContent: "e" }))),
+    item.status === "edited" ? el("button", { type: "button", className: "restore wide", onclick: () => restore(item, ""), title: "Undo every edit and added option on this record; keep or drop stays as it was" }, "↺ Restore the drafted record") : null,
+    el("div", { className: "note-row" }, note),
+    el("div", { className: "nav" },
+      el("button", { type: "button", onclick: () => move(-1), textContent: "Previous" }),
+      el("button", { type: "button", className: "primary", onclick: () => nextUnreviewed(), textContent: "Next unreviewed (u)" }),
+      el("button", { type: "button", onclick: () => move(1), textContent: "Next" }))].filter(Boolean));
+  return panel;
+}
+
+function render() {
+  const view = document.getElementById("view");
+  view.replaceChildren();
+  if (!state) return;
+  const total = state.items.length;
+  const done = total - (state.counts.unreviewed || 0);
+  document.getElementById("tally").replaceChildren(el("b", { textContent: String(done) }), " of ", el("b", { textContent: String(total) }), " reviewed");
+  document.getElementById("files").replaceChildren(
+    el("div", {}, "Drafts ", el("span", { textContent: state.records_file })),
+    el("div", {}, "Evidence ", el("span", { textContent: state.evidence_file || "none" })),
+    el("div", {}, "Ledger ", el("span", { textContent: state.ledger_file })));
+  renderLegend();
+  renderStrip();
+  renderBreakdowns();
+  renderMomentum();
+  if (total && !state.counts.unreviewed && !filt("f-status") && !filt("f-split") && !filt("f-source") && !filt("f-tag")) {
+    view.append(finishPanel());
+  }
+  const list = visible();
+  if (!list.length) {
+    document.getElementById("position").textContent = "";
+    view.append(el("div", { className: "panel empty", textContent: total ? "No record matches these filters. Clear a filter to see more." : "The drafts file has no records yet." }));
+    return;
+  }
+  const idx = currentIndex(list);
+  const item = list[idx];
+  if (item.id !== currentId) { currentId = item.id; renderStrip(); }
+  document.getElementById("position").textContent = "Record " + (idx + 1) + " of " + list.length + (list.length !== total ? " shown" : "");
+  const main = el("section", { className: "panel", "aria-label": "Record" });
+  main.append(el("div", { className: "rec-head" },
+    el("span", { className: "rec-id", textContent: item.id }),
+    el("span", { className: "chip" + (item.split === "test" ? " test" : ""), textContent: item.split }),
+    el("span", { className: "chip", textContent: shortSource(item.source) }),
+    el("span", { className: "status" }, el("i", { style: "background:" + statusColor(item.status) + (item.status === "edited" ? ";color:#10201b" : ""), textContent: STATUS_ICON[item.status] }), item.status)));
+  main.append(el("div", { className: "state" }, renderState(item.state)));
+  Object.keys(item.questions).forEach((qid, n) => main.append(questionBlock(item, qid, n)));
+  view.append(el("div", { className: "work" }, main, el("div", { className: "side" }, dock(item), evidencePanel(item))));
+  if (state.orphans.length) view.append(el("p", { className: "orphans", textContent: "Ledger entries that match no current record: " + state.orphans.join(", ") }));
+}
+
+/* ---------- momentum ---------- */
+function sessionStore(key, fallback) {
+  try { const v = sessionStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) {
+    // storage blocked or the saved value is unreadable: start this session's record afresh
+    console.debug("session record not read", e);
+    return fallback;
+  }
+}
+function sessionSave(key, value) {
+  try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) {
+    // storage blocked (private window, quota): the session record is simply not remembered
+    console.debug("session record not saved", e);
+  }
+}
+let storeNs = "";                       // one session record per ledger file
+let decisionTimes = [];
+let milestonesShown = [];
+let celebrated = false;
+function useLedger(ledger) {
+  if (storeNs === ledger) return;
+  storeNs = ledger;
+  decisionTimes = sessionStore(storeNs + ":times", []);
+  milestonesShown = sessionStore(storeNs + ":milestones", []);
+  celebrated = sessionStore(storeNs + ":celebrated", false);
+}
+function toast(text) {
+  const t = document.getElementById("toast");
+  t.textContent = text;
+  t.classList.add("on");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("on"), 3600);
+}
+function minutes(sec) {
+  if (sec < 60) return "under a minute";
+  const m = Math.round(sec / 60);
+  return m === 1 ? "about 1 minute" : "about " + m + " minutes";
+}
+function pace() {
+  if (decisionTimes.length < 3) return null;
+  const gaps = [];
+  for (let i = 1; i < decisionTimes.length; i++) {
+    const g = (decisionTimes[i] - decisionTimes[i - 1]) / 1000;
+    if (g > 1 && g < 600) gaps.push(g);          // ignore breaks and double taps
+  }
+  if (gaps.length < 2) return null;
+  gaps.sort((a, b) => a - b);
+  return gaps[Math.floor(gaps.length / 2)];
+}
+function renderMomentum() {
+  const box = document.getElementById("momentum");
+  const total = state.items.length;
+  const left = state.counts.unreviewed || 0;
+  const done = total - left;
+  const parts = [];
+  if (!total) { box.replaceChildren(); return; }
+  if (left === 0) parts.push(el("span", { className: "left", textContent: "All " + total + " reviewed" }));
+  else parts.push(el("span", { className: "left", textContent: left + (left === 1 ? " record left" : " records left") }));
+  if (decisionTimes.length) parts.push(el("span", {}, "This session ", el("b", { textContent: String(decisionTimes.length) }), " decided"));
+  const p = pace();
+  if (left && p) parts.push(el("span", {}, minutes(left * p) + " to go at your pace"));
+  else if (left && done === 0) parts.push(el("span", { textContent: "Start with any record; every decision saves on its own." }));
+  box.replaceChildren(...parts);
+}
+function milestone(before, after, total) {
+  if (!total) return;
+  const marks = [[0.25, "A quarter done. Nice rhythm."], [0.5, "Halfway there."], [0.75, "Three quarters done. The end is in sight."]];
+  for (const [f, words] of marks) {
+    const at = Math.ceil(total * f);
+    if (before < at && after >= at && !milestonesShown.includes(f)) {
+      milestonesShown.push(f);
+      sessionSave(storeNs + ":milestones", milestonesShown);
+      toast(words + " " + after + " of " + total + " reviewed.");
+    }
+  }
+}
+function finishPanel() {
+  const c = state.counts;
+  const panel = el("section", { className: "panel finish", "aria-label": "Review complete" },
+    el("h2", { textContent: "Pilot review complete" }),
+    el("p", { textContent: "Every record has a decision. Your choices are in the draft ledger, and the drafted file is unchanged." }),
+    el("div", { className: "sum" },
+      el("span", {}, STATUS_ICON.kept + " ", el("b", { textContent: String(c.kept || 0) }), " kept"),
+      el("span", {}, STATUS_ICON.edited + " ", el("b", { textContent: String(c.edited || 0) }), " edited"),
+      el("span", {}, STATUS_ICON.dropped + " ", el("b", { textContent: String(c.dropped || 0) }), " dropped")),
+    el("p", {}, "Next: tell Claude the pilot is reviewed. Your notes and edits go into the drafting brief before the full draft. Ledger: ", el("code", { textContent: state.ledger_file })),
+    el("p", { textContent: "You can still revisit any record from the strip; a later decision replaces an earlier one." }));
+  return panel;
+}
+function celebrate() {
+  if (celebrated) return;
+  celebrated = true;
+  sessionSave(storeNs + ":celebrated", true);
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const cells = [...document.querySelectorAll(".cell")];
+  cells.forEach((c, i) => { c.style.animationDelay = (i * 18) + "ms"; });
+  document.getElementById("strip").classList.add("celebrate");
+  setTimeout(() => document.getElementById("strip").classList.remove("celebrate"), 520 + cells.length * 18);
+}
+
+/* ---------- actions ---------- */
+function move(step) {
+  const list = visible();
+  if (!list.length) return;
+  const i = Math.min(Math.max(currentIndex(list) + step, 0), list.length - 1);
+  currentId = list[i].id;
+  editQ = -1;
+  render();
+}
+function nextUnreviewed() {
+  const list = visible();
+  const n = list.length;
+  const start = currentIndex(list);
+  for (let k = 1; k <= n; k++) {
+    const i = (start + k) % n;
+    if (list[i].status === "unreviewed") { currentId = list[i].id; break; }
+  }
+  editQ = -1;
+  render();
+}
+function toggleEdit(item) {
+  const n = Object.keys(item.questions).length;
+  editQ = editQ + 1 >= n ? -1 : editQ + 1;
+  render();
+}
+async function send(item, action, extra) {
+  const noteBox = document.getElementById("note");
+  const body = { record_id: item.id, record_sha256: item.sha256, action, ...extra };
+  if (action !== "note" && noteBox && noteBox.value.trim() && !body.note) body.note = noteBox.value;
+  try { await api("/api/decision", body); } catch (err) { showError(err.message); return false; }
+  return true;
+}
+async function decide(item, action, extra, advance) {
+  const before = state ? state.items.length - (state.counts.unreviewed || 0) : 0;
+  if (!(await send(item, action, extra))) return;
+  decisionTimes.push(Date.now());
+  sessionSave(storeNs + ":times", decisionTimes.slice(-200));
+  editQ = -1;
+  await load();
+  const after = state ? state.items.length - (state.counts.unreviewed || 0) : 0;
+  milestone(before, after, state ? state.items.length : 0);
+  if (state && state.items.length && !state.counts.unreviewed && before < after) celebrate();
+  if (advance) {
+    const shown = visible();
+    const i = shown.findIndex(x => x.id === item.id);
+    const target = shown.slice(i + 1).find(x => x.status === "unreviewed") || shown.find(x => x.status === "unreviewed") || shown[i + 1] || shown[i];
+    if (target) { currentId = target.id; render(); }
+  }
+}
+async function setGold(item, qid, label) {
+  const g = item.gold[qid];
+  if (label === goldLabel(g) && !softOf(g, item.questions[qid])) return;
+  const keep = editQ;
+  await decide(item, "edit", { question_id: qid, label }, false);
+  editQ = keep; render();
+}
+async function saveNote(item) {
+  const text = document.getElementById("note").value.trim();
+  if (!text) return;
+  if (await send(item, "note", { note: text })) await load();
+}
+
+document.addEventListener("keydown", ev => {
+  if (ev.target.matches("input, select, textarea") || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  const list = visible();
+  if (!state || !list.length) return;
+  const item = list[currentIndex(list)];
+  const qids = Object.keys(item.questions);
+  if (editQ >= 0 && /^[1-9]$/.test(ev.key)) {
+    const pick = item.questions[qids[editQ]].criteria[Number(ev.key) - 1];
+    if (pick) setGold(item, qids[editQ], pick[0]);
+  } else if (ev.key === "Escape") { editQ = -1; render(); }
+  else if (ev.key === "k") decide(item, "keep", {}, true);
+  else if (ev.key === "d") decide(item, "drop", {}, true);
+  else if (ev.key === "e") toggleEdit(item);
+  else if (ev.key === "n") { ev.preventDefault(); document.getElementById("note").focus(); }
+  else if (ev.key === "j" || ev.key === "ArrowRight") move(1);
+  else if (ev.key === "ArrowLeft") move(-1);
+  else if (ev.key === "u") nextUnreviewed();
+});
+for (const id of FILTER_IDS) document.getElementById(id).onchange = () => { editQ = -1; render(); };
+document.getElementById("clear").onclick = () => {
+  clearFilters();
+  render();
+};
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (state) render(); });
+for (const b of document.querySelectorAll("[data-theme-set]")) b.addEventListener("click", () => { if (state) render(); });
+await load();
+</script>
+</body>
+</html>

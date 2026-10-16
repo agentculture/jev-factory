@@ -636,3 +636,264 @@ def test_train_steps_lowers_the_loss_on_a_toy_model(tmp_path):
     assert len(hist) == 10
     assert hist[-1]["loss"] < hist[0]["loss"]
     assert float(model.w[0].detach()) > float(model.w[1].detach())
+
+
+# --------------------------------------------------------------------- heal mode (t12)
+
+MIX = {"bf16_student": 0.5, "clef": 0.5}
+
+
+def test_mix_targets_weigh_the_bf16_student_and_clef_per_the_registered_mix():
+    """AC1: each heal target mixes the bf16 student's and Clef's per-option distributions."""
+    target, source = td.mix_targets([0.8, 0.2], [0.2, 0.8], {"bf16_student": 0.75, "clef": 0.25})
+    assert target == pytest.approx([0.65, 0.35])
+    assert source == "bf16_student+clef"
+    target, source = td.mix_targets([0.8, 0.2], None, MIX)
+    assert (target, source) == ([0.8, 0.2], "bf16_student_only:no_clef")
+    assert td.mix_targets([0.8, 0.2], None, {"bf16_student": 0.0, "clef": 1.0}) == (
+        None,
+        "dropped:no_clef",
+    )
+
+
+@pytest.mark.parametrize(
+    "mix, match",
+    [
+        ({"bf16_student": 1.0}, "exactly"),
+        ({"bf16_student": 0.6, "clef": 0.6}, "sum to 1"),
+        ({"bf16_student": "a", "clef": 0.5}, "numbers"),
+    ],
+)
+def test_check_mix_refuses_a_malformed_mix(mix, match):
+    with pytest.raises(CliError, match=match):
+        td.check_mix(mix)
+
+
+def test_unpermute_inverts_the_slot_permutation():
+    canonical = [0.1, 0.2, 0.7]
+    order = [2, 0, 1]
+    assert td.unpermute(dl.permute(canonical, order), order) == pytest.approx(canonical)
+    assert td.unpermute([0.3, 0.7], None) == [0.3, 0.7]
+    with pytest.raises(ValueError):
+        td.unpermute([0.3, 0.7], [0, 0])
+
+
+def _heal_row(**over):
+    row = _item()
+    row["clef"] = row.pop("teacher")
+    row.pop("gold")
+    row.update(over)
+    return row
+
+
+def test_heal_items_train_on_the_mixed_target_alone(tmp_path):
+    """AC1: heal rows carry the mixed soft target as the teacher and no gold."""
+    path = write_items(tmp_path, [_heal_row(), _heal_row(record_id="r2", clef=None)])
+    rows = td.load_heal_rows(path, HP, [])
+    items, log, counts = td.heal_items(rows, [[0.6, 0.4], [0.9, 0.1]], MIX)
+    assert [i.target for i in items] == [None, None]
+    assert items[0].teacher == pytest.approx([0.7, 0.3])
+    assert items[1].teacher == pytest.approx([0.9, 0.1])
+    assert counts == {"bf16_student+clef": 1, "bf16_student_only:no_clef": 1}
+    assert log[0]["bf16_student"] == [0.6, 0.4]
+    assert log[0]["clef"] == [0.8, 0.2]
+
+
+def test_a_protected_id_in_the_heal_rows_is_refused_with_a_user_error(tmp_path):
+    """AC2: a test or held-out id in the heal input is refused (exit 1)."""
+    path = write_items(tmp_path, [_heal_row(), _heal_row(record_id="held-1")])
+    protected = [td.id_digest("held-1")]
+    with pytest.raises(CliError, match="protected record id") as err:
+        td.load_heal_rows(path, HP, protected)
+    assert err.value.code == 1
+
+
+def test_plan_train_passes_the_heal_spec(tmp_path):
+    train_plan = plan(tmp_path, heal_spec=tmp_path / "run" / "heal_spec.json")
+    argv = train_plan["argv"]
+    assert argv[argv.index("--heal") + 1] == str(tmp_path / "run" / "heal_spec.json")
+    assert train_plan["heal_spec"] == str(tmp_path / "run" / "heal_spec.json")
+    assert "--heal" not in plan(tmp_path / "plain")["argv"]
+
+
+def _heal_argv(tmp_path, rows, protected_ids):
+    argv = _main_argv(tmp_path)
+    run = tmp_path / "run"
+    dp.lock(run / "distill" / "prereg.json", run)
+    (run / "t.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (tmp_path / "v21").mkdir(exist_ok=True)
+    spec = {
+        "format": "torch_int4_wo",
+        "mix": MIX,
+        "fake_quant": None,
+        "protected_id_sha256": [td.id_digest(i) for i in protected_ids],
+        "bf16_student": str(tmp_path / "v21"),
+    }
+    (run / "heal_spec.json").write_text(json.dumps(spec))
+    return argv + ["--heal", str(run / "heal_spec.json")]
+
+
+def test_trainer_main_exits_non_zero_on_a_protected_heal_id_before_loading_torch(
+    tmp_path, capsys, monkeypatch
+):
+    """AC2: the trainer itself re-checks the heal input and exits non-zero."""
+    monkeypatch.setattr(td, "_heal", lambda *a: pytest.fail("the heal must not start"))
+    argv = _heal_argv(tmp_path, [_heal_row(), _heal_row(record_id="test-9")], ["test-9"])
+    assert td.main(argv) == 1
+    assert "protected record id" in capsys.readouterr().err
+
+
+def test_trainer_main_starts_the_heal_from_the_specs_bf16_student(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(td, "_heal", lambda args, hp, rows, spec: seen.update(rows=rows) or 0)
+    assert td.main(_heal_argv(tmp_path, [_heal_row()], ["test-9"])) == 0
+    assert [r.item.record_id for r in seen["rows"]] == ["r1"]
+
+
+def test_trainer_main_refuses_a_heal_spec_naming_another_student(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(td, "_heal", lambda *a: pytest.fail("the heal must not start"))
+    argv = _heal_argv(tmp_path, [_heal_row()], [])
+    spec_path = tmp_path / "run" / "heal_spec.json"
+    spec = json.loads(spec_path.read_text())
+    spec["bf16_student"] = str(tmp_path / "other")
+    spec_path.write_text(json.dumps(spec))
+    assert td.main(argv) == 1
+    assert "bf16 student" in capsys.readouterr().err
+
+
+def test_the_heal_falls_back_to_the_bf16_continuation_without_a_fake_quant_scheme():
+    """Instruction: the d18 bf16 continuation is the fallback, with the reason recorded."""
+    spec = {"format": "onnx_int8", "fake_quant": None}
+    method, restore = td.enable_heal_method(object(), spec, probe=lambda: None)
+    assert method["method"] == td.HEAL_BF16
+    assert "onnx_int8" in method["fallback_reason"]
+    assert restore() is None
+
+
+# ------------------------------------------------- QAT forward (torch only; skipped in CI)
+
+
+def test_fake_quant_matches_round_to_nearest_with_a_straight_through_gradient():
+    torch = pytest.importorskip("torch")
+    w = torch.tensor([[0.0, 0.1, 0.2, 0.7], [-1.0, -0.5, 0.25, 1.0]], requires_grad=True)
+    q = td.fake_quant(w, 8, None, True)
+    assert torch.allclose(q, w, atol=1.0 / 127)
+    q4 = td.fake_quant(w, 4, 2, False)
+    assert len(set(q4.detach().reshape(-1, 2)[0].tolist())) <= 2
+    q4.sum().backward()
+    assert torch.equal(w.grad, torch.ones_like(w))  # straight-through
+    with pytest.raises(td.QatUnavailable):
+        td.fake_quant(w, 4, 3, False)
+
+
+def _toy_lora_model(torch):
+    class Lora(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.base_layer = torch.nn.Linear(4, 4, bias=False)
+            self.lora_A = torch.nn.ModuleDict({"default": torch.nn.Linear(4, 2, bias=False)})
+            self.lora_B = torch.nn.ModuleDict({"default": torch.nn.Linear(2, 4, bias=False)})
+            self.scaling = {"default": 2.0}
+            self.active_adapters = ["default"]
+
+        def forward(self, x):
+            return self.base_layer(x) + self.lora_B["default"](self.lora_A["default"](x)) * 2.0
+
+    class Torso(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.layers = torch.nn.ModuleList([torch.nn.Module()])
+            self.layers[0].q_proj = Lora()
+            self.embed_tokens = torch.nn.Embedding(10, 4)
+
+    class Model:
+        torso = Torso()
+
+    return Model()
+
+
+def test_qat_forward_fake_quantizes_the_merged_lora_weight_and_restores():
+    torch = pytest.importorskip("torch")
+    model = _toy_lora_model(torch)
+    layer = model.torso.layers[0].q_proj
+    x = torch.randn(3, 4)
+    plain = layer(x)
+    fq = {
+        "block_bits": 4,
+        "block_group_size": 2,
+        "block_symmetric": False,
+        "embedding_bits": 4,
+        "embedding_group_size": 2,
+    }
+    method, restore = td.enable_heal_method(
+        model, {"format": "torch_int4_wo", "fake_quant": fq}, probe=lambda: None
+    )
+    assert method["method"] == td.HEAL_QAT
+    assert method["touched"] == {"lora_linears": 1, "plain_linears": 0, "embeddings": 1}
+    merged = (
+        layer.base_layer.weight
+        + 2.0 * layer.lora_B["default"].weight @ layer.lora_A["default"].weight
+    )
+    expected = x @ td.fake_quant(merged, 4, 2, False).T
+    assert torch.allclose(layer(x), expected, atol=1e-5)
+    layer(x).sum().backward()
+    assert layer.lora_A["default"].weight.grad is not None  # the LoRA trains through it
+    restore()
+    assert torch.allclose(layer(x), plain, atol=1e-6)
+
+
+def test_a_failing_qat_probe_falls_back_and_restores():
+    torch = pytest.importorskip("torch")
+    model = _toy_lora_model(torch)
+    fq = {"block_bits": 4, "block_group_size": 2, "block_symmetric": False}
+
+    def probe():
+        raise RuntimeError("no kernel")
+
+    method, _restore = td.enable_heal_method(
+        model, {"format": "torch_int4_wo", "fake_quant": fq}, probe
+    )
+    assert method["method"] == td.HEAL_BF16
+    assert "no kernel" in method["fallback_reason"]
+    assert "forward" not in model.torso.layers[0].q_proj.__dict__
+
+
+def test_student_distributions_are_the_students_own_softmax_in_canonical_order(tmp_path):
+    """AC1: the bf16 student labels each heal row (temperature 1), back in canonical order."""
+    torch = pytest.importorskip("torch")
+    items = td.load_items(write_items(tmp_path, [_item(), _item(record_id="r2")]), HP)
+
+    class Fmt:
+        @staticmethod
+        def Example(**kw):
+            return kw
+
+    class Coll:
+        orders = []
+
+        def __call__(self, examples):
+            self.orders = [[1, 0] for _ in examples]  # the collator swapped the two options
+            n = len(examples)
+            ones = torch.ones(n, 2, dtype=torch.long)
+            return {"input_ids": ones, "attention_mask": ones, "n_slots": ones, "opt_idx": ones}
+
+    class Raw(torch.nn.Module):
+        def forward(self, **kw):
+            n = kw["input_ids"].shape[0]
+            return {"logits": torch.tensor([[0.0, math.log(3.0)]] * n)}  # slot 1: p = 0.75
+
+    sess = td._Session(torch, None, Fmt, None, None, Raw(), {}, "cpu")
+    out = td.student_distributions(sess, Coll(), items, batch_size=1)
+    assert out == [pytest.approx([0.75, 0.25])] * 2  # slot 1 is canonical option 0
+
+
+def test_head_to_safetensors_replaces_the_pickled_head(tmp_path):
+    torch = pytest.importorskip("torch")
+    st = pytest.importorskip("safetensors.torch")
+    state = {"proj.weight": torch.randn(3, 4), "proj.bias": torch.randn(3)}
+    torch.save(state, str(tmp_path / "slot_head.pt"))
+    td.head_to_safetensors(torch, tmp_path)
+    assert not (tmp_path / "slot_head.pt").exists()
+    back = st.load_file(str(tmp_path / "head.safetensors"))
+    assert set(back) == set(state)
+    assert all(torch.equal(back[k], state[k]) for k in state)

@@ -128,8 +128,13 @@ KEYS: tuple[Key, ...] = (
     # the distillery (jev distill): inputs, pinned environments and localhost endpoints
     _k("distill_records", "path", None, "typed-decision records JSONL the distill dataset reads"),
     _k("distill_pin_cache", "path", None, "local cache of the pinned student inputs (no network)"),
-    _k("distill_base_revision", "str", None, "student base revision (default: the v21 base pin)"),
-    _k("distill_decider_revision", "str", None, "strands-decider-2B-hobson-v21 commit pinned"),
+    _k(
+        "distill_base_revision",
+        "str",
+        None,
+        "student base revision (default: the pinned base, b1485b2)",
+    ),
+    _k("distill_decider_revision", "str", None, "strands-decider-2B-qwen3.5-v1-2610 commit pinned"),
     _k("distill_decider_repo", "path", None, "strands-decider checkout (serve and train)"),
     _k("distill_trainer_python", "path", None, "python of the pinned distill trainer env"),
     _k("distill_student_python", "path", None, "python of the pinned student runtime env"),
@@ -143,10 +148,59 @@ KEYS: tuple[Key, ...] = (
     _k("distill_teacher_engine", "str", None, "engine serving the teacher (e.g. sglang)"),
     _k("distill_alt_teacher_url", "str", None, "localhost /v1/systemone URL drafting corrections"),
     _k("distill_alt_teacher_model", "str", None, "served model name of the correction drafter"),
-    _k("distill_v21_url", "str", None, "localhost /v1/systemone base URL of stock v21"),
-    _k("distill_v21_model", "str", None, "served model name of stock v21"),
+    _k("distill_stock_url", "str", None, "localhost /v1/systemone base URL of the stock model"),
+    _k("distill_stock_model", "str", None, "served model name of the stock model"),
+    _k(
+        "distill_probe_set",
+        "path",
+        None,
+        "operator-held Clef probe set (upload scan; never committed)",
+    ),
+    _k("distill_side_model_list", "path", None, "operator-held side-model names (upload scan)"),
+    _k(
+        "distill_teacher_model_header",
+        "str",
+        None,
+        "model name sent as X-Lobes-Model to the teacher gateway, if any",
+    ),
+    _k(
+        "distill_gold_ledger",
+        "path",
+        None,
+        "human-gold approval ledger the final reads (default: beside test.jsonl)",
+    ),
+    _k(
+        "distill_jevbench_tasks",
+        "path",
+        None,
+        "JevBench w4096 public tasks (231, record JSONL) the stock reproduction scores",
+    ),
+    _k(
+        "distill_agx_url",
+        "str",
+        None,
+        "127.0.0.1 tunnel URL of the shipped quant pre-served on the AGX Orin (final)",
+    ),
+    _k(
+        "distill_edge_url",
+        "str",
+        None,
+        "127.0.0.1 tunnel URL of the shipped quant served on the edge board (edge)",
+    ),
+    _k(
+        "distill_edge_memory_cap",
+        "str",
+        None,
+        "expected cgroup MemoryMax of the edge server (bytes, or K/M/G/T, base 1024)",
+    ),
     # secrets, by the NAME of the environment variable that holds them
     _k("aug_key_env", "envname", None, "name of the env var holding the teacher gateway key"),
+    _k(
+        "distill_teacher_key_env",
+        "envname",
+        None,
+        "name of the env var holding the distill teacher's bearer key",
+    ),
     _k("hf_token_env", "envname", "HF_TOKEN", "name of the env var holding the hub token"),
 )
 

@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "sources": [
+    {
+      "id": "jetson-containers",
+      "repo_url": "https://github.com/NVIDIA-AI-IOT/jetson-containers",
+      "commit": "9416e82702dbc8b6689a06c17d40dd31611633f8",
+      "paths": [
+        "**"
+      ],
+      "licences": {
+        "code": "MIT",
+        "docs": "MIT"
+      },
+      "attribution": "Contains material from NVIDIA-AI-IOT/jetson-containers (https://github.com/NVIDIA-AI-IOT/jetson-containers), Copyright (c) 2026 NVIDIA CORPORATION. All rights reserved. MIT License: the copyright notice and permission notice are retained."
+    },
+    {
+      "id": "jetson-ai-lab",
+      "repo_url": "https://github.com/NVIDIA-AI-IOT/jetson-generative-ai-playground",
+      "commit": "c089671d950f9067c0e62fde137258990f91258d",
+      "paths": [
+        "**"
+      ],
+      "licences": {
+        "code": "MIT",
+        "docs": "MIT"
+      },
+      "attribution": "Contains material from the Jetson AI Lab site source (https://github.com/NVIDIA-AI-IOT/jetson-generative-ai-playground), Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved. MIT License: the copyright notice and permission notice are retained."
+    },
+    {
+      "id": "jetson-device-skills",
+      "repo_url": "https://github.com/NVIDIA-AI-IOT/jetson-device-skills",
+      "commit": "20137897aef549cc2fa36a18c10e45da94967c3e",
+      "paths": [
+        "skills/**",
+        "agents/**"
+      ],
+      "licences": {
+        "code": "Apache-2.0",
+        "docs": "CC-BY-4.0"
+      },
+      "attribution": "Contains material from NVIDIA-AI-IOT/jetson-device-skills (https://github.com/NVIDIA-AI-IOT/jetson-device-skills), Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. Documentation is licensed CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/); source code is licensed Apache-2.0. Changes: text was selected, trimmed and recombined into training records."
+    },
+    {
+      "id": "jetson-bsp-skills",
+      "repo_url": "https://github.com/NVIDIA-AI-IOT/jetson-bsp-skills",
+      "commit": "fdfafef0416be1eb3852b68fc802a9752f33fb28",
+      "paths": [
+        "skills/**",
+        "references/**",
+        "context/**"
+      ],
+      "licences": {
+        "code": "Apache-2.0",
+        "docs": "CC-BY-4.0"
+      },
+      "attribution": "Contains material from NVIDIA-AI-IOT/jetson-bsp-skills (https://github.com/NVIDIA-AI-IOT/jetson-bsp-skills), Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. Documentation is licensed CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/); source code is licensed Apache-2.0. Changes: text was selected, trimmed and recombined into training records."
+    },
+    {
+      "id": "general-ops",
+      "repo_url": "https://github.com/agentculture/jev-factory",
+      "commit": "ca14f012c53d0be81d13deef96e2b9e47e4213e0",
+      "paths": [
+        "**"
+      ],
+      "licences": {
+        "code": "Apache-2.0",
+        "docs": "Apache-2.0"
+      },
+      "attribution": "Agent-drafted from general Jetson Orin and Ubuntu operations knowledge for jev-factory issue #20 (spec at the pinned commit); no third-party text. Licensed Apache-2.0."
+    }
+  ]
+}

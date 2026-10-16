@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 import secrets
 import threading
 from collections.abc import Mapping
@@ -33,15 +34,20 @@ from jev_factory.distill.corrections import read_corrections
 from jev_factory.domain.model import Domain
 from jev_factory.review import core
 from jev_factory.review import corrections as corr_review
+from jev_factory.review import drafts as drafts_review
+from jev_factory.review import gold as gold_review
 
 HOST = "127.0.0.1"
 AUTH_HEADER = "X-Review-Key"
 MAX_BODY = 1 << 20
 PAGE = Path(__file__).with_name("page.html")
+GOLD_PAGE = Path(__file__).with_name("gold_page.html")
+DRAFTS_PAGE = Path(__file__).with_name("drafts_page.html")
 _KEY_SLOT = "__JEV_REVIEW_KEY__"
 _CSP = (
     "default-src 'none'; script-src 'unsafe-inline' https://unpkg.com; "
-    "style-src 'unsafe-inline' https://unpkg.com; connect-src 'self'; img-src data:; "
+    "style-src 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; connect-src 'self'; img-src data:; "
     "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 )
 
@@ -178,6 +184,240 @@ class CorrectionsApp:
         return {"recorded": True, "staged": True, "action": record["action"]}
 
 
+class GoldApp:
+    """The gold-mode review (``jev review --gold --serve``), independent of HTTP.
+
+    Every read and write goes through :mod:`jev_factory.review.gold`: a decision is one
+    append-only ledger entry bound to the record's current sha256; an edit also rewrites
+    the records file, exactly as ``--gold --apply`` does. A malformed ledger or records
+    file raises :class:`GoldLedgerError` before anything is written.
+    """
+
+    def __init__(self, records: Path, ledger_file: Path | None = None) -> None:
+        self.records = records
+        self.ledger_file = ledger_file or gold_review.ledger_path(records)
+        self.token = secrets.token_hex(16)
+        self.page = GOLD_PAGE.read_text(encoding="utf-8").replace(_KEY_SLOT, self.token).encode()
+        self._lock = threading.Lock()
+
+    def _load(self) -> tuple[list[Any], list[Any], list[dict[str, Any]]]:
+        drafted = gold_review.read_drafted(self.records)
+        ledger = gold_review.read_ledger(self.ledger_file)
+        test = [r for r in drafted if r.split == gold_review.TEST_SPLIT]
+        return drafted, test, ledger
+
+    def state(self) -> dict[str, Any]:
+        drafted, test, ledger = self._load()
+        latest = {(e["record_id"], e["record_sha256"]): e["action"] for e in ledger}
+        items = []
+        for record in test:
+            sha = gold_review.record_sha256(record)
+            items.append(
+                {
+                    "id": record.id,
+                    "sha256": sha,
+                    "status": gold_review.status_of(record, latest),
+                    "source": record.source,
+                    "state": record.state,
+                    "gold_provenance": record.gold_provenance,
+                    "questions": {
+                        q: question.to_json() for q, question in record.questions.items()
+                    },
+                    "gold": {q: g.to_json() for q, g in record.gold.items()},
+                }
+            )
+        plan = gold_review.plan(ledger, test)
+        return {
+            "mode": "gold",
+            "records_file": str(self.records),
+            "ledger_file": str(self.ledger_file),
+            "test_records": len(test),
+            "skipped_non_test": len(drafted) - len(test),
+            "items": items,
+            "counts": plan.counts,
+            "orphans": plan.orphans,
+        }
+
+    def check(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Validate a decision without recording it."""
+        try:
+            _drafted, test, _ledger = self._load()
+            record = next((r for r in test if r.id == payload.get("record_id")), None)
+            if record is None:
+                raise gold_review.GoldLedgerError(f"no test record {payload.get('record_id')!r}")
+            edit = None
+            if payload.get("action") == "edit":
+                edit = (str(payload.get("question_id") or ""), str(payload.get("label") or ""))
+            gold_review.make_entry(record, str(payload.get("action")), edit=edit)
+        except gold_review.GoldLedgerError as exc:
+            return {"problems": [str(exc)]}
+        return {"problems": []}
+
+    def decide(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            drafted, test, _ledger = self._load()
+            record = next((r for r in test if r.id == payload.get("record_id")), None)
+            if record is None:
+                raise gold_review.GoldLedgerError(f"no test record {payload.get('record_id')!r}")
+            seen = payload.get("record_sha256")
+            if seen is not None and seen != gold_review.record_sha256(record):
+                raise gold_review.GoldLedgerError(
+                    f"{record.id}: the record changed since the page loaded; reload"
+                )
+            edit = None
+            if payload.get("action") == "edit":
+                edit = (str(payload.get("question_id") or ""), str(payload.get("label") or ""))
+            entry, after = gold_review.make_entry(
+                record,
+                str(payload.get("action")),
+                reviewer=_text(payload.get("reviewer")),
+                note=_text(payload.get("note")) or "",
+                edit=edit,
+            )
+            gold_review.append_entry(self.ledger_file, entry)
+            if edit is not None:
+                gold_review.write_drafted(
+                    self.records, [after if r.id == after.id else r for r in drafted]
+                )
+        return {
+            "recorded": True,
+            "action": entry["action"],
+            "record_sha256": entry["record_sha256"],
+        }
+
+
+class DraftsApp:
+    """The drafts-mode review (``jev review --drafts --serve``), independent of HTTP.
+
+    Every decision is one append-only entry in the draft-review ledger bound to the
+    record's current sha256; the drafted file is never written (``apply_ledger`` makes the
+    reviewed file). A malformed ledger, records or evidence file raises
+    :class:`DraftReviewError` before anything is written.
+    """
+
+    def __init__(
+        self, records: Path, evidence: Path | None = None, ledger_file: Path | None = None
+    ) -> None:
+        self.records = records
+        self.evidence = evidence
+        self.ledger_file = ledger_file or drafts_review.ledger_path(records)
+        self.token = secrets.token_hex(16)
+        self.page = DRAFTS_PAGE.read_text(encoding="utf-8").replace(_KEY_SLOT, self.token).encode()
+        self._lock = threading.Lock()
+
+    def _load(self) -> tuple[list[Any], list[dict[str, Any]], dict[str, dict[str, str]]]:
+        try:
+            drafted = gold_review.read_drafted(self.records)
+        except gold_review.GoldLedgerError as exc:
+            raise drafts_review.DraftReviewError(str(exc)) from None
+        ledger = drafts_review.read_ledger(self.ledger_file)
+        return drafted, ledger, drafts_review.read_evidence(self.evidence)
+
+    def state(self) -> dict[str, Any]:
+        drafted, ledger, evidence = self._load()
+        resolved = drafts_review.resolve(ledger, drafted)
+        items = []
+        for record in drafted:
+            res = resolved[record.id]
+            final = drafts_review.effective(record, res)
+            items.append(
+                {
+                    "id": record.id,
+                    "sha256": gold_review.record_sha256(record),
+                    "status": res.status,
+                    "edits": res.edits,
+                    "added": res.added,
+                    "notes": res.notes,
+                    "split": record.split,
+                    "source": record.source,
+                    "group": record.group,
+                    "gold_provenance": record.gold_provenance,
+                    "state": record.state,
+                    "questions": {q: x.to_json() for q, x in final.questions.items()},
+                    "original_gold": {q: g.to_json() for q, g in record.gold.items()},
+                    "gold": {q: g.to_json() for q, g in final.gold.items()},
+                    "evidence": evidence.get(record.id),
+                }
+            )
+        return {
+            "mode": "drafts",
+            "records_file": str(self.records),
+            "evidence_file": str(self.evidence) if self.evidence else None,
+            "ledger_file": str(self.ledger_file),
+            "items": items,
+            "splits": sorted({i["split"] for i in items}),
+            "sources": sorted({i["source"] for i in items}),
+            "counts": drafts_review.counts(resolved),
+            "orphans": drafts_review.orphans(ledger, drafted),
+        }
+
+    def _entry(self, payload: Mapping[str, Any]) -> tuple[dict[str, Any], Any]:
+        drafted, ledger, _evidence = self._load()
+        record = next((r for r in drafted if r.id == payload.get("record_id")), None)
+        if record is None:
+            raise drafts_review.DraftReviewError(f"no record {payload.get('record_id')!r}")
+        seen = payload.get("record_sha256")
+        if seen is not None and seen != gold_review.record_sha256(record):
+            raise drafts_review.DraftReviewError(
+                f"{record.id}: the record changed since the page loaded; reload"
+            )
+        action = str(payload.get("action"))
+        current = drafts_review.effective(
+            record, drafts_review.resolve(_only(ledger, record.id), [record])[record.id]
+        )
+        entry = drafts_review.make_entry(
+            record,
+            action,
+            reviewer=_text(payload.get("reviewer")),
+            note=_text(payload.get("note")) or "",
+            current=current,
+            **_draft_payload(action, payload),
+        )
+        return entry, record
+
+    def check(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Validate a decision without recording it."""
+        try:
+            self._entry(payload)
+        except gold_review.GoldLedgerError as exc:
+            return {"problems": [str(exc)]}
+        return {"problems": []}
+
+    def decide(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            entry, _record = self._entry(payload)
+            drafts_review.append_entry(self.ledger_file, entry)
+        return {
+            "recorded": True,
+            "action": entry["action"],
+            "record_sha256": entry["record_sha256"],
+        }
+
+
+def _draft_payload(action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    """The edit / option / restore part of a drafts decision, from the page's JSON."""
+    qid = str(payload.get("question_id") or "")
+    if action == "edit":
+        probs = payload.get("probabilities")
+        if probs is not None and not drafts_review.is_probabilities(probs):
+            raise drafts_review.DraftReviewError("probabilities must map option names to numbers")
+        return {"edit": (qid, str(payload.get("label") or ""), probs)}
+    if action == "add_option":
+        name, description = str(payload.get("name") or ""), str(payload.get("description") or "")
+        return {"option": (qid, name.strip(), description)}
+    if action == "restore":
+        return {"restore": qid}
+    return {}
+
+
+def _only(ledger: list[dict[str, Any]], record_id: str) -> list[dict[str, Any]]:
+    return [e for e in ledger if e["record_id"] == record_id]
+
+
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
 def _public_correction(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
     if record is None:
         return None
@@ -198,14 +438,20 @@ class _ReviewHandler(BaseHTTPRequestHandler):
     """The review site's request handler; :func:`make_handler` binds it to one app."""
 
     server_version = "jev-review"
-    review_app: ReviewApp | CorrectionsApp
+    review_app: ReviewApp | CorrectionsApp | GoldApp | DraftsApp
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 (stdlib name)
         """Quiet: the review site logs nothing per request."""
 
+    allow_hosts: tuple[str, ...] = ()
+
     def _host_ok(self) -> bool:
         port = self.server.server_address[1]
-        return self.headers.get("Host", "") in (f"{HOST}:{port}", f"localhost:{port}")
+        host = self.headers.get("Host", "")
+        if host in (f"{HOST}:{port}", f"localhost:{port}"):
+            return True
+        # an exact extra name (a tailnet proxy such as `tailscale serve`), with or without a port
+        return bool(self.allow_hosts) and host.rsplit(":", 1)[0] in self.allow_hosts
 
     def _send(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -274,9 +520,15 @@ class _ReviewHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 
 
-def make_handler(app: ReviewApp | CorrectionsApp) -> type[BaseHTTPRequestHandler]:
+def make_handler(
+    app: ReviewApp | CorrectionsApp | GoldApp | DraftsApp,
+    allow_hosts: tuple[str, ...] = (),
+) -> type[BaseHTTPRequestHandler]:
+    names = check_allow_hosts(allow_hosts)
+
     class Handler(_ReviewHandler):
         review_app = app
+        allow_hosts = names
 
     return Handler
 
@@ -286,6 +538,28 @@ def local_url(port: int) -> str:
     return urlunsplit(("http", f"{HOST}:{port}", "/", "", ""))
 
 
-def make_server(app: ReviewApp | CorrectionsApp, port: int) -> ThreadingHTTPServer:
-    """A server for *app* on the loopback interface (*port* 0 picks a free one)."""
-    return ThreadingHTTPServer((HOST, port), make_handler(app))
+_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_HOSTNAME = re.compile(rf"^(?=.{{1,253}}$){_LABEL}(?:\.{_LABEL})*$")
+
+
+def check_allow_hosts(names: tuple[str, ...]) -> tuple[str, ...]:
+    """Exact extra Host names; wildcards, ports, IPs-with-schemes and blanks are refused."""
+    out = []
+    for name in names:
+        bare = name.strip().rstrip(".")
+        if not _HOSTNAME.match(bare):
+            raise ValueError(f"--allow-host {name!r} is not a plain host name")
+        out.append(bare)
+    return tuple(out)
+
+
+def make_server(
+    app: ReviewApp | CorrectionsApp | GoldApp | DraftsApp,
+    port: int,
+    allow_hosts: tuple[str, ...] = (),
+) -> ThreadingHTTPServer:
+    """A server for *app* on the loopback interface (*port* 0 picks a free one).
+
+    *allow_hosts* adds exact Host names (a tailnet proxy's name); the socket stays on loopback.
+    """
+    return ThreadingHTTPServer((HOST, port), make_handler(app, allow_hosts))

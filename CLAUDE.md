@@ -72,18 +72,28 @@ published; the bare `jev` name on PyPI belongs to someone else). Argparse's
 > distillery neither builds nor trains it. The distillery is not an
 > acceptance gate for the jev-tool model either.
 
-A second, separate build path lives in `jev_factory/distill/` (brief: GitHub
-issue 18; spec and plan under `docs/specs` and `docs/plans`, operator-facing
-write-up in `docs/distill.md`). It distils Cloudflare **Clef 27B** (teacher) into
-**Strands Decider 2B** (student: a pointer-scorer on `Qwen/Qwen3.5-2B-Base`,
-LoRA plus a `head.safetensors`). Facts to keep straight:
+A second, separate build path lives in `jev_factory/distill/` (briefs: GitHub
+issues 18 and 20; spec and plan under `docs/specs` and `docs/plans`,
+operator-facing write-up in `docs/distill.md`, bundle contract in
+`docs/distill-bundle-format.md`). It distils Cloudflare **Clef 27B** (teacher)
+into **Strands Decider 2B** (student: a pointer-scorer on
+`Qwen/Qwen3.5-2B-Base`, LoRA plus a `head.safetensors`). Issue 20 retargets it
+to a Jetson-ops specialist small enough for an Orin Nano. Facts to keep
+straight:
 
+- **Student (#20).** `StrandsAgents/strands-decider-2B-qwen3.5-v1-2610` at
+  revision `216d1ccb` (pins and the pre-registration seed in `pins.py` and
+  `prereg.py`). The reference role is the model-neutral `stock`, not a named
+  version; the pre-registration is schema version 2 with the c17 bars
+  (top-1 at least stock + 10 points and within 5 points of Clef W4A16, for the
+  bf16 student and the quant; quant-vs-bf16 agreement at least 0.97; weight
+  bytes under 10^9; latency reported, not gated).
 - **Verb and stages.** `jev distill <stage>` takes the stage as a positional
   argument, so the jev-CLI domain gains one `jev.distill` operation (deviation
-  d5), not fourteen. Its own registry (`jev_factory/distill/pipeline.py`) holds
-  14 stages in order: `preregister`, `dataset`, `contamination`,
+  d5), not fifteen. Its own registry (`jev_factory/distill/pipeline.py`) holds
+  15 stages in order: `preregister`, `dataset`, `contamination`,
   `teacher-label`, `audit`, `corrections-draft`, `assemble`, `benchmark`,
-  `train`, `quantize`, `gate`, `final`, `bundle`, `upload`. It is separate from
+  `train`, `quantize`, `gate`, `final`, `edge`, `bundle`, `upload`. It is separate from
   `jev run`'s 23 stages; both write manifests that `jev status` reads. Every
   stage is dry-run by default.
 - **Wire and records.** Records are `/v1/systemone` bodies plus gold
@@ -93,27 +103,64 @@ LoRA plus a `head.safetensors`). Facts to keep straight:
 - **Sides (deviation d2).** train / fit / selection / sealed held-out / test.
   Only train may become a training target. The teacher labels train only.
   Test and held-out are measured once, in `final`.
+- **Teacher access.** Clef is reached only through an SSH tunnel to
+  `127.0.0.1` (`ssh -N -L 127.0.0.1:<port>:127.0.0.1:8000 <orin>`). The bearer
+  key is named by env var (`distill_teacher_key_env`) and never written
+  anywhere; the model header is `X-Lobes-Model: decider:general`
+  (`distill_teacher_model_header`).
+- **Contamination and data.** Sources are checked against the 2610 card's 48
+  datasets plus its non-card training sources (deviation d1). `dataset`
+  admits `apache-2.0`, `mit` and `cc-by-4.0` (the last only with an
+  attribution string); a question over 24 options or a record over 4096
+  tokens is refused and counted, never truncated. The Jetson-ops records come
+  from NVIDIA public repositories plus agent-drafted general Jetson
+  operations, not the operator's own stack (deviation d3).
+- **Human gold.** A test record is human gold only through the approval ledger
+  `jev review --gold FILE` (CLI and `--serve` page); `final` refuses any test
+  record without an approval for its current sha256. `jev review --drafts
+  FILE` is the one-at-a-time review of drafted records of every split.
 - **Teacher trust.** `audit` scores Clef against human gold per source and
   flags `teacher_weak`; model-generated gold never flags the teacher.
   Corrections are drafted as `proposed` and train only after an operator
   records approval with `jev review --corrections FILE`. Precedence per
   `(record, question)`: correction, human gold, alternative teacher, Clef.
 - **Student formats (deviation d3).** `strands-decider serve` has no int8 or
-  int4 path, so `quantize` builds torchao weight-only int8 and int4 artifacts
-  (`backbones/pointer/quantized.py`); a failed build is recorded unavailable.
+  int4 path, so `quantize` builds its own artifact
+  (`backbones/pointer/quantized.py`): LoRA merged, vision tower and MTP head
+  dropped, int4 text blocks, a packed full-vocabulary embedding, fp32 pointer
+  head, under 10^9 bytes of weights. Its wrapper serves `/v1/systemone` plus
+  `/v1/bundle` (sha256 attestation) and `/v1/stats` (memory, device, cgroup
+  cap). A build at or over the byte budget, or that fails, is recorded
+  unavailable. A pruned-vocabulary build exists for comparison only and is
+  never shipped. `quantize` heals at most once, against the bf16 student's
+  and Clef's soft labels, and a healed build needs at least 0.97 agreement
+  with the bf16 student. When no quant qualifies there is no bf16 fallback:
+  the stage fails and `final` and `bundle` refuse it.
+- **Final and edge.** `final` measures four models once (Clef, the stock model,
+  the bf16 student, the quant), the quant pre-served on the AGX Orin through a
+  tunnel and checked against its `/v1/bundle` attestation. `edge` (after
+  `final`) measures the shipped quant on the AGX Orin or the Nano, on
+  non-test data only, and refuses a server with no cgroup cap. jev never
+  ssh-executes on a board; the operator serves it with `systemd-run --user -p
+  MemoryMax=<cap> python -m jev_factory.backbones.pointer.quantized serve
+  ARTIFACT --host 127.0.0.1 --port N`.
 - **Gate (deviation d4).** A per-question-kind answer-or-abstain gate
   (`floor`, `margin`, `max_entropy`) fitted on the fit fold only
   (`distill/gate.py`).
-- **Headline rule.** The c42 bars are computed on human-gold records from
-  clean (non-overlapping) sources on the test side only. typed-decisions
+- **Headline rule.** The c17 bars are computed on operator-approved
+  human-gold records from clean (non-overlapping) sources on the test side only. typed-decisions
   agreement is a secondary table and is never gated.
 - **Lobes split.** Serving is in lobes-cli (`orin-decision-models`: the
   `decider` role, Clef W4A16 on the Orin, the 2B in bf16 on any box); training
   is here. The two consumers are the operator running `jev distill` and
   lobes' `decider` role over `/v1/systemone`.
-- **State.** The code is built and fixture-tested. No distill run has
-  happened (the operator run, t26, is pending), so no distilled student,
-  bundle or report exists; never claim one as shipped.
+- **State.** The #20 operator run (t23) has run once, as a **proving run on
+  unverified, model-drafted gold** (deviation d10). Every stage through
+  `bundle` completed and an un-healed int4 build was bundled; it is **not
+  uploaded and not verified**. Read `docs/evidence/2026-10-16-jetson-ops-proving-run.md`
+  before claiming anything about it, and never call it shipped: verified gold,
+  a fresh `final` and the publish gate come first. The #18 run (t26) has not
+  happened.
 - **Environments.** The teacher, student runtime and trainer each need their
   own pinned venv or image (their transformers versions conflict). The base
   import pulls in none of them, and `dependencies = []` stays.

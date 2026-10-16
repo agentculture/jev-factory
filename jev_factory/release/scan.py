@@ -6,9 +6,13 @@ anything the small redactor below would redact, and writes a ``scan.json``
 that :func:`verify` (and the upload step) check is clean and still matches the
 folder. ``.json`` / ``.jsonl`` files are also parsed and every decoded string
 value scanned, so an escape sequence hiding a credential from the raw scan does
-not slip through. Weight binaries (``*.safetensors``, ``*.gguf``) are listed
-under ``binaries`` instead of decoded as text, but only once their contents
-prove the format; any other non-UTF-8 file is an ``unscanned_binary`` finding.
+not slip through. Weight binaries (``*.safetensors``, ``*.gguf``, and ``torch.save``
+archives ``*.pt``) are listed under ``binaries`` instead of decoded as text, but
+only once their contents prove the format; any other non-UTF-8 file is an
+``unscanned_binary`` finding. A ``*.pt`` archive's pickle is walked opcode by
+opcode, never executed: every import it names must be a tensor-rebuild function
+on :data:`_PICKLE_GLOBALS` (else ``unsafe_pickle``), and every string in it gets
+the credential, private-host and redact checks.
 
 The credential and endpoint patterns are this repository's own, the ones
 ``scripts/scan-secrets.py`` applies to tracked files (factored here so the
@@ -20,11 +24,13 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import pickletools  # nosec B403 - opcodes are only walked, never unpickled
 import re
 import struct
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 from urllib.parse import urlsplit
 
 NVSH_PROVENANCE = {
@@ -40,6 +46,8 @@ NVSH_PROVENANCE = {
         "complexity split into private helpers, plus lint-level cleanups); behaviour "
         "unchanged, pinned by tests/test_complexity_*.py and differential checks against "
         "the imported version",
+        "2026-10-16: torch.save archives (*.pt) are proven and their pickle walked "
+        "without executing it, instead of an unscanned_binary finding",
     ],
     "licence": "Apache-2.0",
 }
@@ -296,7 +304,49 @@ _DOCUMENTATION = tuple(
     ipaddress.ip_network(net) for net in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")
 )
 
-_EXPECTED_BINARY_EXTS = {".safetensors", ".gguf"}
+_EXPECTED_BINARY_EXTS = {".safetensors", ".gguf", ".pt"}
+#: Members of a ``torch.save`` zip archive below its one top-level folder.
+_TORCH_MEMBER_RE = re.compile(
+    r"^(?:data\.pkl|\.format_version|\.storage_alignment|byteorder|version"
+    r"|\.data/serialization_id|data/\d+)$"
+)
+_TORCH_PICKLE_MAX = 64 * 1024 * 1024
+_TORCH_UTILS = "torch._utils"
+#: The imports a weights-only tensor state dict may name (``torch.load(weights_only=True)``
+#: accepts these; anything else could run code on an unsafe load).
+_PICKLE_GLOBALS = frozenset(
+    {
+        ("collections", "OrderedDict"),
+        ("torch", "device"),
+        ("torch", "Size"),
+        (_TORCH_UTILS, "_rebuild_tensor_v2"),
+        (_TORCH_UTILS, "_rebuild_parameter"),
+        (_TORCH_UTILS, "_rebuild_wrapper_subclass"),
+        ("torch._tensor", "_rebuild_from_type_v2"),
+        ("torch.serialization", "_get_layout"),
+    }
+)
+_PICKLE_GLOBAL_RES = (
+    (
+        "torch",
+        re.compile(
+            r"^(?:[A-Z][A-Za-z0-9]*Storage|bfloat16|half|bool|u?int(?:8|16|32|64)"
+            r"|float(?:16|32|64)|float8_\w+)$"
+        ),
+    ),
+    ("torchao.quantization", re.compile(r"^Int[48]\w*Tensor$")),
+)
+_PICKLE_STRING_OPS = frozenset(
+    {
+        "SHORT_BINUNICODE",
+        "BINUNICODE",
+        "BINUNICODE8",
+        "UNICODE",
+        "SHORT_BINSTRING",
+        "BINSTRING",
+        "STRING",
+    }
+)
 _GGUF_MAGIC = b"GGUF"
 _SAFETENSORS_MAX_HEADER = 100 * 1024 * 1024
 
@@ -356,7 +406,102 @@ def _has_gguf_magic(path: Path) -> bool:
         return False
 
 
+def _pickle_allowed(module: str, name: str) -> bool:
+    if (module, name) in _PICKLE_GLOBALS:
+        return True
+    return any(module == mod and rx.match(name) for mod, rx in _PICKLE_GLOBAL_RES)
+
+
+def _pickle_global(name: str, arg: Any, recent: list[str | None]) -> tuple[str, str] | None:
+    """The ``(module, name)`` a ``GLOBAL``/``INST``/``STACK_GLOBAL`` opcode imports, else None."""
+    if name in ("GLOBAL", "INST"):
+        module, _, attr = str(arg).partition(" ")
+        return module, attr
+    if name == "STACK_GLOBAL":
+        if len(recent) < 2 or not all(isinstance(v, str) for v in recent[-2:]):
+            raise ValueError("a STACK_GLOBAL import whose module/name cannot be resolved")
+        return recent[-2], recent[-1]  # type: ignore[return-value]
+    return None
+
+
+def _pickle_track(op: Any, arg: Any, recent: list[str | None], memo: dict[int, str | None]) -> None:
+    """Follow the memo and the stack for an opcode that is neither a string nor an import."""
+    name = op.name
+    if name == "MEMOIZE":
+        memo[len(memo)] = recent[-1] if recent else None
+    elif name in ("BINPUT", "LONG_BINPUT", "PUT"):
+        memo[int(arg)] = recent[-1] if recent else None
+    elif name in ("BINGET", "LONG_BINGET", "GET"):
+        recent.append(memo.get(int(arg)))
+    elif name.startswith("EXT"):
+        raise ValueError("an extension-registry import (EXT opcode)")
+    elif op.stack_after:
+        recent.append(None)
+
+
+def _pickle_imports(data: bytes) -> tuple[list[tuple[str, str]], list[str]]:
+    """The ``(module, name)`` imports and the strings of a pickle, by walking its opcodes.
+
+    Nothing is executed. ``STACK_GLOBAL`` takes the two strings pushed (or fetched from the
+    memo) before it; one it cannot resolve raises ``ValueError``, as does an extension-
+    registry import or a malformed pickle."""
+    imports: list[tuple[str, str]] = []
+    strings: list[str] = []
+    recent: list[str | None] = []
+    memo: dict[int, str | None] = {}
+    for op, arg, _pos in pickletools.genops(data):
+        name = op.name
+        if name in _PICKLE_STRING_OPS:
+            text = arg.decode("latin-1") if isinstance(arg, bytes) else str(arg)
+            strings.append(text)
+            recent.append(text)
+        elif (imported := _pickle_global(name, arg, recent)) is not None:
+            imports.append(imported)
+            recent.append(None)
+        else:
+            _pickle_track(op, arg, recent, memo)
+    return imports, strings
+
+
+def _scan_torch_archive(rel: str, path: Path) -> list[dict]:
+    """Prove a ``torch.save`` zip archive and check its pickle without loading it."""
+
+    def unrecognised(detail: str) -> list[dict]:
+        return [{"path": rel, "line": 0, "kind": "unrecognised_binary", "detail": detail}]
+
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+            roots = {n.split("/", 1)[0] for n in names}
+            if len(roots) != 1 or any("/" not in n for n in names):
+                return unrecognised("named .pt but not a torch.save archive (one top folder)")
+            root = roots.pop()
+            members = [n[len(root) + 1 :] for n in names]
+            if "data.pkl" not in members or not all(_TORCH_MEMBER_RE.match(m) for m in members):
+                return unrecognised("named .pt but its members are not a torch.save archive's")
+            info = archive.getinfo(f"{root}/data.pkl")
+            if info.file_size > _TORCH_PICKLE_MAX:
+                return unrecognised("the archive's data.pkl is implausibly large")
+            data = archive.read(info)
+    except (OSError, zipfile.BadZipFile):
+        return unrecognised("named .pt but not a zip archive (legacy or foreign format)")
+    try:
+        imports, strings = _pickle_imports(data)
+    except ValueError as exc:
+        return [{"path": rel, "line": 0, "kind": "unsafe_pickle", "detail": str(exc)}]
+    findings = [
+        {"path": rel, "line": 0, "kind": "unsafe_pickle", "detail": f"imports {mod}.{attr}"}
+        for mod, attr in sorted(set(imports))
+        if not _pickle_allowed(mod, attr)
+    ]
+    for fragment in strings:
+        findings.extend(_scan_fragment(rel, 0, fragment))
+    return findings
+
+
 def _scan_weight_file(rel: str, path: Path) -> list[dict]:
+    if path.suffix.lower() == ".pt":
+        return _scan_torch_archive(rel, path)
     if path.suffix.lower() == ".gguf":
         if _has_gguf_magic(path):
             return []

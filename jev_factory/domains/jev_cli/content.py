@@ -299,5 +299,6 @@ PARAPHRASES: Mapping[str, tuple[str, ...]] = {
         "Run one stage of a teacher-to-student distill run, as a dry run unless applied.",
         "Step a distillation run forward by one stage: dataset, teacher labels, training and on.",
         "Advance the big-to-small model distillation by a named stage (plan first, then apply).",
+        "Measure the shipped distilled student on an edge board through a tunnel (distill edge).",
     ),
 }
