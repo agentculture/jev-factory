@@ -201,7 +201,7 @@
     },
     {
       "id": "d16",
-      "what": "edge in the t23 proving run uses the fit fold (all Jetson-ops, non-test, not sealed) as distill_probe_set, because the private probe set is not on this machine; edge runs on the AGX Orin (label agx-orin), not the Nano (its image has torchao 0.13 and cannot load the torchao 0.16 int4 artifact)",
+      "what": "edge in the t23 proving run uses the fit fold (all Jetson-ops, non-test, not sealed) as distill_probe_set, because the private probe set is not on this machine; edge runs on the AGX Orin (label agx-orin), not the Nano (its image has torchao 0.13 and cannot load the torchao 0.16 int4 artifact); edge measures the same attested server final used (127.0.0.1:18092, unit jev-quant-final) with distill_edge_memory_cap 8G, since the server peaks at ~5 GB RSS (risk r9: it loads the bf16 base before swapping in int4) and a 4G cap fails",
       "task_ref": "t23",
       "reason": "operator 2026-10-16 chose the fit fold as the probe set",
       "affects": [
