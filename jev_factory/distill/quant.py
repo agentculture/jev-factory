@@ -201,6 +201,9 @@ FORMAT_RULE = {
     "it is unavailable, never a candidate",
     "safety": "answered every fit and selection question without an error",
     "calibration": "calibrated (own fit) selection ECE <= bars.quant.ece_max",
+    "guard": "with the gating knob only (deviation d12): accuracy, calibration and agreement "
+    "read the clean sources, and a format whose guard (every other source) selection "
+    "accuracy is more than 5 points below stock's fails",
     "accuracy": f"selection accuracy within {HEAL_MARGIN_POINTS} points of the bf16 winner; "
     "if none is, the closest goes to one heal round",
     "footprint": "lowest measured peak memory, then lower median latency, then FORMATS order",
@@ -209,6 +212,51 @@ FORMAT_RULE = {
 }
 
 _EPS = 1e-9
+#: Deviation d12: how far (points) the guard may fall below the stock model before it fails.
+GUARD_TOLERANCE_POINTS = 5.0
+
+
+@dataclass(frozen=True)
+class Gating:
+    """Deviation d12: the rules read only *sources*; every other source is the guard.
+
+    Accuracy, calibration, the heal trigger and agreement with the bf16 student are computed
+    on records from *sources* (the contamination stage's clean sources). The guard's raw
+    selection accuracy is reported per format and only fails a format below *guard_floor*.
+    """
+
+    sources: frozenset[str]
+    guard_floor: float | None = None
+
+    def split(
+        self, fold_records: Mapping[str, Sequence[Record]]
+    ) -> tuple[dict[str, list[Record]], dict[str, list[Record]]]:
+        domain = {f: [r for r in rs if r.source in self.sources] for f, rs in fold_records.items()}
+        guard = {
+            f: [r for r in rs if r.source not in self.sources] for f, rs in fold_records.items()
+        }
+        return domain, guard
+
+
+def _only(rows: Sequence[Mapping[str, Any]] | None, ids: set[str]) -> list[Mapping[str, Any]]:
+    return [r for r in rows or () if str(r.get("record_id")) in ids]
+
+
+def _restrict(predictions: Mapping[str, Any], records: Mapping[str, Sequence[Record]]) -> dict:
+    return {f: _only(predictions.get(f), {r.id for r in rs}) for f, rs in records.items()}
+
+
+def raw_accuracy(records: Sequence[Record], rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Argmax accuracy of *rows* on *records*' gold-bearing questions (no calibration)."""
+    items, problems = dtrain.question_items(records, _only(rows, {r.id for r in records}))
+    gold = [i for i in items if i.gold is not None]
+    right = sum(1 for i in gold if max(sorted(i.probs), key=lambda k: i.probs[k]) == i.gold)
+    return {
+        "n": len(gold),
+        "n_correct": right,
+        "accuracy": right / len(gold) if gold else None,
+        "problems": problems,
+    }
 
 
 class FormatUnavailable(Exception):
@@ -685,9 +733,13 @@ def _measure_format(
     builders: Mapping[str, Builder],
     measurer: Measurer,
     fold_records: Mapping[str, Sequence[Record]],
+    gating: Gating | None = None,
     **kw: Any,
 ) -> tuple[dict[str, Any], Mapping[str, Any]]:
-    """One format's measurement and its raw predictions (``{}`` when unavailable)."""
+    """One format's measurement and its raw predictions (``{}`` when unavailable).
+
+    With *gating* (d12) every record is still asked, but the assessment reads the gating
+    sources only and the guard's raw selection accuracy is recorded beside it."""
     builder = builders.get(fmt)
     if builder is None:
         return _unavailable(fmt, UNSUPPORTED.get(fmt, f"no builder registered for {fmt}")), {}
@@ -701,11 +753,20 @@ def _measure_format(
         measured = measurer(fmt, artifact, {f: list(fold_records[f]) for f in dtrain.FOLDS})
     except FormatUnavailable as exc:
         return _unavailable(fmt, exc.reason, size=size), {}
-    entry = {
-        **assess(fmt, artifact, fold_records, measured, **kw),
-        "size": size,
-        "oov_refusals": oov_refusals(measured),
-    }
+    if gating is None:
+        assessed = assess(fmt, artifact, fold_records, measured, **kw)
+    else:
+        domain, guard = gating.split(fold_records)
+        raw = measured.get("predictions") or {}
+        assessed = assess(
+            fmt, artifact, domain, {**measured, "predictions": _restrict(raw, domain)}, **kw
+        )
+        assessed["guard"] = {
+            "sources": sorted({r.source for rs in guard.values() for r in rs}),
+            "selection": raw_accuracy(guard["selection"], raw.get("selection") or []),
+            "floor": gating.guard_floor,
+        }
+    entry = {**assessed, "size": size, "oov_refusals": oov_refusals(measured)}
     return entry, measured.get("predictions") or {}
 
 
@@ -726,6 +787,7 @@ def _measure_all(
     fold_records: Mapping[str, Sequence[Record]],
     formats: Sequence[str],
     reference: Mapping[str, Any] | None = None,
+    gating: Gating | None = None,
     **kw: Any,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Mapping[str, Any]]]:
     """Measure bf16 and *formats*; return the measurements and each format's raw predictions.
@@ -736,7 +798,7 @@ def _measure_all(
     out, predictions = {}, {}
     for fmt in (BF16, *formats):
         out[fmt], predictions[fmt] = _measure_format(
-            fmt, checkpoint, builds / fmt, builders, measurer, fold_records, **kw
+            fmt, checkpoint, builds / fmt, builders, measurer, fold_records, gating, **kw
         )
     reference = predictions[BF16] if reference is None else reference
     bf16 = out[BF16]
@@ -753,7 +815,11 @@ def _measure_all(
             out[fmt]["delta_points"] = (
                 None if out[fmt]["drop_points"] is None else -out[fmt]["drop_points"]
             )
-            out[fmt]["agreement_vs_bf16"] = agreement_vs_bf16(reference, predictions[fmt])
+            ref, got = reference, predictions[fmt]
+            if gating is not None:
+                domain, _guard = gating.split(fold_records)
+                ref, got = _restrict(reference, domain), _restrict(got, domain)
+            out[fmt]["agreement_vs_bf16"] = agreement_vs_bf16(ref, got)
     return out, predictions
 
 
@@ -977,6 +1043,13 @@ def _refuse_comparison_candidates(formats: Sequence[str]) -> None:
         )
 
 
+def _guard_holds(m: Mapping[str, Any]) -> bool:
+    """d12: a format fails only when its guard accuracy falls below the guard floor."""
+    guard = m.get("guard") or {}
+    floor, acc = guard.get("floor"), (guard.get("selection") or {}).get("accuracy")
+    return floor is None or (acc is not None and acc >= floor - _EPS)
+
+
 def choose_format(
     measured: Mapping[str, Mapping[str, Any]], *, ece_max: float, formats: Sequence[str]
 ) -> dict[str, Any]:
@@ -993,6 +1066,8 @@ def choose_format(
     step("available", lambda m: m["available"])
     step("safety", lambda m: m["safe"])
     step("calibration", lambda m: m["ece"] is not None and m["ece"] <= ece_max + _EPS)
+    if any("guard" in m for m in alive):
+        step("guard", _guard_holds)
     if not alive:
         return {
             "format": None,
@@ -1279,6 +1354,7 @@ class _HealRun:
     kw: Mapping[str, Any]
     #: A deviation's heal mix in place of the registered one (``run_quant(heal_mix=...)``).
     mix_override: Mapping[str, float] | None = None
+    gating: Gating | None = None
 
     @property
     def mix(self) -> dict[str, float]:
@@ -1438,6 +1514,7 @@ def _heal_round(
         hr.fold_records,
         (fmt,),
         reference=bf16_predictions,
+        gating=hr.gating,
         **hr.kw,
     )
     again = healed[fmt]
@@ -1497,6 +1574,7 @@ def run_quant(
     bootstrap: Bootstrap = Bootstrap(),
     probe: Sequence[Record] = (),
     heal_mix_override: Mapping[str, float] | None = None,
+    gating: Gating | None = None,
 ) -> dict[str, Any]:
     """Plan (dry-run) or run the format spike, the heal round and the recalibration.
 
@@ -1516,6 +1594,12 @@ def run_quant(
                 "record a deviation and pass --deviation-id with the heal_mix knob",
             )
         heal_mix_override = td.check_mix(heal_mix_override, where="knob heal_mix")
+    if gating is not None and not (deviation_id or "").strip():
+        raise _refuse(
+            "rules read from the gating sources only change the locked rule; they need a "
+            "deviation id",
+            "record a deviation and pass --deviation-id with the gating knob",
+        )
     _refuse_comparison_candidates(formats)
     unknown = [f for f in formats if f not in FORMATS]
     if unknown:
@@ -1545,6 +1629,7 @@ def run_quant(
         measurer=hooks.measurer,  # type: ignore[arg-type]
         kw=kw,
         mix_override=heal_mix_override,
+        gating=gating,
     )
     base = {
         "stage": "distill-quant",
@@ -1555,6 +1640,11 @@ def run_quant(
         "heal_rounds_max": HEAL_ROUNDS,
         "heal_mix": hr.mix,
         "heal_mix_registered": heal_mix(reg),
+        "gating": (
+            None
+            if gating is None
+            else {"sources": sorted(gating.sources), "guard_floor": gating.guard_floor}
+        ),
         "agreement_min": minimum,
         "agreement_folds": list(AGREEMENT_FOLDS),
         "size_budget_bytes": SIZE_BUDGET_BYTES,
@@ -1570,6 +1660,7 @@ def run_quant(
         hr.measurer,
         fold_records,
         formats,
+        gating=gating,
         **kw,
     )
     choice = choose_format(measured, ece_max=float(bars["ece_max"]), formats=formats)
@@ -1635,6 +1726,7 @@ def _write_measurements(
             "prereg_sha256": base["prereg_sha256"],
             "fold": "selection",
             "agreement_folds": list(AGREEMENT_FOLDS),
+            "gating": base.get("gating"),
             "formats": measured,
             "healed": healed,
             "pruned_vocabulary_comparison": comparison,

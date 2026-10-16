@@ -268,6 +268,12 @@ Details that matter when operating them:
   (`--knob heal_mix='{"bf16_student": 1.0, "clef": 0.0}'`), which also needs
   the deviation id; the heal log records both mixes. A healed build under
   0.97 is not shippable.
+- **Gating on the domain (d12).** By default accuracy, calibration, the heal
+  trigger and agreement pool every fit and selection record, the
+  typed-decisions guard included. With `--knob gating=clean` and a deviation
+  id they read only the contamination stage's clean sources; the guard is
+  reported per format and fails it only when its selection accuracy is more
+  than 5 points below stock's (from the benchmark stage).
 - **No bf16 fallback.** When no quantized build is under the byte budget and
   survives safety and calibration, `quantize` records a failed `no qualifying
   format` result and exits non-zero. `final` and `bundle` refuse that

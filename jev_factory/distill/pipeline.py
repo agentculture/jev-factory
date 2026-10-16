@@ -145,7 +145,7 @@ DEFAULT_KNOBS: dict[str, dict[str, Any]] = {
     "assemble": {"teacher_filter": "all", "alt_labels": None},
     "benchmark": {},
     "train": {},
-    "quantize": {"formats": None, "heal_mix": None},
+    "quantize": {"formats": None, "heal_mix": None, "gating": None},
     "gate": {},
     "final": {"clef_calibration": None, "unverified_gold": False},
     "edge": {"label": "nano", "served_model": "distill-edge-student"},
@@ -769,7 +769,42 @@ def _quant_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, An
         kwargs["formats"] = tuple(knobs["formats"])
     if knobs.get("heal_mix") is not None:
         kwargs["heal_mix_override"] = knobs["heal_mix"]
+    if knobs.get("gating") is not None:
+        kwargs["gating"] = _gating(ctx, knobs["gating"])
     return kwargs
+
+
+def _gating(ctx: DistillContext, value: Any) -> Any:
+    """Deviation d12: the quant rules read the contamination stage's clean sources only; the
+    guard (every other source) fails a format only below stock's guard accuracy minus
+    ``GUARD_TOLERANCE_POINTS`` on the selection fold."""
+    if value != "clean":
+        raise _err(
+            f'knob gating must be "clean", got {value!r}',
+            "pass --knob gating=clean (with --deviation-id <id>) or leave it unset",
+        )
+    clean = _read_json(stage_dir(ctx.work) / CONTAMINATION_FILE).get("clean") or []
+    if not clean:
+        raise _err("the contamination report names no clean source", "run contamination first")
+    gating = dquant.Gating(sources=frozenset(clean))
+    selection = dtrain._folds(_folds(ctx), _sealed(ctx))["selection"]  # noqa: SLF001
+    _domain, guard = gating.split({"selection": selection})
+    if not guard["selection"]:
+        return gating
+    bench = _read_json(stage_dir(ctx.work) / BENCHMARK_FILE)
+    rows = [
+        r
+        for r in ((bench.get("models") or {}).get("stock") or {}).get("predictions") or []
+        if r.get("fold") == "selection"
+    ]
+    stock = dquant.raw_accuracy(guard["selection"], rows)
+    if stock["accuracy"] is None or stock["problems"]:
+        raise _err(
+            f"stock's guard accuracy on the selection fold is unusable ({stock})",
+            "rerun the benchmark stage",
+        )
+    floor = stock["accuracy"] - dquant.GUARD_TOLERANCE_POINTS / 100.0
+    return dquant.Gating(sources=frozenset(clean), guard_floor=floor)
 
 
 def stage_quantize(workdir: Path, knobs: dict[str, Any]) -> None:

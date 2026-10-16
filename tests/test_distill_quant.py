@@ -1747,3 +1747,80 @@ def test_the_torchao_builder_passes_allow_foreign_to_the_gpu_guard(tmp_path, mon
     with pytest.raises(Stop):
         build("torch_int4_wo", tmp_path / "ckpt", tmp_path / "out")
     assert seen == {"stage": "quantize", "allow_foreign": allow}
+
+
+# --------------------------------------------------------------------- d12: gating sources
+
+
+def _guarded_folds():
+    """Even records come from the domain ("src"), odd ones from a guard source."""
+    out = folds()
+    return {
+        f: [r if int(r.id[1:]) % 2 == 0 else replace(r, source="guard") for r in rs]
+        for f, rs in out.items()
+    }
+
+
+class GuardWrongMeasurer(FakeMeasurer):
+    """As FakeMeasurer; every quant answers the guard records wrong (bf16 does not)."""
+
+    def __call__(self, fmt, artifact, fold_records):
+        out = super().__call__(fmt, artifact, fold_records)
+        if fmt != "bf16":
+            for fold, rows in out["predictions"].items():
+                recs = {r.id: r for r in fold_records[fold]}
+                for row in rows:
+                    rec = recs[row["record_id"]]
+                    if rec.source == "guard":
+                        row["questions"] = _answer(rec, self.p_right, False)
+        return out
+
+
+def _gated_run(tmp_path, gating, deviation_id="d12"):
+    profile = {"bf16": PROFILE["bf16"], "torch_int4_wo": PROFILE["bf16"]}
+    measurer = GuardWrongMeasurer(profile, {"bf16": PROFILE["bf16"]})
+    builders = FakeBuilders(formats=("bf16", "torch_int4_wo"))
+    return run(
+        tmp_path,
+        builders=builders,
+        measurer=measurer,
+        folds=_guarded_folds(),
+        formats=("torch_int4_wo",),
+        gating=gating,
+        deviation_id=deviation_id,
+    )
+
+
+def test_gating_needs_a_deviation_id(tmp_path):
+    with pytest.raises(CliError, match="need a deviation id"):
+        _gated_run(tmp_path, Q.Gating(sources=frozenset({"src"})), deviation_id=None)
+
+
+def test_without_gating_the_guard_counts_toward_agreement(tmp_path):
+    """The pooled rule: the quant's wrong guard answers sink its agreement and accuracy."""
+    with pytest.raises(CliError, match="no qualifying format"):
+        _gated_run(tmp_path, None, deviation_id=None)
+
+
+def test_gating_reads_the_domain_and_reports_the_guard(tmp_path):
+    """d12: agreement and accuracy read the gating sources only; the guard is reported."""
+    out, run_dir, trainer = _gated_run(tmp_path, Q.Gating(sources=frozenset({"src"})))
+    assert out["chosen_format"] == "torch_int4_wo"
+    assert trainer.plans == []  # within the margin and the agreement bar: no heal
+    m = _read(run_dir, Q.MEASUREMENTS_FILE)
+    quant = m["formats"]["torch_int4_wo"]
+    assert quant["agreement_vs_bf16"][Q.POOLED]["agreement"] == 1.0
+    assert quant["agreement_vs_bf16"][Q.POOLED]["n_reference"] == 60  # 20 domain records x 3
+    assert quant["guard"]["sources"] == ["guard"]
+    assert quant["guard"]["selection"]["accuracy"] == 0.0
+    assert m["gating"] == {"sources": ["src"], "guard_floor": None} or out["gating"]["sources"] == [
+        "src"
+    ]
+
+
+def test_a_guard_below_its_floor_fails_the_format(tmp_path):
+    """d12: the guard fails a format only below its floor."""
+    with pytest.raises(CliError, match="no qualifying format"):
+        _gated_run(tmp_path, Q.Gating(sources=frozenset({"src"}), guard_floor=0.4))
+    decision = _read(tmp_path / "run", Q.DECISION_FILE)
+    assert {"step": "guard", "survivors": []} in decision["trail"]
