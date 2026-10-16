@@ -67,7 +67,7 @@
   header h1 { margin: 0; font-size: 24px; line-height: 1.25; font-weight: 700; }
   .tally { color: var(--ink-2); font-size: 15px; }
   .tally b { color: var(--ink); }
-  .theme { margin-left: auto; display: inline-flex; border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; background: var(--surface); }
+  .theme { margin: 0 0 0 auto; padding: 0; min-width: 0; display: inline-flex; border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; background: var(--surface); }
   .theme button { border: 0; background: none; padding: 5px 12px; font-size: 14px; cursor: pointer; color: var(--ink-2); }
   .theme button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
   .files { color: var(--ink-3); font-size: 12.5px; margin-top: 6px; overflow-wrap: anywhere; display: grid; gap: 2px; }
@@ -137,11 +137,10 @@
   .q-edited { font-size: 13px; color: var(--ink-2); background: var(--edit-wash); border-radius: 6px; padding: 0 8px; }
   .opts { margin-top: 6px; display: grid; gap: 4px; }
   .opt { display: grid; grid-template-columns: 1.9em minmax(0, 1fr); gap: 8px; align-items: start; text-align: left; width: 100%;
-    border: 1px solid transparent; border-radius: 9px; background: none; padding: 7px 10px; cursor: default; }
+    border: 1px solid transparent; border-radius: 9px; background: none; padding: 7px 10px; cursor: default; line-height: 1.5; }
   .opt .mk { width: 1.5em; height: 1.5em; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px;
     border: 1.5px solid var(--hair); color: var(--ink-3); font-variant-numeric: tabular-nums; }
   .opt .nm { font-weight: 700; }
-  .opt { line-height: 1.5; }
   .opt .ds { color: var(--ink-2); }
   .opt.gold { background: var(--gold-wash); }
   .opt.gold .mk { background: var(--st-kept); border-color: var(--st-kept); color: #fff; }
@@ -235,7 +234,7 @@
     padding: 6px 10px; font-size: 13px; max-width: 320px; opacity: 0; transition: opacity 80ms; }
   #tip b { display: block; font-size: 14px; }
   #tip.on { opacity: 1; }
-  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } .cell:hover { transform: none; } }
+  @media (prefers-reduced-motion: reduce) { #toast, #tip { transition: none; } .cell:hover { transform: none; } }
   @media (forced-colors: active) { .cell, .seg, .sw { forced-color-adjust: none; } }
 </style>
 </head>
@@ -244,11 +243,11 @@
   <header>
     <h1>Jetson-ops drafts</h1>
     <span class="tally" id="tally"></span>
-    <div class="theme" role="group" aria-label="Theme">
+    <fieldset class="theme" aria-label="Theme">
       <button type="button" data-theme-set="auto">Auto</button>
       <button type="button" data-theme-set="light">Light</button>
       <button type="button" data-theme-set="dark">Dark</button>
-    </div>
+    </fieldset>
   </header>
   <div id="error" role="alert"></div>
 
@@ -288,8 +287,8 @@
   <div class="files" id="files"></div>
 </div>
 <div id="tip" role="tooltip"></div>
-<div id="toast" role="status"></div>
-<script>
+<output id="toast"></output>
+<script type="module">
 "use strict";
 const KEY = "__JEV_REVIEW_KEY__";
 const STATUSES = ["unreviewed", "kept", "edited", "dropped"];
@@ -304,8 +303,8 @@ let editQ = -1; // index of the question being edited, -1 for none
 /* ---------- theme ---------- */
 function storedTheme() { try { return localStorage.getItem("jev-review-theme") || "auto"; } catch (e) { return "auto"; } }
 function applyTheme(mode) {
-  if (mode === "auto") document.documentElement.removeAttribute("data-theme");
-  else document.documentElement.setAttribute("data-theme", mode);
+  if (mode === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = mode;
   for (const b of document.querySelectorAll("[data-theme-set]")) b.setAttribute("aria-pressed", String(b.dataset.themeSet === mode));
   try { localStorage.setItem("jev-review-theme", mode); } catch (e) { /* private window: theme just isn't remembered */ }
 }
@@ -369,7 +368,7 @@ function matches(i, skip) {
     (skip === "tag" || !filt("f-tag") || tagOf(i) === filt("f-tag"));
 }
 function visible() { return state ? state.items.filter(i => matches(i)) : []; }
-function currentIndex(list) { const i = list.findIndex(x => x.id === currentId); return i < 0 ? 0 : i; }
+function currentIndex(list) { const i = list.findIndex(x => x.id === currentId); return Math.max(0, i); }
 function fillSelect(id, label, values, words) {
   const sel = document.getElementById(id);
   const keep = sel.value;
@@ -389,7 +388,10 @@ async function load() {
     state = await api("/api/state");
     useLedger(state.ledger_file);
     const order = new Map(state.items.map((it, n) => [it.id, n]));
-    state.items.sort((a, b) => a.source === b.source ? order.get(a.id) - order.get(b.id) : (a.source < b.source ? -1 : 1));
+    state.items.sort((a, b) => {
+      if (a.source === b.source) return order.get(a.id) - order.get(b.id);
+      return a.source < b.source ? -1 : 1;
+    });
     showError("");
     fillSelect("f-split", "splits", state.splits);
     fillSelect("f-source", "sources", state.sources, Object.fromEntries(state.sources.map(s => [s, shortSource(s)])));
@@ -413,23 +415,53 @@ function renderLegend() {
   lg.replaceChildren(...STATUSES.map(s => el("span", {}, el("i", { className: "sw", style: "background:" + statusColor(s) }), STATUS_ICON[s] + " " + s)),
     el("span", {}, el("i", { className: "sw", style: "background:" + cssVar("--st-unreviewed") + ";box-shadow: inset 0 0 0 4px " + cssVar("--st-unreviewed") + ", inset 0 0 0 7px " + cssVar("--surface") }), "dot = test record"));
 }
+const FILTER_IDS = ["f-split", "f-source", "f-status", "f-tag"];
+function clearFilters() {
+  for (const id of FILTER_IDS) {
+    document.getElementById(id).value = "";
+  }
+}
+function bySource(items) {
+  const groups = new Map();
+  for (const it of items) {
+    if (!groups.has(it.source)) {
+      groups.set(it.source, []);
+    }
+    groups.get(it.source).push(it);
+  }
+  return groups;
+}
+function cellClass(it) {
+  let cls = "cell";
+  if (it.split === "test") cls += " test";
+  if (it.id === currentId) cls += " current";
+  if (!matches(it)) cls += " dim";
+  return cls;
+}
+function stripCell(it) {
+  const c = el("button", { type: "button", className: cellClass(it),
+    style: "background:" + statusColor(it.status), "aria-label": it.id + ", " + it.split + ", " + it.status });
+  c.onclick = () => {
+    currentId = it.id;
+    editQ = -1;
+    if (!matches(it)) clearFilters();
+    render();
+  };
+  tipOn(c, it.id, it.split + " record, " + it.status + ", " + Object.keys(it.questions).length + " question(s)");
+  return c;
+}
+function stripGroup(src, items) {
+  const cells = el("div", { className: "cells" });
+  for (const it of items) cells.append(stripCell(it));
+  const allDone = items.every(i => i.status !== "unreviewed");
+  return el("div", { className: "group" }, el("div", { className: "group-name" }, shortSource(src) + "  (" + items.length + ")",
+    allDone ? el("span", { className: "done", textContent: "✓ done" }) : null), cells);
+}
 function renderStrip() {
   const strip = document.getElementById("strip");
   strip.replaceChildren();
-  const groups = new Map();
-  for (const it of state.items) { if (!groups.has(it.source)) groups.set(it.source, []); groups.get(it.source).push(it); }
-  for (const [src, items] of [...groups].sort()) {
-    const cells = el("div", { className: "cells" });
-    for (const it of items) {
-      const c = el("button", { type: "button", className: "cell" + (it.split === "test" ? " test" : "") + (it.id === currentId ? " current" : "") + (matches(it) ? "" : " dim"),
-        style: "background:" + statusColor(it.status), "aria-label": it.id + ", " + it.split + ", " + it.status });
-      c.onclick = () => { currentId = it.id; editQ = -1; if (!matches(it)) { for (const f of ["f-split", "f-source", "f-status", "f-tag"]) document.getElementById(f).value = ""; } render(); };
-      tipOn(c, it.id, it.split + " record, " + it.status + ", " + Object.keys(it.questions).length + " question(s)");
-      cells.append(c);
-    }
-    const allDone = items.every(i => i.status !== "unreviewed");
-    strip.append(el("div", { className: "group" }, el("div", { className: "group-name" }, shortSource(src) + "  (" + items.length + ")",
-      allDone ? el("span", { className: "done", textContent: "✓ done" }) : null), cells));
+  for (const [src, items] of [...bySource(state.items)].sort()) {
+    strip.append(stripGroup(src, items));
   }
   const prog = document.getElementById("progress");
   const total = state.items.length;
@@ -439,30 +471,39 @@ function renderStrip() {
   if (!total) prog.replaceChildren();
 }
 /* one horizontal bar per category; segments = review status, so every breakdown also shows progress */
+function wordFor(words, c) { return words ? words[c] || c : c; }
+function barTrack(r, max, colorOf) {
+  const track = el("div", { className: "track" });
+  if (colorOf) {
+    track.append(el("div", { className: "seg", style: "width:" + (100 * r.items.length / max) + "%;background:" + colorOf(r.c) }));
+    return track;
+  }
+  for (const s of STATUSES) {
+    const n = r.items.filter(i => i.status === s).length;
+    if (n) track.append(el("div", { className: "seg", style: "width:" + (100 * n / max) + "%;background:" + statusColor(s) }));
+  }
+  return track;
+}
+function statusParts(items) {
+  return STATUSES.map(s => [s, items.filter(i => i.status === s).length]).filter(p => p[1]).map(p => p[1] + " " + p[0]).join(", ");
+}
+function barRow(r, max, words, filterId, colorOf) {
+  const word = wordFor(words, r.c);
+  const row = el("button", { type: "button", className: "row", "aria-pressed": String(filt(filterId) === r.c) },
+    el("span", { className: "lbl", textContent: word }), barTrack(r, max, colorOf),
+    el("span", { className: "val", textContent: String(r.items.length) }));
+  const parts = statusParts(r.items);
+  tipOn(row, r.items.length + " record" + (r.items.length === 1 ? "" : "s"), word + (parts ? ": " + parts : ""));
+  row.onclick = () => setFilter(filterId, r.c);
+  return row;
+}
 function bars(hostId, cats, words, keyOf, filterId, colorOf) {
   const host = document.getElementById(hostId);
   host.replaceChildren();
   const pool = state.items.filter(i => matches(i, filterId.slice(2)));
   const rows = cats.map(c => ({ c, items: pool.filter(i => keyOf(i).includes(c)) })).filter(r => r.items.length || filt(filterId) === r.c);
   const max = Math.max(1, ...rows.map(r => r.items.length));
-  for (const r of rows) {
-    const track = el("div", { className: "track" });
-    if (colorOf) {
-      track.append(el("div", { className: "seg", style: "width:" + (100 * r.items.length / max) + "%;background:" + colorOf(r.c) }));
-    } else {
-      for (const s of STATUSES) {
-        const n = r.items.filter(i => i.status === s).length;
-        if (n) track.append(el("div", { className: "seg", style: "width:" + (100 * n / max) + "%;background:" + statusColor(s) }));
-      }
-    }
-    const row = el("button", { type: "button", className: "row", "aria-pressed": String(filt(filterId) === r.c) },
-      el("span", { className: "lbl", textContent: words ? words[r.c] || r.c : r.c }), track,
-      el("span", { className: "val", textContent: String(r.items.length) }));
-    const parts = STATUSES.map(s => [s, r.items.filter(i => i.status === s).length]).filter(p => p[1]).map(p => p[1] + " " + p[0]).join(", ");
-    tipOn(row, r.items.length + " record" + (r.items.length === 1 ? "" : "s"), (words ? words[r.c] || r.c : r.c) + (parts ? ": " + parts : ""));
-    row.onclick = () => setFilter(filterId, r.c);
-    host.append(row);
-  }
+  for (const r of rows) host.append(barRow(r, max, words, filterId, colorOf));
 }
 function questionKinds(i) { return kindsOf(i); }
 function renderBreakdowns() {
@@ -475,7 +516,11 @@ function renderBreakdowns() {
 }
 
 /* ---------- record ---------- */
-function goldLabel(g) { return g && g.label !== undefined && g.label !== null ? g.label : (g && g.probability_true !== undefined ? (g.probability_true >= 0.5 ? "true" : "false") : "(no label)"); }
+function goldLabel(g) {
+  if (g && g.label !== undefined && g.label !== null) return g.label;
+  if (g && g.probability_true !== undefined) return g.probability_true >= 0.5 ? "true" : "false";
+  return "(no label)";
+}
 function optionWord(q, name) {
   if (q.type === "score") return "level " + name;
   return name;
@@ -487,12 +532,16 @@ function softOf(g, q) {
   if (g.probabilities) return g.probabilities;
   return null;
 }
+function startingPercent(soft, label, name) {
+  if (soft) return Math.round((soft[name] || 0) * 100);
+  return name === label ? 100 : 0;
+}
 function startingProbs(item, qid) {
   const q = item.questions[qid];
   const soft = softOf(item.gold[qid], q);
   const label = goldLabel(item.gold[qid]);
   const out = {};
-  for (const [name] of q.criteria) out[name] = soft ? Math.round((soft[name] || 0) * 100) : (name === label ? 100 : 0);
+  for (const [name] of q.criteria) out[name] = startingPercent(soft, label, name);
   return out;
 }
 function isChanged(item, qid) {
@@ -508,41 +557,61 @@ function questionBlock(item, qid, n) {
   const editing = editQ === n;
   const box = el("div", { className: "q" + (editing ? " editing" : "") });
   box.append(el("div", { className: "q-head" }, el("strong", { textContent: qid }),
-    el("span", { className: "q-kind", textContent: q.type === "noul" ? "true or false" : q.type === "score" ? "ordered score" : "choice" }),
+    el("span", { className: "q-kind", textContent: kindWord(q.type) }),
     changed ? el("span", { className: "q-edited", textContent: now !== was ? "edited from " + was : "edited" }) : null,
     changed ? el("button", { type: "button", className: "restore", title: "Undo every change to this question: gold, probabilities and added options", onclick: () => restore(item, qid) }, "↺ Restore drafted") : null));
   if (q.instructions) box.append(el("div", { className: "q-kind", textContent: q.instructions }));
   const opts = el("div", { className: "opts" });
-  const probs = editing ? startingProbs(item, qid) : null;
-  const inputs = {};
-  q.criteria.forEach(([name, text], k) => {
-    const isGold = name === now;
-    const wasGold = now !== was && name === was;
-    const cls = "opt" + (isGold ? (changed ? " changed" : " gold") : "") + (wasGold ? " drafted" : "");
-    const mark = el("span", { className: "mk", textContent: isGold ? (changed ? "✎" : "✓") : String(k + 1) });
-    const body = el("span", {}, el("span", { className: "nm", textContent: optionWord(q, name) }), text ? el("span", { className: "ds" }, " ", inlineMd(text)) : null,
-      wasGold ? el("span", { className: "was", textContent: "drafted gold" }) : null,
-      added.has(name) ? el("span", { className: "was added", textContent: "you added" }) : null);
-    let tail = null;
-    if (editing) {
-      const inp = el("input", { type: "number", min: "0", max: "100", step: "5", value: String(probs[name]), className: "pin", "aria-label": "probability of " + name + " in percent" });
-      inp.onclick = ev => ev.stopPropagation();
-      inp.onkeydown = ev => { ev.stopPropagation(); if (ev.key === "Enter") saveProbs(item, qid, inputs); };
-      inp.oninput = () => sumLine(inputs);
-      inputs[name] = inp;
-      tail = el("span", { className: "pcell" }, inp, "%");
-    } else if (soft) {
-      const v = Math.round((soft[name] || 0) * 100);
-      tail = el("span", { className: "pbar", title: v + "%" }, el("i", { style: "width:" + v + "%" }), el("b", { textContent: v + "%" }));
-    }
-    const opt = el("div", { className: cls + (tail ? " has-p" : ""), tabIndex: editing ? 0 : -1,
-      "aria-label": (isGold ? "gold: " : "option " + (k + 1) + ": ") + name }, mark, body, tail);
-    opt.onclick = () => { if (editing) setGold(item, qid, name); };
-    opts.append(opt);
-  });
+  const ctx = { item, qid, q, now, was, soft, added, changed, editing, inputs: {},
+    probs: editing ? startingProbs(item, qid) : null };
+  q.criteria.forEach(([name, text], k) => opts.append(optionRow(ctx, name, text, k)));
+  const inputs = ctx.inputs;
   box.append(opts);
   if (editing) box.append(editTools(item, qid, q, inputs));
   return box;
+}
+function kindWord(type) {
+  if (type === "noul") return "true or false";
+  if (type === "score") return "ordered score";
+  return "choice";
+}
+function optionClass(isGold, changed, wasGold) {
+  let cls = "opt";
+  if (isGold) cls += changed ? " changed" : " gold";
+  if (wasGold) cls += " drafted";
+  return cls;
+}
+function optionMark(isGold, changed, k) {
+  if (!isGold) return String(k + 1);
+  return changed ? "✎" : "✓";
+}
+function probInput(ctx, name) {
+  const inputs = ctx.inputs;
+  const inp = el("input", { type: "number", min: "0", max: "100", step: "5", value: String(ctx.probs[name]), className: "pin", "aria-label": "probability of " + name + " in percent" });
+  inp.onclick = ev => ev.stopPropagation();
+  inp.onkeydown = ev => { ev.stopPropagation(); if (ev.key === "Enter") saveProbs(ctx.item, ctx.qid, inputs); };
+  inp.oninput = () => sumLine(inputs);
+  inputs[name] = inp;
+  return el("span", { className: "pcell" }, inp, "%");
+}
+function optionTail(ctx, name) {
+  if (ctx.editing) return probInput(ctx, name);
+  if (!ctx.soft) return null;
+  const v = Math.round((ctx.soft[name] || 0) * 100);
+  return el("span", { className: "pbar", title: v + "%" }, el("i", { style: "width:" + v + "%" }), el("b", { textContent: v + "%" }));
+}
+function optionRow(ctx, name, text, k) {
+  const isGold = name === ctx.now;
+  const wasGold = ctx.now !== ctx.was && name === ctx.was;
+  const mark = el("span", { className: "mk", textContent: optionMark(isGold, ctx.changed, k) });
+  const body = el("span", {}, el("span", { className: "nm", textContent: optionWord(ctx.q, name) }), text ? el("span", { className: "ds" }, " ", inlineMd(text)) : null,
+    wasGold ? el("span", { className: "was", textContent: "drafted gold" }) : null,
+    ctx.added.has(name) ? el("span", { className: "was added", textContent: "you added" }) : null);
+  const tail = optionTail(ctx, name);
+  const opt = el("div", { className: optionClass(isGold, ctx.changed, wasGold) + (tail ? " has-p" : ""), tabIndex: ctx.editing ? 0 : -1,
+    "aria-label": (isGold ? "gold: " : "option " + (k + 1) + ": ") + name }, mark, body, tail);
+  opt.onclick = () => { if (ctx.editing) setGold(ctx.item, ctx.qid, name); };
+  return opt;
 }
 function sumLine(inputs) {
   const line = document.getElementById("psum");
@@ -614,34 +683,66 @@ function looksLikeOutput(line) {
   const t = line.trim();
   if (!t) return false;
   if (/^(\$|#|>>>)\s/.test(t)) return true;                         // prompts
-  const sym = (t.match(/[=@%|\[\]{}<>\/\\_]/g) || []).length;
+  const sym = (t.match(/[=@%|[\]{}<>/\\_]/g) || []).length;
   const words = t.split(/\s+/).length;
   return sym >= 4 && sym / words >= 0.5;                               // dense key=value / log text
 }
-const OUTPUT_FIELD = /^Output:\s*(.*)$/;
-const FIELD = /^([A-Z][A-Za-z /-]{1,24}):\s+(.+)$/;
+// Linear-time line parsing (no backtracking regexes): a value is the rest of the line after
+// optional (Output:) or required (Field:) whitespace, and never spans a line break.
+const LINE_BREAK = /[\n\r\u2028\u2029]/;
+const FIELD_KEY = /^[A-Z][A-Za-z /-]{1,24}:/;
+function outputField(t) {
+  if (!t.startsWith("Output:")) return null;
+  const rest = t.slice("Output:".length).trimStart();
+  return LINE_BREAK.test(rest) ? null : rest;
+}
+function fieldOf(t) {
+  const key = FIELD_KEY.exec(t);
+  if (!key) return null;
+  const after = t.slice(key[0].length);
+  const value = after.trimStart();
+  if (value === after || !value || LINE_BREAK.test(value)) return null;
+  return { key: key[0].slice(0, -1), value };
+}
+function stripTrailingNewlines(s) {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === "\n") end--;
+  return s.slice(0, end);
+}
 function structured(text) {
   const lines = String(text).split("\n");
   return lines.length > 1 && /^Board:/.test(lines[0].trim()) && lines.some(l => /^Ask:/.test(l.trim()));
 }
+function structuredLine(raw, parsed, dl) {
+  const line = raw.trimEnd();
+  const t = line.trim();
+  const isAsk = t.startsWith("Ask:");
+  if (parsed.out !== null && !isAsk) {
+    if (t || parsed.out.length) parsed.out.push(line);
+    return;
+  }
+  if (isAsk) {
+    parsed.ask = t.slice("Ask:".length).trimStart();
+    return;
+  }
+  const o = outputField(t);
+  if (o !== null) {
+    parsed.out = o ? [o] : [];
+    return;
+  }
+  const f = fieldOf(t);
+  if (f) dl.append(el("dt", { textContent: f.key }), el("dd", {}, inlineMd(f.value)));
+  else if (t) dl.append(el("dt", { textContent: "" }), el("dd", {}, inlineMd(t)));
+}
 function renderStructured(text) {
   const frag = document.createDocumentFragment();
   const dl = el("dl", { className: "fields" });
-  let out = null, ask = null;
-  for (const raw of String(text).split("\n")) {
-    const line = raw.replace(/\s+$/, "");
-    const t = line.trim();
-    if (out !== null && !/^Ask:/.test(t)) { if (t || out.length) out.push(line); continue; }
-    if (/^Ask:/.test(t)) { ask = t.replace(/^Ask:\s*/, ""); out = out === null ? null : out; continue; }
-    const o = OUTPUT_FIELD.exec(t);
-    if (o) { out = o[1] ? [o[1]] : []; continue; }
-    const f = FIELD.exec(t);
-    if (f) dl.append(el("dt", { textContent: f[1] }), el("dd", {}, inlineMd(f[2])));
-    else if (t) dl.append(el("dt", { textContent: "" }), el("dd", {}, inlineMd(t)));
-  }
+  const parsed = { out: null, ask: null };
+  for (const raw of String(text).split("\n")) structuredLine(raw, parsed, dl);
   frag.append(dl);
-  if (out && out.join("").trim()) frag.append(el("span", { className: "cmd", style: "margin-top:10px", textContent: out.join("\n").replace(/\n+$/, "") }));
-  if (ask) frag.append(el("div", { className: "ask" }, el("span", { textContent: "The ask" }), inlineMd(ask)));
+  const out = parsed.out;
+  if (out && out.join("").trim()) frag.append(el("span", { className: "cmd", style: "margin-top:10px", textContent: stripTrailingNewlines(out.join("\n")) }));
+  if (parsed.ask) frag.append(el("div", { className: "ask" }, el("span", { textContent: "The ask" }), inlineMd(parsed.ask)));
   return frag;
 }
 function renderState(text) {
@@ -736,7 +837,10 @@ function render() {
 
 /* ---------- momentum ---------- */
 function sessionStore(key, fallback) {
-  try { const v = sessionStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; }
+  try { const v = sessionStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) {
+    // storage blocked or the saved value is unreadable: start this session's record afresh
+    return fallback;
+  }
 }
 function sessionSave(key, value) { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* not remembered */ } }
 let storeNs = "";                       // one session record per ledger file
@@ -851,7 +955,7 @@ function toggleEdit(item) {
 }
 async function send(item, action, extra) {
   const noteBox = document.getElementById("note");
-  const body = Object.assign({ record_id: item.id, record_sha256: item.sha256, action }, extra);
+  const body = { record_id: item.id, record_sha256: item.sha256, action, ...extra };
   if (action !== "note" && noteBox && noteBox.value.trim() && !body.note) body.note = noteBox.value;
   try { await api("/api/decision", body); } catch (err) { showError(err.message); return false; }
   return true;
@@ -904,11 +1008,14 @@ document.addEventListener("keydown", ev => {
   else if (ev.key === "ArrowLeft") move(-1);
   else if (ev.key === "u") nextUnreviewed();
 });
-for (const id of ["f-split", "f-source", "f-status", "f-tag"]) document.getElementById(id).onchange = () => { editQ = -1; render(); };
-document.getElementById("clear").onclick = () => { for (const id of ["f-split", "f-source", "f-status", "f-tag"]) document.getElementById(id).value = ""; render(); };
+for (const id of FILTER_IDS) document.getElementById(id).onchange = () => { editQ = -1; render(); };
+document.getElementById("clear").onclick = () => {
+  clearFilters();
+  render();
+};
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (state) render(); });
 for (const b of document.querySelectorAll("[data-theme-set]")) b.addEventListener("click", () => { if (state) render(); });
-load();
+await load();
 </script>
 </body>
 </html>
