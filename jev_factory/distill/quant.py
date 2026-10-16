@@ -467,6 +467,19 @@ def _reusable(
     )
 
 
+def _build_bits(fmt: str, prompts: Path | None) -> int:
+    """The block bits *fmt* builds; a format this builder does not know, or a pruned build
+    without its prompt set (or a full one with one), is unavailable."""
+    bits = TORCH_FORMATS.get(fmt) or PRUNED_FORMATS.get(fmt)
+    if bits is None:
+        raise FormatUnavailable(
+            f"the torchao builder builds {[*TORCH_FORMATS, *PRUNED_FORMATS]}, not {fmt}"
+        )
+    if (fmt in PRUNED_FORMATS) != (prompts is not None):
+        raise FormatUnavailable(f"{fmt}: a pruned build needs a prompt set, a full one none")
+    return bits
+
+
 def torch_wo_builder(
     base_revision: str,
     *,
@@ -504,13 +517,7 @@ def torch_wo_builder(
     }
 
     def build(fmt: str, checkpoint: Path, out_dir: Path, prompts: Path | None = None) -> Path:
-        bits = TORCH_FORMATS.get(fmt) or PRUNED_FORMATS.get(fmt)
-        if bits is None:
-            raise FormatUnavailable(
-                f"the torchao builder builds {[*TORCH_FORMATS, *PRUNED_FORMATS]}, not {fmt}"
-            )
-        if (fmt in PRUNED_FORMATS) != (prompts is not None):
-            raise FormatUnavailable(f"{fmt}: a pruned build needs a prompt set, a full one none")
+        bits = _build_bits(fmt, prompts)
         out_dir = Path(out_dir)
         fmt_scheme = replace(scheme or qz.QuantScheme(), block_bits=bits)
         if _reusable(out_dir, Path(checkpoint), fmt, fmt_scheme, prompts):
@@ -529,20 +536,32 @@ def torch_wo_builder(
             "device": device,
             **limits,
         }
-        try:
-            if prompts is None:
-                qz.build_weight_only(checkpoint, out_dir, fmt_scheme, **common)
-            else:
-                qz.build_pruned_vocabulary(checkpoint, out_dir, fmt_scheme, prompts, **common)
-        except CliError as exc:
-            raise FormatUnavailable(f"torchao build failed for {fmt}: {exc.message}") from exc
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise FormatUnavailable(
-                f"torchao build failed for {fmt}: {type(exc).__name__}: {exc}"
-            ) from exc
+        _torchao_build(fmt, Path(checkpoint), out_dir, fmt_scheme, prompts, common)
         return out_dir
 
     return build
+
+
+def _torchao_build(
+    fmt: str,
+    checkpoint: Path,
+    out_dir: Path,
+    fmt_scheme: qz.QuantScheme,
+    prompts: Path | None,
+    common: Mapping[str, Any],
+) -> None:
+    """Run one in-env build; any failure is :class:`FormatUnavailable` carrying the error."""
+    try:
+        if prompts is None:
+            qz.build_weight_only(checkpoint, out_dir, fmt_scheme, **common)
+        else:
+            qz.build_pruned_vocabulary(checkpoint, out_dir, fmt_scheme, prompts, **common)
+    except CliError as exc:
+        raise FormatUnavailable(f"torchao build failed for {fmt}: {exc.message}") from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise FormatUnavailable(
+            f"torchao build failed for {fmt}: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def default_builders(
@@ -1660,7 +1679,12 @@ def _checked_knobs(knobs: QuantKnobs, deviation_id: str | None) -> QuantKnobs:
     unknown = [f for f in knobs.formats if f not in FORMATS]
     if unknown:
         raise _refuse(f"unknown deployed format(s): {unknown}; candidates are {list(FORMATS)}")
-    return replace(knobs, heal_mix=heal_mix_override, heal_repeat=heal_repeat)
+    return QuantKnobs(
+        formats=knobs.formats,
+        heal_mix=heal_mix_override,
+        gating=knobs.gating,
+        heal_repeat=heal_repeat,
+    )
 
 
 def _gating_record(gating: Gating | None) -> dict[str, Any] | None:

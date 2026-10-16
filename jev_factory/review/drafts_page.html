@@ -842,7 +842,12 @@ function sessionStore(key, fallback) {
     return fallback;
   }
 }
-function sessionSave(key, value) { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* not remembered */ } }
+function sessionSave(key, value) {
+  try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) {
+    // storage blocked (private window, quota): the session record is simply not remembered
+    console.debug("session record not saved", e);
+  }
+}
 let storeNs = "";                       // one session record per ledger file
 let decisionTimes = [];
 let milestonesShown = [];
