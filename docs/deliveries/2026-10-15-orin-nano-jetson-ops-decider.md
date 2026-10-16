@@ -147,7 +147,19 @@ All evidence records are `llm`-origin and **proposed**: none is operator-confirm
 
 Lapse ledger evidence:
 
-pending approval (not yet evidence): `l1`, `l2`, `l3`, `l4`, `l5`, `l6`, `l7`, `l8`, `l9`. The run bears on two of them but does not adjudicate them: it measured the int4 artifact (l2's arithmetic-only size), and it ran the heal QAT on a real 2610 checkpoint (part of l8).
+All nine lapses were approved by the operator on 2026-10-16, together with evidence `e1`–`e25` and deltas `b1`–`b10`. Each caps the claims it touches:
+
+| Lapse | What | Claims it caps |
+|---|---|---|
+| `l1` | jetson-containers pinned by a fork-branch commit under the NVIDIA repo URL, not verified there | source provenance of the jetson-containers records |
+| `l2` | int4 block path never run on a device; size was arithmetic | none now: the run measured 985,675,969 B and served it on the AGX Orin |
+| `l3` | stock reproduction assumes the card grades argmax == gold | the stock-reproduction claim (`e23`) stays medium |
+| `l4` | the card's CI taken as a 95% Wilson interval | same as `l3` |
+| `l5` | pruned-vocabulary OOV count measured on its own prompts (≈0 by construction) | the pruned comparison (reported only, never shipped) |
+| `l6` | pruned build's in-env paths never ran | same as `l5` |
+| `l7` | final scores bf16 raw unless given a calibration, and measures agreement on the test pool | the test-side numbers and the 0.960 agreement miss |
+| `l8` | heal QAT is a hand-written fake quant; trains LoRA and head, not norms | the heal claims (`e8`, `e25`): ran on a real checkpoint, recipe not validated |
+| `l9` | the localhost boundary test passes vacuously for real clients | the boundary claim (`e11`) stays medium; the live run's 401 (`e20`) shows real clients matter |
 
 ## Remaining Work / Follow-up
 
