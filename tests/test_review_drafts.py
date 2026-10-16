@@ -409,3 +409,26 @@ def test_soft_gold_reaches_the_reviewed_records(paths):
     for entry in (option, soft):
         drafts.append_entry(path, entry)
     assert drafts.apply_ledger(recs, drafts.read_ledger(path))[0] == out
+
+
+def test_cli_edit_can_pick_an_option_the_ledger_added(paths, capsys):
+    """Review of PR #21: the CLI checks an edit against the record as the ledger leaves it,
+    as the page does, so an option added on the page can be picked from the CLI."""
+    records, evidence = paths
+    r1 = next(r for r in gold.read_drafted(records) if r.id == "r1")
+    added = drafts.make_entry(r1, "add_option", option=("q1", "escalate", "hand it over"))
+    drafts.append_entry(drafts.ledger_path(records), added)
+    args = ["review", "--drafts", str(records), "--evidence", str(evidence), "--json"]
+    assert cli_main([*args, "--edit", "r1:q1=escalate", "--apply"]) == 0
+    capsys.readouterr()
+    ledger = drafts.read_ledger(drafts.ledger_path(records))
+    assert [e["action"] for e in ledger] == ["add_option", "edit"]
+
+
+def test_a_bad_allow_host_is_a_structured_user_error(paths, capsys):
+    records, evidence = paths
+    argv = ["review", "--drafts", str(records), "--evidence", str(evidence), "--serve"]
+    assert cli_main([*argv, "--allow-host", "*.ts.net", "--port", "0", "--json"]) == 1
+    err = capsys.readouterr().err
+    assert "allow-host" in err
+    assert "Traceback" not in err

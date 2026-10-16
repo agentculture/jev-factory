@@ -137,12 +137,7 @@ def _serve(
 
     seed = Path(domain.seed_corpus)  # type: ignore[arg-type]
     app = server.ReviewApp(domain, seed, review_file)
-    try:
-        httpd = server.make_server(app, port, allow_hosts=allow_hosts)
-    except OSError as exc:
-        raise CliError(
-            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", _FREE_PORT
-        ) from None
+    httpd = _listen(server, app, port, allow_hosts)
     url = server.local_url(httpd.server_address[1])
     emit_result(
         {"url": url, "review_file": str(review_file)} if json_mode else url, json_mode=json_mode
@@ -241,12 +236,7 @@ def _serve_corrections(
     from jev_factory.review import server
 
     app = server.CorrectionsApp(path, review_file)
-    try:
-        httpd = server.make_server(app, port, allow_hosts=allow_hosts)
-    except OSError as exc:
-        raise CliError(
-            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", _FREE_PORT
-        ) from None
+    httpd = _listen(server, app, port, allow_hosts)
     url = server.local_url(httpd.server_address[1])
     emit_result(
         {"url": url, "draft": str(app.draft_file)} if json_mode else url, json_mode=json_mode
@@ -269,12 +259,7 @@ def _serve_gold(
     from jev_factory.review import server
 
     app = server.GoldApp(path, ledger_file)
-    try:
-        httpd = server.make_server(app, port, allow_hosts=allow_hosts)
-    except OSError as exc:
-        raise CliError(
-            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", _FREE_PORT
-        ) from None
+    httpd = _listen(server, app, port, allow_hosts)
     url = server.local_url(httpd.server_address[1])
     emit_result({"url": url, "ledger": str(ledger_file)} if json_mode else url, json_mode=json_mode)
     sys.stdout.flush()
@@ -400,12 +385,7 @@ def _render_gold(result: dict[str, Any], rows: list[dict[str, Any]], applied: bo
 def _serve_drafts(app: Any, port: int, json_mode: bool, allow_hosts: tuple[str, ...] = ()) -> int:
     from jev_factory.review import server
 
-    try:
-        httpd = server.make_server(app, port, allow_hosts=allow_hosts)
-    except OSError as exc:
-        raise CliError(
-            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", _FREE_PORT
-        ) from None
+    httpd = _listen(server, app, port, allow_hosts)
     url = server.local_url(httpd.server_address[1])
     ledger = app.ledger_file
     emit_result({"url": url, "ledger": str(ledger)} if json_mode else url, json_mode=json_mode)
@@ -421,18 +401,43 @@ def _serve_drafts(app: Any, port: int, json_mode: bool, allow_hosts: tuple[str, 
     return 0
 
 
-def _drafts_entries(records: list[Any], args: argparse.Namespace) -> list[dict[str, Any]]:
+def _listen(server: Any, app: Any, port: int, allow_hosts: tuple[str, ...]) -> Any:
+    """The review server on 127.0.0.1; a busy port or a bad ``--allow-host`` is a CliError."""
+    try:
+        return server.make_server(app, port, allow_hosts=allow_hosts)
+    except ValueError as exc:
+        raise CliError(
+            EXIT_USER_ERROR, str(exc), "pass a plain host name, e.g. --allow-host spark"
+        ) from None
+    except OSError as exc:
+        raise CliError(
+            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", _FREE_PORT
+        ) from None
+
+
+def _drafts_entries(
+    records: list[Any], ledger: list[dict[str, Any]], args: argparse.Namespace
+) -> list[dict[str, Any]]:
     from jev_factory.review import drafts
 
     by_id = {r.id: r for r in records}
+    resolved = drafts.resolve(ledger, records)
     entries = []
     for rid, action, edit in _gold_decisions(args):
         if rid not in by_id:
             raise CliError(EXIT_USER_ERROR, f"no record {rid!r}", "check the record id")
+        # checked against the record as the ledger leaves it (added options count), as the
+        # page does
+        current = drafts.effective(by_id[rid], resolved[rid])
         try:
             entries.append(
                 drafts.make_entry(
-                    by_id[rid], action, reviewer=args.reviewer, note=args.note or "", edit=edit
+                    by_id[rid],
+                    action,
+                    reviewer=args.reviewer,
+                    note=args.note or "",
+                    edit=edit,
+                    current=current,
                 )
             )
         except ValueError as exc:
@@ -466,7 +471,7 @@ def _drafts_mode(args: argparse.Namespace, json_mode: bool) -> int:
         records = gold.read_drafted(path)
         ledger = drafts.read_ledger(ledger_file)
         drafts.read_evidence(evidence)
-        entries = _drafts_entries(records, args)
+        entries = _drafts_entries(records, ledger, args)
         after = [*ledger, *entries]
         resolved = drafts.resolve(after, records)
         reviewed = drafts.apply_ledger(records, after)
