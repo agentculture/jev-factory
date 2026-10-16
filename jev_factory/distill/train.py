@@ -639,6 +639,7 @@ def served_scorer(
     base_revision: str,
     device: str | None = None,
     ready_timeout: float = 600.0,
+    allow_foreign: bool = False,
 ) -> Scorer:
     """A scorer that serves each checkpoint with ``strands-decider serve`` on 127.0.0.1.
 
@@ -662,7 +663,7 @@ def served_scorer(
                 extra={"distill_candidate": cand.cid, "knobs": cand.knobs},
             )
         name = f"distill-{cand.cid}"
-        gpu.assert_gpu_free("measure")
+        gpu.assert_gpu_free("measure", allow_foreign=allow_foreign)
         target = bench.Target(
             name=name,
             base_url=base_url,

@@ -579,3 +579,24 @@ def test_vector_is_not_fitted_over_an_open_label_set():
     assert out["by_kind"]["choice"]["temperature"] == pytest.approx(
         cal.fit_temperature(fit["choice"])
     )
+
+
+@pytest.mark.parametrize("allow", [False, True])
+def test_served_scorer_passes_allow_foreign_to_the_gpu_guard(tmp_path, monkeypatch, allow):
+    seen = {}
+
+    class Stop(Exception):
+        pass
+
+    def guard(stage, **kw):
+        seen.update(stage=stage, **kw)
+        raise Stop
+
+    monkeypatch.setattr(T.gpu, "assert_gpu_free", guard)
+    (tmp_path / "c000" / "bundle").mkdir(parents=True)
+    score = T.served_scorer(
+        env=None, jobdir=tmp_path, port=1, base_revision="0" * 40, allow_foreign=allow
+    )
+    with pytest.raises(Stop):
+        score(T.Candidate("c000", {}), tmp_path / "c000" / "checkpoint", {})
+    assert seen == {"stage": "measure", "allow_foreign": allow}

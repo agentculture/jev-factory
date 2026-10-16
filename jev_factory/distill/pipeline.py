@@ -384,6 +384,7 @@ def _measurer(ctx: DistillContext) -> Any:
         jobdir=jobs_dir(ctx.work),
         port=int(ctx.config.get("distill_student_port")),
         decider_repo=ctx.config.get("distill_decider_repo"),
+        allow_foreign=ctx.allow_foreign_gpu,
     )
 
 
@@ -736,6 +737,7 @@ def stage_train(workdir: Path, knobs: dict[str, Any]) -> None:
             jobdir=jobs_dir(ctx.work),
             port=int(ctx.config.get("distill_student_port")),
             base_revision=_base_revision(ctx),
+            allow_foreign=ctx.allow_foreign_gpu,
         )
     dtrain.run_grid(**_train_kwargs(ctx), apply=True, scorer=scorer)
 

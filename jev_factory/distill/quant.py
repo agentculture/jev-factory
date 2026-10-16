@@ -1855,6 +1855,7 @@ def served_measurer(
     ready_timeout: float = 600.0,
     memory_probe: bench.MemoryProbe | None = bench.nvidia_smi_used_mib,
     decider_repo: Path | str | None = None,
+    allow_foreign: bool = False,
 ) -> Measurer:
     """Serve an artifact and measure it over /v1/systemone.
 
@@ -1888,7 +1889,7 @@ def served_measurer(
             start = _torchao_starter(jobdir, name, env, artifact, port, device, decider_repo)
         else:
             start = _bundle_starter(jobdir, name, env, artifact, port, device)
-        gpu.assert_gpu_free("measure")
+        gpu.assert_gpu_free("measure", allow_foreign=allow_foreign)
         target = bench.Target(
             name=name,
             base_url=base_url,

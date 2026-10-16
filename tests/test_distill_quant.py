@@ -835,7 +835,7 @@ def test_the_bf16_server_launch_records_that_it_is_not_capped(tmp_path, monkeypa
     monkeypatch.setattr(Q.pserve, "launch", fake_launch)
     monkeypatch.setattr(Q.pserve, "wait_ready", lambda *a, **k: {"status": "ok"})
     monkeypatch.setattr(Q.bench, "benchmark_model", FakeBench())
-    monkeypatch.setattr(Q.gpu, "assert_gpu_free", lambda stage: [])
+    monkeypatch.setattr(Q.gpu, "assert_gpu_free", lambda stage, **k: [])
     monkeypatch.setattr(Q.player, "read_layout", lambda p: {})
     (tmp_path / "jobs").mkdir()
     measure = Q.served_measurer(env="e", jobdir=tmp_path / "jobs", port=8125)
@@ -884,7 +884,7 @@ def _measurer(tmp_path, monkeypatch, *, launch=None, ready=None):
     monkeypatch.setattr(qz, "launch", fake_launch)
     monkeypatch.setattr(Q.pserve, "wait_ready", fake_ready)
     monkeypatch.setattr(Q.bench, "benchmark_model", bench)
-    monkeypatch.setattr(Q.gpu, "assert_gpu_free", lambda stage: [])
+    monkeypatch.setattr(Q.gpu, "assert_gpu_free", lambda stage, **k: [])
     measure = Q.served_measurer(
         env="student-env", jobdir=tmp_path / "jobs", port=8124, decider_repo=tmp_path / "sd"
     )
