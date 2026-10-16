@@ -468,7 +468,9 @@ def test_every_build_over_the_size_budget_ships_nothing(tmp_path):
         return out
 
     builders["torch_int8_wo"] = huge
-    run_dir, _err = run_no_qualifying(tmp_path, builders=builders, formats=("torch_int8_wo",))
+    run_dir, _err = run_no_qualifying(
+        tmp_path, builders=builders, knobs=Q.QuantKnobs(formats=("torch_int8_wo",))
+    )
     meas = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]["torch_int8_wo"]
     assert meas["available"] is False
     assert meas["size"]["weight_bytes"] == Q.SIZE_BUDGET_BYTES
@@ -757,7 +759,9 @@ def test_a_torchao_build_failure_is_recorded_unavailable_with_the_error(tmp_path
     with pytest.raises(Q.FormatUnavailable, match="fbgemm-gpu-genai"):
         builders["torch_int4_wo"]("torch_int4_wo", ckpt, tmp_path / "q4")
     run_dir, _err = run_no_qualifying(
-        tmp_path / "r", builders=builders, formats=("torch_int8_wo", "torch_int4_wo")
+        tmp_path / "r",
+        builders=builders,
+        knobs=Q.QuantKnobs(formats=("torch_int8_wo", "torch_int4_wo")),
     )
     meas = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]
     for fmt in ("torch_int8_wo", "torch_int4_wo"):
@@ -956,7 +960,7 @@ def test_a_build_at_or_over_the_size_budget_is_unavailable_never_a_candidate(tmp
         tmp_path,
         builders=builders,
         measurer=measurer,
-        formats=("torch_int8_wo", "torch_int4_wo"),
+        knobs=Q.QuantKnobs(formats=("torch_int8_wo", "torch_int4_wo")),
     )
     measured = {fmt for fmt, _heal, _folds in measurer.calls}
     assert measured == {"bf16", "torch_int8_wo"}
@@ -1005,7 +1009,10 @@ def test_an_unverifiable_quant_artifact_is_unavailable_in_the_stage(tmp_path):
     builders["torch_int4_wo"] = lambda fmt, ck, out: out.mkdir(parents=True) or out
     measurer = FakeMeasurer()
     run_dir, _err = run_no_qualifying(
-        tmp_path, builders=builders, measurer=measurer, formats=("torch_int4_wo",)
+        tmp_path,
+        builders=builders,
+        measurer=measurer,
+        knobs=Q.QuantKnobs(formats=("torch_int4_wo",)),
     )
     meas = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]["torch_int4_wo"]
     assert meas["available"] is False
@@ -1140,7 +1147,7 @@ def _comparison_run(tmp_path, *, measurer=None, train_rows=None, **kw):
             trainer=FakeTrainer(run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE),
         ),
         bootstrap=Bootstrap(resamples=50),
-        formats=("torch_int8_wo", "torch_int4_wo"),
+        knobs=Q.QuantKnobs(formats=("torch_int8_wo", "torch_int4_wo")),
         **kw,
     )
     return out, run_dir, pruned
@@ -1221,7 +1228,7 @@ def test_a_pruned_format_is_never_a_candidate(tmp_path):
         run_dir=run_dir,
         folds=folds(),
         trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path / "sd"),
-        formats=(PRUNED4,),
+        knobs=Q.QuantKnobs(formats=(PRUNED4,)),
     )
     with pytest.raises(CliError, match="never candidates"):
         Q.run_quant(**args)
@@ -1598,11 +1605,13 @@ def test_a_deviation_heal_mix_replaces_the_registered_one_and_both_are_logged(tm
     _out, run_dir, _ = run(tmp_path, builders=builders, measurer=measurer)
     path = tmp_path / "prereg.json"
     mix = {"bf16_student": 1.0, "clef": 0.0}
+    knobs = Q.QuantKnobs(heal_mix=mix)
     with pytest.raises(CliError, match="needs a deviation id"):
-        _rerun(tmp_path, path, run_dir, heal_mix_override=mix)
+        _rerun(tmp_path, path, run_dir, knobs=knobs)
+    bad_knobs = Q.QuantKnobs(heal_mix={"bf16_student": 1.0, "clef": 1.0})
     with pytest.raises(CliError, match="sum to 1"):
-        _rerun(tmp_path, path, run_dir, "d11", heal_mix_override={"bf16_student": 1.0, "clef": 1.0})
-    out, _trainer = _rerun(tmp_path, path, run_dir, "d11", heal_mix_override=mix)
+        _rerun(tmp_path, path, run_dir, "d11", knobs=bad_knobs)
+    out, _trainer = _rerun(tmp_path, path, run_dir, "d11", knobs=knobs)
     spec = json.loads(
         (run_dir / Q.QUANT_REL / "heal" / "onnx_int8" / "round-2" / Q.HEAL_SPEC_FILE).read_text()
     )
@@ -1708,7 +1717,9 @@ def test_the_shipped_builds_selection_predictions_are_kept_with_its_bundle(tmp_p
         return out
 
     builders["torch_int4_wo"] = real_int4
-    out, run_dir, _trainer = run(tmp_path, builders=builders, formats=("torch_int4_wo",))
+    out, run_dir, _trainer = run(
+        tmp_path, builders=builders, knobs=Q.QuantKnobs(formats=("torch_int4_wo",))
+    )
     doc = _read(run_dir, Q.DEPLOYED_PREDICTIONS_FILE)
     assert doc["format"] == out["chosen_format"] == "torch_int4_wo"
     assert doc["fold"] == "selection"
@@ -1785,16 +1796,15 @@ def _gated_run(tmp_path, gating, deviation_id="d12", **extra):
         builders=builders,
         measurer=measurer,
         folds=_guarded_folds(),
-        formats=("torch_int4_wo",),
-        gating=gating,
+        knobs=Q.QuantKnobs(formats=("torch_int4_wo",), gating=gating, **extra),
         deviation_id=deviation_id,
-        **extra,
     )
 
 
 def test_gating_needs_a_deviation_id(tmp_path):
+    gating = Q.Gating(sources=frozenset({"src"}))
     with pytest.raises(CliError, match="need a deviation id"):
-        _gated_run(tmp_path, Q.Gating(sources=frozenset({"src"})), deviation_id=None)
+        _gated_run(tmp_path, gating, deviation_id=None)
 
 
 def test_without_gating_the_guard_counts_toward_agreement(tmp_path):
@@ -1820,8 +1830,9 @@ def test_gating_reads_the_domain_and_reports_the_guard(tmp_path):
 
 def test_a_guard_below_its_floor_is_healed_and_must_clear_it(tmp_path):
     """d12/d13: a guard below its floor is a heal reason; a healed build still below fails."""
+    gating = Q.Gating(sources=frozenset({"src"}), guard_floor=0.4)
     with pytest.raises(CliError, match="guard selection accuracy 0.0 is below its floor 0.4"):
-        _gated_run(tmp_path, Q.Gating(sources=frozenset({"src"}), guard_floor=0.4))
+        _gated_run(tmp_path, gating)
     trigger = [e for e in _log(tmp_path / "run") if e.get("event") == "heal_trigger"][-1]
     assert any(r.startswith("guard:") for r in trigger["reasons"])
 

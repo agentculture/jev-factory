@@ -378,6 +378,48 @@ def _provenance(
     }
 
 
+def _require_fresh(*targets: Path) -> None:
+    for target in targets:
+        if target.exists() and any(target.iterdir()):
+            raise _refuse(f"{target} exists and is not empty", "bundle into a fresh directory")
+
+
+def _refuse_sealed_rows(rows: list[dict[str, Any]], dataset_dir: Path | str | None) -> None:
+    sealed = _sealed_ids(Path(dataset_dir) if dataset_dir else None)
+    leaked = sorted({r["record_id"] for r in rows if r.get("record_id") in sealed})
+    if leaked:
+        raise _refuse(
+            f"training rows on a sealed side: {leaked[:5]}", "the sealed sets are never bundled"
+        )
+
+
+def _licensed_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], Counter[str]]:
+    """The rows the dataset bundle may carry, and the excluded rows' licence counts."""
+    keep = [r for r in rows if _licence_ok(r)]
+    if not keep:
+        raise _refuse("no training row has an Apache-2.0 or MIT licence; no dataset to bundle")
+    excluded = Counter(str(r.get("licence", "")) for r in rows if not _licence_ok(r))
+    return keep, excluded
+
+
+def _bundle_notice(
+    keep: list[dict[str, Any]],
+    dataset_dir: Path | str | None,
+    dataset_manifest: Path | str | None,
+) -> bytes:
+    manifest_path = Path(dataset_manifest) if dataset_manifest else None
+    if manifest_path is None and dataset_dir:
+        manifest_path = Path(dataset_dir) / "manifest.json"
+    attributions = attribution_strings(_read_manifest(manifest_path), keep)
+    if _needs_notice(keep) and not attributions:
+        raise _refuse(
+            "a cc-by-4.0 record is in the dataset bundle but the dataset manifest holds no "
+            "attribution string",
+            "the dataset build must record an attribution per licence; no NOTICE, no bundle",
+        )
+    return notice_text(attributions)
+
+
 def build_bundles(
     run_dir: Path | str,
     out_dir: Path | str,
@@ -392,40 +434,19 @@ def build_bundles(
     """Write ``<out_dir>/model`` and ``<out_dir>/dataset`` (scanned); return a summary."""
     run_dir, out_dir, prereg_path = Path(run_dir), Path(out_dir), Path(prereg_path)
     model_out, data_out = out_dir / MODEL_DIR, out_dir / DATASET_DIR
-    for target in (model_out, data_out):
-        if target.exists() and any(target.iterdir()):
-            raise _refuse(f"{target} exists and is not empty", "bundle into a fresh directory")
+    _require_fresh(model_out, data_out)
     student = dfinal.deployed_student(run_dir)
     gate = _gate(prereg_path, run_dir, deviation_id, student["calibration_sha256"])
     blob, rows = _train_rows(run_dir)
-    sealed = _sealed_ids(Path(dataset_dir) if dataset_dir else None)
-    leaked = sorted({r["record_id"] for r in rows if r.get("record_id") in sealed})
-    if leaked:
-        raise _refuse(
-            f"training rows on a sealed side: {leaked[:5]}", "the sealed sets are never bundled"
-        )
+    _refuse_sealed_rows(rows, dataset_dir)
     report = _read_bytes(run_dir / dfinal.FINAL_REL / dfinal.REPORT_FILE, "final report")
     assemble_bytes = _read_bytes(run_dir / dassemble.MANIFEST_REL, _ASSEMBLE_MANIFEST)
     calibration_bytes = _read_bytes(
         run_dir / dquant.QUANT_REL / dquant.CALIBRATION_FILE, "calibration"
     )
     calibration = json.loads(calibration_bytes)
-    keep = [r for r in rows if _licence_ok(r)]
-    if not keep:
-        raise _refuse("no training row has an Apache-2.0 or MIT licence; no dataset to bundle")
-    excluded = Counter(str(r.get("licence", "")) for r in rows if not _licence_ok(r))
-
-    manifest_path = Path(dataset_manifest) if dataset_manifest else None
-    if manifest_path is None and dataset_dir:
-        manifest_path = Path(dataset_dir) / "manifest.json"
-    attributions = attribution_strings(_read_manifest(manifest_path), keep)
-    if _needs_notice(keep) and not attributions:
-        raise _refuse(
-            "a cc-by-4.0 record is in the dataset bundle but the dataset manifest holds no "
-            "attribution string",
-            "the dataset build must record an attribution per licence; no NOTICE, no bundle",
-        )
-    notice = notice_text(attributions)
+    keep, excluded = _licensed_rows(rows)
+    notice = _bundle_notice(keep, dataset_dir, dataset_manifest)
 
     src = _artifact_path(run_dir, student["artifact"])
     info = _stage_student(src, model_out, calibration)

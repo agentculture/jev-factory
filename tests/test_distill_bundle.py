@@ -457,13 +457,10 @@ def test_cc_by_dataset_bundle_without_notice_is_refused_at_upload(tmp_path):
     out = tmp_path / "out"
     B.build_bundles(run, out, prereg_path=prereg_path, dataset_dir=ds)
     (out / "dataset" / "NOTICE").unlink()
+    bundles = {"model": out / "model", "dataset": out / "dataset"}
+    hub = FakeHub(tmp_path / "r")
     with pytest.raises(CliError, match="NOTICE"):
-        _upload(
-            {"model": out / "model", "dataset": out / "dataset"},
-            FakeHub(tmp_path / "r"),
-            apply=False,
-            tmp_path=tmp_path,
-        )
+        _upload(bundles, hub, apply=False, tmp_path=tmp_path)
 
 
 # --------------------------------------------------------------------- pre-upload scans (t16)
@@ -534,8 +531,9 @@ def test_upload_refuses_when_the_scan_inputs_are_not_configured(tmp_path):
     """AC2: fail closed, no probe set or side-model list path means no upload."""
     _, out, _ = build(tmp_path)
     bundles = {"model": out / "model", "dataset": out / "dataset"}
+    hub = FakeHub(tmp_path / "r")
     with pytest.raises(CliError, match=B.PROBE_SET_KEY):
-        _upload(bundles, FakeHub(tmp_path / "r"), apply=False, scan_cfg={})
+        _upload(bundles, hub, apply=False, scan_cfg={})
 
 
 def test_cc_by_rows_need_their_own_attribution_and_the_manifest_licence_table(tmp_path):

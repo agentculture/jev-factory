@@ -292,6 +292,23 @@ class QuantHooks:
     trainer: Trainer | None = None
 
 
+@dataclass(frozen=True)
+class QuantKnobs:
+    """The quant stage's operator knobs for :func:`run_quant`.
+
+    *formats* are the deployed-format candidates. The other three are deviation-gated
+    overrides of the locked rule, each refused without a deviation id: *heal_mix* replaces
+    the registered ``heal.mix`` (both mixes are recorded in the heal log), *gating* (d12)
+    reads the quant rules on the gating sources only, and *heal_repeat* (d13) repeats the
+    heal set's domain and guard rows.
+    """
+
+    formats: Sequence[str] = tuple(FORMATS)
+    heal_mix: Mapping[str, float] | None = None
+    gating: Gating | None = None
+    heal_repeat: Mapping[str, int] | None = None
+
+
 def _refuse(message: str, remediation: str = "") -> CliError:
     return CliError(
         EXIT_USER_ERROR,
@@ -834,7 +851,7 @@ def _measure_all(
 def _wire_criteria(kind: str, options: Sequence[Sequence[str]]) -> Any:
     """Criteria as :func:`jev_factory.distill.benchmark.wire_record` sends them."""
     if kind == "choice":
-        return {name: desc for name, desc in options}
+        return dict(options)
     if kind == "score":
         return [desc for _name, desc in options]
     return None
@@ -1014,7 +1031,7 @@ def compare_pruned(
             "count": len(probe),
             "measured": bool(probe),
             "note": (
-                "the pruned build only: the full-vocabulary build has no out-of-vocabulary " "path"
+                "the pruned build only: the full-vocabulary build has no out-of-vocabulary path"
                 if probe
                 else "no probe set given: out-of-vocabulary refusals are counted on "
                 "the fit and selection folds only"
@@ -1622,6 +1639,83 @@ def _check_repeat(
     return {"domain": int(repeat["domain"]), "guard": int(repeat["guard"])}
 
 
+def _checked_knobs(knobs: QuantKnobs, deviation_id: str | None) -> QuantKnobs:
+    """*knobs* with the heal mix and repeat validated; a deviation-gated knob needs an id."""
+    heal_mix_override = knobs.heal_mix
+    if heal_mix_override is not None:
+        if not (deviation_id or "").strip():
+            raise _refuse(
+                "a heal mix other than the registered heal.mix needs a deviation id",
+                "record a deviation and pass --deviation-id with the heal_mix knob",
+            )
+        heal_mix_override = td.check_mix(heal_mix_override, where="knob heal_mix")
+    heal_repeat = _check_repeat(knobs.heal_repeat, knobs.gating, deviation_id)
+    if knobs.gating is not None and not (deviation_id or "").strip():
+        raise _refuse(
+            "rules read from the gating sources only change the locked rule; they need a "
+            "deviation id",
+            "record a deviation and pass --deviation-id with the gating knob",
+        )
+    _refuse_comparison_candidates(knobs.formats)
+    unknown = [f for f in knobs.formats if f not in FORMATS]
+    if unknown:
+        raise _refuse(f"unknown deployed format(s): {unknown}; candidates are {list(FORMATS)}")
+    return replace(knobs, heal_mix=heal_mix_override, heal_repeat=heal_repeat)
+
+
+def _gating_record(gating: Gating | None) -> dict[str, Any] | None:
+    if gating is None:
+        return None
+    return {
+        "sources": sorted(gating.sources),
+        "guard_floor": gating.guard_floor,
+        "guard_stock": gating.guard_stock,
+    }
+
+
+@dataclass(frozen=True)
+class _Deployed:
+    """What the deployed build is after the (optional) heal round."""
+
+    checkpoint: Any
+    predictions: Any
+    heal_record: dict[str, Any] | None = None
+    healed: dict[str, dict[str, Any]] | None = None
+
+
+def _heal_if_needed(
+    hr: _HealRun,
+    *,
+    base: Mapping[str, Any],
+    choice: Mapping[str, Any],
+    reasons: Sequence[str],
+    measured: Mapping[str, Mapping[str, Any]],
+    predictions: Mapping[str, Any],
+    hooks: QuantHooks,
+    limits: GpuLimits,
+) -> _Deployed:
+    """Run the one heal round when *reasons* call for it; a failed heal records and stops."""
+    fmt = choice["format"]
+    if not reasons:
+        return _Deployed(checkpoint=hr.winner["checkpoint"], predictions=predictions[fmt])
+    trainer = hooks.trainer or _default_trainer(
+        allow_foreign=limits.allow_foreign,
+        memory_max=limits.memory_max,
+        memory_floor=limits.memory_floor,
+        timeout=limits.timeout,
+    )
+    heal = _heal_round(hr, fmt, reasons, measured, predictions[BF16], trainer)
+    if heal.problem:
+        failed = {**choice, "reason": f"{NO_QUALIFYING}: {heal.problem}"}
+        _fail(base=base, out_dir=hr.out_dir, measured=measured, healed=heal.measured, choice=failed)
+    return _Deployed(
+        checkpoint=heal.checkpoint,
+        predictions=heal.predictions[fmt],
+        heal_record=heal.record,
+        healed=heal.measured,
+    )
+
+
 def run_quant(
     *,
     prereg_path: Path | str,
@@ -1634,42 +1728,24 @@ def run_quant(
     train_file: Path | str | None = None,
     deviation_id: str | None = None,
     limits: GpuLimits = GpuLimits(),
-    formats: Sequence[str] = tuple(FORMATS),
     bootstrap: Bootstrap = Bootstrap(),
     probe: Sequence[Record] = (),
-    heal_mix_override: Mapping[str, float] | None = None,
-    gating: Gating | None = None,
-    heal_repeat: Mapping[str, int] | None = None,
+    knobs: QuantKnobs = QuantKnobs(),
 ) -> dict[str, Any]:
     """Plan (dry-run) or run the format spike, the heal round and the recalibration.
 
     *probe* (the operator's private probe set, never a sealed record) is asked of the pruned
     comparison build only, to count its out-of-vocabulary refusals (risk r14).
-    *heal_mix_override* replaces the registered ``heal.mix`` and needs a deviation id; both
-    mixes are recorded in the heal log."""
+    *knobs* carries the format candidates and the deviation-gated overrides
+    (:class:`QuantKnobs`); a ``heal_mix`` replaces the registered ``heal.mix`` and needs a
+    deviation id; both mixes are recorded in the heal log."""
     prereg_path, run_dir = Path(prereg_path), Path(run_dir)
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
     bars = quant_bars(reg)
     minimum = agreement_min(reg)
     heal_mix(reg)  # refused before anything runs when the heal block names no mix
-    if heal_mix_override is not None:
-        if not (deviation_id or "").strip():
-            raise _refuse(
-                "a heal mix other than the registered heal.mix needs a deviation id",
-                "record a deviation and pass --deviation-id with the heal_mix knob",
-            )
-        heal_mix_override = td.check_mix(heal_mix_override, where="knob heal_mix")
-    heal_repeat = _check_repeat(heal_repeat, gating, deviation_id)
-    if gating is not None and not (deviation_id or "").strip():
-        raise _refuse(
-            "rules read from the gating sources only change the locked rule; they need a "
-            "deviation id",
-            "record a deviation and pass --deviation-id with the gating knob",
-        )
-    _refuse_comparison_candidates(formats)
-    unknown = [f for f in formats if f not in FORMATS]
-    if unknown:
-        raise _refuse(f"unknown deployed format(s): {unknown}; candidates are {list(FORMATS)}")
+    knobs = _checked_knobs(knobs, deviation_id)
+    formats, gating = knobs.formats, knobs.gating
     winner = read_winner(run_dir)
     dtrain.check_raw_readout(winner["checkpoint"])
     fold_records = dtrain._folds(folds, sealed)
@@ -1694,9 +1770,9 @@ def run_quant(
         builders=dict(hooks.builders or {}),
         measurer=hooks.measurer,  # type: ignore[arg-type]
         kw=kw,
-        mix_override=heal_mix_override,
+        mix_override=knobs.heal_mix,
         gating=gating,
-        repeat=heal_repeat,
+        repeat=knobs.heal_repeat,
     )
     base = {
         "stage": "distill-quant",
@@ -1707,15 +1783,7 @@ def run_quant(
         "heal_rounds_max": HEAL_ROUNDS,
         "heal_mix": hr.mix,
         "heal_mix_registered": heal_mix(reg),
-        "gating": (
-            None
-            if gating is None
-            else {
-                "sources": sorted(gating.sources),
-                "guard_floor": gating.guard_floor,
-                "guard_stock": gating.guard_stock,
-            }
-        ),
+        "gating": _gating_record(gating),
         "agreement_min": minimum,
         "agreement_folds": list(AGREEMENT_FOLDS),
         "size_budget_bytes": SIZE_BUDGET_BYTES,
@@ -1738,25 +1806,16 @@ def run_quant(
     if choice["format"] is None:
         _fail(base=base, out_dir=out_dir, measured=measured, healed=None, choice=choice)
     reasons = heal_reasons(choice["format"], measured, choice, minimum)
-    deployed_checkpoint = winner["checkpoint"]
-    deployed_predictions = predictions[choice["format"]]
-    heal_record: dict[str, Any] | None = None
-    healed: dict[str, dict[str, Any]] | None = None
-    if reasons:
-        trainer = hooks.trainer or _default_trainer(
-            allow_foreign=limits.allow_foreign,
-            memory_max=limits.memory_max,
-            memory_floor=limits.memory_floor,
-            timeout=limits.timeout,
-        )
-        heal = _heal_round(hr, choice["format"], reasons, measured, predictions[BF16], trainer)
-        if heal.problem:
-            failed = {**choice, "reason": f"{NO_QUALIFYING}: {heal.problem}"}
-            _fail(
-                base=base, out_dir=out_dir, measured=measured, healed=heal.measured, choice=failed
-            )
-        heal_record, healed, deployed_checkpoint = heal.record, heal.measured, heal.checkpoint
-        deployed_predictions = heal.predictions[choice["format"]]
+    deployed = _heal_if_needed(
+        hr,
+        base=base,
+        choice=choice,
+        reasons=reasons,
+        measured=measured,
+        predictions=predictions,
+        hooks=hooks,
+        limits=limits,
+    )
     comparison = compare_pruned(
         measured,
         choice["format"],
@@ -1773,13 +1832,13 @@ def run_quant(
         base=base,
         out_dir=out_dir,
         measured=measured,
-        healed=healed,
+        healed=deployed.healed,
         choice={**choice, "heal_reasons": reasons},
-        heal_record=heal_record,
+        heal_record=deployed.heal_record,
         heal_log=hr.heal_log,
-        deployed_checkpoint=deployed_checkpoint,
+        deployed_checkpoint=deployed.checkpoint,
         comparison=comparison,
-        deployed_predictions=deployed_predictions,
+        deployed_predictions=deployed.predictions,
     )
 
 
@@ -1910,7 +1969,7 @@ def _finish(
         "cited": cited,
         "prereg_sha256": base["prereg_sha256"],
         "rule_owner": "jev_factory.decide.rules (HEAL_MARGIN_POINTS, HEAL_ROUNDS)",
-        "never_candidates": {f: COMPARISON_NOTE for f in COMPARISON_FORMATS},
+        "never_candidates": dict.fromkeys(COMPARISON_FORMATS, COMPARISON_NOTE),
     }
     decision_path = out_dir / DECISION_FILE
     _write_json(decision_path, decision)

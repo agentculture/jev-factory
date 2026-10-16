@@ -787,14 +787,16 @@ def _quant_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, An
         "limits": _gpu_limits(ctx),
         "probe": _probe_records(ctx),
     }
+    quant_knobs = dquant.QuantKnobs()
     if knobs.get("formats"):
-        kwargs["formats"] = tuple(knobs["formats"])
+        quant_knobs = replace(quant_knobs, formats=tuple(knobs["formats"]))
     if knobs.get("heal_mix") is not None:
-        kwargs["heal_mix_override"] = knobs["heal_mix"]
+        quant_knobs = replace(quant_knobs, heal_mix=knobs["heal_mix"])
     if knobs.get("gating") is not None:
-        kwargs["gating"] = _gating(ctx, knobs["gating"])
+        quant_knobs = replace(quant_knobs, gating=_gating(ctx, knobs["gating"]))
     if knobs.get("heal_repeat") is not None:
-        kwargs["heal_repeat"] = knobs["heal_repeat"]
+        quant_knobs = replace(quant_knobs, heal_repeat=knobs["heal_repeat"])
+    kwargs["knobs"] = quant_knobs
     return kwargs
 
 
