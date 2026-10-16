@@ -839,6 +839,7 @@ function render() {
 function sessionStore(key, fallback) {
   try { const v = sessionStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) {
     // storage blocked or the saved value is unreadable: start this session's record afresh
+    console.debug("session record not read", e);
     return fallback;
   }
 }

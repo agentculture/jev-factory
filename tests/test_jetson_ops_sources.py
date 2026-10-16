@@ -78,6 +78,14 @@ def test_general_ops_pin_is_a_commit_of_this_repository():
     repo = Path(__file__).resolve().parents[1]
     if not (repo / ".git").exists():
         pytest.skip("not a git checkout")
+    shallow = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--is-shallow-repository"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if shallow.stdout.strip() == "true":  # e.g. the publish workflow's depth-1 checkout
+        pytest.skip("a shallow clone does not hold the pinned commit")
     res = subprocess.run(
         ["git", "-C", str(repo), "cat-file", "-t", sources.load_sources()["general-ops"].commit],
         capture_output=True,
