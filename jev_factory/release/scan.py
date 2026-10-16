@@ -30,7 +30,7 @@ import struct
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 from urllib.parse import urlsplit
 
 NVSH_PROVENANCE = {
@@ -311,6 +311,7 @@ _TORCH_MEMBER_RE = re.compile(
     r"|\.data/serialization_id|data/\d+)$"
 )
 _TORCH_PICKLE_MAX = 64 * 1024 * 1024
+_TORCH_UTILS = "torch._utils"
 #: The imports a weights-only tensor state dict may name (``torch.load(weights_only=True)``
 #: accepts these; anything else could run code on an unsafe load).
 _PICKLE_GLOBALS = frozenset(
@@ -318,9 +319,9 @@ _PICKLE_GLOBALS = frozenset(
         ("collections", "OrderedDict"),
         ("torch", "device"),
         ("torch", "Size"),
-        ("torch._utils", "_rebuild_tensor_v2"),
-        ("torch._utils", "_rebuild_parameter"),
-        ("torch._utils", "_rebuild_wrapper_subclass"),
+        (_TORCH_UTILS, "_rebuild_tensor_v2"),
+        (_TORCH_UTILS, "_rebuild_parameter"),
+        (_TORCH_UTILS, "_rebuild_wrapper_subclass"),
         ("torch._tensor", "_rebuild_from_type_v2"),
         ("torch.serialization", "_get_layout"),
     }
@@ -411,6 +412,33 @@ def _pickle_allowed(module: str, name: str) -> bool:
     return any(module == mod and rx.match(name) for mod, rx in _PICKLE_GLOBAL_RES)
 
 
+def _pickle_global(name: str, arg: Any, recent: list[str | None]) -> tuple[str, str] | None:
+    """The ``(module, name)`` a ``GLOBAL``/``INST``/``STACK_GLOBAL`` opcode imports, else None."""
+    if name in ("GLOBAL", "INST"):
+        module, _, attr = str(arg).partition(" ")
+        return module, attr
+    if name == "STACK_GLOBAL":
+        if len(recent) < 2 or not all(isinstance(v, str) for v in recent[-2:]):
+            raise ValueError("a STACK_GLOBAL import whose module/name cannot be resolved")
+        return recent[-2], recent[-1]  # type: ignore[return-value]
+    return None
+
+
+def _pickle_track(op: Any, arg: Any, recent: list[str | None], memo: dict[int, str | None]) -> None:
+    """Follow the memo and the stack for an opcode that is neither a string nor an import."""
+    name = op.name
+    if name == "MEMOIZE":
+        memo[len(memo)] = recent[-1] if recent else None
+    elif name in ("BINPUT", "LONG_BINPUT", "PUT"):
+        memo[int(arg)] = recent[-1] if recent else None
+    elif name in ("BINGET", "LONG_BINGET", "GET"):
+        recent.append(memo.get(int(arg)))
+    elif name.startswith("EXT"):
+        raise ValueError("an extension-registry import (EXT opcode)")
+    elif op.stack_after:
+        recent.append(None)
+
+
 def _pickle_imports(data: bytes) -> tuple[list[tuple[str, str]], list[str]]:
     """The ``(module, name)`` imports and the strings of a pickle, by walking its opcodes.
 
@@ -427,25 +455,11 @@ def _pickle_imports(data: bytes) -> tuple[list[tuple[str, str]], list[str]]:
             text = arg.decode("latin-1") if isinstance(arg, bytes) else str(arg)
             strings.append(text)
             recent.append(text)
-        elif name in ("GLOBAL", "INST"):
-            module, _, attr = str(arg).partition(" ")
-            imports.append((module, attr))
+        elif (imported := _pickle_global(name, arg, recent)) is not None:
+            imports.append(imported)
             recent.append(None)
-        elif name == "STACK_GLOBAL":
-            if len(recent) < 2 or not all(isinstance(v, str) for v in recent[-2:]):
-                raise ValueError("a STACK_GLOBAL import whose module/name cannot be resolved")
-            imports.append((recent[-2], recent[-1]))  # type: ignore[arg-type]
-            recent.append(None)
-        elif name == "MEMOIZE":
-            memo[len(memo)] = recent[-1] if recent else None
-        elif name in ("BINPUT", "LONG_BINPUT", "PUT"):
-            memo[int(arg)] = recent[-1] if recent else None
-        elif name in ("BINGET", "LONG_BINGET", "GET"):
-            recent.append(memo.get(int(arg)))
-        elif name.startswith("EXT"):
-            raise ValueError("an extension-registry import (EXT opcode)")
-        elif op.stack_after:
-            recent.append(None)
+        else:
+            _pickle_track(op, arg, recent, memo)
     return imports, strings
 
 

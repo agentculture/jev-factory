@@ -325,6 +325,14 @@ def _kept_name(key: str) -> str | None:
     return next((n for n in KEPT_NAMES if any(n in part for part in key.split("."))), None)
 
 
+def _embedding_row_problem(key: str, dtype: str, scheme: QuantScheme) -> str | None:
+    leaf = key.rpartition(".")[2]
+    if leaf not in (EMBED_QWEIGHT, EMBED_SCALES):
+        return f"{key}: the embedding is not packed ({EMBED_QWEIGHT} + {EMBED_SCALES})"
+    want = EMBED_QDTYPE[scheme.embedding_bits] if leaf == EMBED_QWEIGHT else None
+    return f"{key} is {dtype}, not {want}" if want and dtype != want else None
+
+
 def _row_problem(row: Mapping[str, Any], cls: str, scheme: QuantScheme) -> str | None:
     key, ttype, dtype = row["key"], str(row["tensor_type"]), str(row["dtype"])
     plain = ttype in PLAIN_TENSOR_TYPES
@@ -337,11 +345,7 @@ def _row_problem(row: Mapping[str, Any], cls: str, scheme: QuantScheme) -> str |
             else None
         )
     if cls == EMBEDDING:
-        leaf = key.rpartition(".")[2]
-        if leaf not in (EMBED_QWEIGHT, EMBED_SCALES):
-            return f"{key}: the embedding is not packed ({EMBED_QWEIGHT} + {EMBED_SCALES})"
-        want = EMBED_QDTYPE[scheme.embedding_bits] if leaf == EMBED_QWEIGHT else None
-        return f"{key} is {dtype}, not {want}" if want and dtype != want else None
+        return _embedding_row_problem(key, dtype, scheme)
     if not plain:
         return f"{key} is quantized ({ttype}) outside the text-block linears"
     if _kept_name(key) and dtype not in FLOAT_DTYPES:
@@ -1338,6 +1342,15 @@ def _quant_config(bits: int, group_size: int | None = None) -> tuple[str, Any]:
 _EMBED_CHUNK_ROWS = 8192
 
 
+def _kept_id_map(torch: Any, kept: Sequence[int], rows: int, vocab: int, device: Any) -> Any:
+    """A pruned build's token id -> kept row map, ``-1`` for an id with no row."""
+    if len(kept) != rows:
+        raise ValueError(f"{len(kept)} kept ids for {rows} rows")
+    id_map = torch.full((vocab,), -1, dtype=torch.long, device=device)
+    id_map[torch.tensor(kept, dtype=torch.long, device=device)] = torch.arange(rows, device=device)
+    return id_map
+
+
 def _packed_embedding_class(torch: Any) -> Any:
     """The packed full-vocabulary embedding module (built lazily: torch is in-env only)."""
 
@@ -1355,14 +1368,7 @@ def _packed_embedding_class(torch: Any) -> Any:
             # A pruned build (c38) maps a token id to its kept row, -1 for none; the map is
             # rebuilt from the kept id list at load, so it is not part of the saved state.
             self.vocab = rows if kept is None else int(vocab)
-            id_map = None
-            if kept is not None:
-                if len(kept) != rows:
-                    raise ValueError(f"{len(kept)} kept ids for {rows} rows")
-                id_map = torch.full((self.vocab,), -1, dtype=torch.long, device=device)
-                id_map[torch.tensor(kept, dtype=torch.long, device=device)] = torch.arange(
-                    rows, device=device
-                )
+            id_map = None if kept is None else _kept_id_map(torch, kept, rows, self.vocab, device)
             self.register_buffer("id_map", id_map, persistent=False)
             qdtype, width = (torch.uint8, dim // 2) if bits == 4 else (torch.int8, dim)
             self.register_buffer(
@@ -1434,7 +1440,8 @@ def _set_module(root: Any, fqn: str, module: Any) -> None:
 def drop_unused(torso: Any) -> list[dict[str, Any]]:
     """Remove the vision tower and MTP head modules (:data:`DROP`); return what went."""
     dropped: list[dict[str, Any]] = []
-    for fqn, module in list(torso.named_modules()):
+    modules = list(torso.named_modules())  # a snapshot: the loop replaces modules
+    for fqn, module in modules:
         if not fqn or module_class(fqn) != DROP:
             continue
         if any(fqn.startswith(d["module"] + ".") for d in dropped):
@@ -1807,7 +1814,7 @@ def _load_engine(artifact: Path, device: str, model_name: str) -> tuple[Any, dic
 def _accelerator(torch: Any) -> str | None:
     try:
         return str(torch.cuda.get_device_name(0)) if torch.cuda.is_available() else None
-    except Exception:  # noqa: BLE001 - a stats field, never a reason to fail serving
+    except Exception:  # noqa: BLE001 - a stats field; never a reason to fail serving
         return None
 
 

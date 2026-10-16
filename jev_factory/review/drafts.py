@@ -83,31 +83,39 @@ def is_probabilities(value: object) -> bool:
     )
 
 
+def _edit_ok(entry: dict[str, Any]) -> bool:
+    edit = entry.get("edit")
+    return (
+        isinstance(edit, dict)
+        and isinstance(edit.get("question_id"), str)
+        and isinstance(edit.get("label"), str)
+        and (edit.get("probabilities") is None or is_probabilities(edit["probabilities"]))
+    )
+
+
+def _option_ok(entry: dict[str, Any]) -> bool:
+    option = entry.get("option")
+    return isinstance(option, dict) and all(
+        isinstance(option.get(k), str) for k in ("question_id", "name", "description")
+    )
+
+
+def _restore_ok(entry: dict[str, Any]) -> bool:
+    restore = entry.get("restore")
+    return isinstance(restore, dict) and isinstance(restore.get("question_id", ""), str)
+
+
 def _check_payload(entry: dict[str, Any], where: str) -> None:
     action = entry["action"]
-    if action == "edit":
-        edit = entry.get("edit")
-        if not (
-            isinstance(edit, dict)
-            and isinstance(edit.get("question_id"), str)
-            and isinstance(edit.get("label"), str)
-            and (edit.get("probabilities") is None or is_probabilities(edit["probabilities"]))
-        ):
-            raise DraftReviewError(f"{where}: an edit entry needs edit.question_id and edit.label")
-    elif action == "add_option":
-        option = entry.get("option")
-        if not (
-            isinstance(option, dict)
-            and all(isinstance(option.get(k), str) for k in ("question_id", "name", "description"))
-        ):
-            raise DraftReviewError(
-                f"{where}: an add_option entry needs option.question_id, .name and .description"
-            )
-    elif action == "restore":
-        restore = entry.get("restore")
-        if not (isinstance(restore, dict) and isinstance(restore.get("question_id", ""), str)):
-            raise DraftReviewError(f"{where}: a restore entry needs restore.question_id")
-    elif action == "note" and not str(entry.get("note") or "").strip():
+    if action == "edit" and not _edit_ok(entry):
+        raise DraftReviewError(f"{where}: an edit entry needs edit.question_id and edit.label")
+    if action == "add_option" and not _option_ok(entry):
+        raise DraftReviewError(
+            f"{where}: an add_option entry needs option.question_id, .name and .description"
+        )
+    if action == "restore" and not _restore_ok(entry):
+        raise DraftReviewError(f"{where}: a restore entry needs restore.question_id")
+    if action == "note" and not str(entry.get("note") or "").strip():
         raise DraftReviewError(f"{where}: a note entry needs a note")
 
 
@@ -169,16 +177,7 @@ def make_entry(
     record as the ledger already makes it (added options included); the edit or option is
     checked against it, while the entry binds the drafted record's sha256.
     """
-    if action not in ACTIONS:
-        raise DraftReviewError(f"action must be one of {list(ACTIONS)}, got {action!r}")
-    payloads = {"edit": edit, "add_option": option, "restore": restore}
-    for name, value in payloads.items():
-        if (action == name) != (value is not None):
-            raise DraftReviewError(
-                f"{record.id}: {name} goes with the {name} action, and only with it"
-            )
-    if action == "note" and not note.strip():
-        raise DraftReviewError(f"{record.id}: a note needs text")
+    _check_make_args(record, action, note, {"edit": edit, "add_option": option, "restore": restore})
     entry: dict[str, Any] = {
         "at": at or gold.now_utc(),
         "action": action,
@@ -189,12 +188,7 @@ def make_entry(
     }
     base = current or record
     if edit is not None:
-        qid, label = edit[0], edit[1]
-        probs = edit[2] if len(edit) > 2 else None  # type: ignore[misc]
-        _gold_for(base, qid, label, probs)  # validates the question, label and probabilities
-        entry["edit"] = {"question_id": qid, "label": label}
-        if probs is not None:
-            entry["edit"]["probabilities"] = {k: float(v) for k, v in probs.items()}
+        entry["edit"] = _edit_payload(base, edit)
     if option is not None:
         _with_option(base, *option)  # validates
         entry["option"] = dict(zip(("question_id", "name", "description"), option))
@@ -203,6 +197,34 @@ def make_entry(
             raise DraftReviewError(f"{record.id}: no question {restore!r}")
         entry["restore"] = {"question_id": restore}
     return entry
+
+
+def _check_make_args(
+    record: Record, action: str, note: str, payloads: Mapping[str, object | None]
+) -> None:
+    """Refuse an unknown action, a payload without its action (or the reverse), an empty note."""
+    if action not in ACTIONS:
+        raise DraftReviewError(f"action must be one of {list(ACTIONS)}, got {action!r}")
+    for name, value in payloads.items():
+        if (action == name) != (value is not None):
+            raise DraftReviewError(
+                f"{record.id}: {name} goes with the {name} action, and only with it"
+            )
+    if action == "note" and not note.strip():
+        raise DraftReviewError(f"{record.id}: a note needs text")
+
+
+def _edit_payload(
+    base: Record, edit: tuple[str, str] | tuple[str, str, Mapping[str, float] | None]
+) -> dict[str, Any]:
+    """The ledger's ``edit`` payload, checked against *base*."""
+    qid, label = edit[0], edit[1]
+    probs = edit[2] if len(edit) > 2 else None  # type: ignore[misc]
+    _gold_for(base, qid, label, probs)  # validates the question, label and probabilities
+    payload: dict[str, Any] = {"question_id": qid, "label": label}
+    if probs is not None:
+        payload["probabilities"] = {k: float(v) for k, v in probs.items()}
+    return payload
 
 
 def _question(record: Record, qid: str) -> Question:

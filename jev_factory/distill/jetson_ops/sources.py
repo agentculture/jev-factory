@@ -15,7 +15,8 @@ from typing import Any
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 
 REGISTRY_PATH = Path(__file__).with_name("sources.json")
-ALLOWED_LICENCES = frozenset({"MIT", "Apache-2.0", "CC-BY-4.0"})
+_CC_BY = "CC-BY-4.0"
+ALLOWED_LICENCES = frozenset({"MIT", "Apache-2.0", _CC_BY})
 PATH_CLASSES = ("code", "docs")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _URL = re.compile(r"^https://github\.com/[\w.-]+/[\w.-]+$")
@@ -91,7 +92,7 @@ def _parse(entry: Any) -> Source:
 
 
 def _check_cc_by(source: Source) -> None:
-    if "CC-BY-4.0" in source.licences.values() and "CC-BY-4.0" not in source.attribution:
+    if _CC_BY in source.licences.values() and _CC_BY not in source.attribution:
         raise _bad(f"source {source.id!r}: CC-BY-4.0 attribution must name the licence")
 
 

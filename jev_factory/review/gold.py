@@ -65,7 +65,7 @@ def read_drafted(path: Path) -> list[Record]:
             continue
         try:
             out.append(Record.from_json(json.loads(line)))
-        except (json.JSONDecodeError, ValueError, AttributeError, TypeError) as exc:
+        except (ValueError, AttributeError, TypeError) as exc:
             raise GoldLedgerError(f"{path}:{number}: not a record ({exc})") from None
     ids = [r.id for r in out]
     if len(set(ids)) != len(ids):

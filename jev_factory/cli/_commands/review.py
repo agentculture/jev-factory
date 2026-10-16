@@ -30,6 +30,9 @@ from jev_factory.domain.validate import DomainError, load_domain
 from jev_factory.review import core
 
 DEFAULT_PORT = 18765
+_FREE_PORT = "pass a free --port"
+_CHECK_PATH = "check the path"
+_FIX_FILE = "fix or restore the file"
 
 
 def _domain(ref: str) -> Domain:
@@ -138,7 +141,7 @@ def _serve(
         httpd = server.make_server(app, port, allow_hosts=allow_hosts)
     except OSError as exc:
         raise CliError(
-            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", "pass a free --port"
+            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", _FREE_PORT
         ) from None
     url = server.local_url(httpd.server_address[1])
     emit_result(
@@ -162,7 +165,7 @@ def _corrections_mode(args: argparse.Namespace, json_mode: bool) -> int:
 
     path = Path(args.corrections)
     if not path.is_file():
-        raise CliError(EXIT_ENV_ERROR, f"corrections file not found: {path}", "check the path")
+        raise CliError(EXIT_ENV_ERROR, f"corrections file not found: {path}", _CHECK_PATH)
     review_file = Path(args.review_file) if args.review_file else cr.review_path(path)
     draft = cr.draft_path(path)
     if args.serve:
@@ -218,7 +221,7 @@ def _read_corrections_review(path: Path, review_file: Path, draft: Path) -> tupl
         recorded = cr.read_records(review_file)
         staged = list(cr.latest(cr.read_records(draft)).values())
     except ValueError as exc:  # CorrectionError and CorrectionReviewError are ValueErrors
-        raise CliError(EXIT_USER_ERROR, str(exc), "fix or restore the file") from None
+        raise CliError(EXIT_USER_ERROR, str(exc), _FIX_FILE) from None
     return corrections, recorded, staged
 
 
@@ -242,7 +245,7 @@ def _serve_corrections(
         httpd = server.make_server(app, port, allow_hosts=allow_hosts)
     except OSError as exc:
         raise CliError(
-            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", "pass a free --port"
+            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", _FREE_PORT
         ) from None
     url = server.local_url(httpd.server_address[1])
     emit_result(
@@ -270,7 +273,7 @@ def _serve_gold(
         httpd = server.make_server(app, port, allow_hosts=allow_hosts)
     except OSError as exc:
         raise CliError(
-            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", "pass a free --port"
+            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", _FREE_PORT
         ) from None
     url = server.local_url(httpd.server_address[1])
     emit_result({"url": url, "ledger": str(ledger_file)} if json_mode else url, json_mode=json_mode)
@@ -333,7 +336,7 @@ def _gold_mode(args: argparse.Namespace, json_mode: bool) -> int:
 
     path = Path(args.gold)
     if not path.is_file():
-        raise CliError(EXIT_ENV_ERROR, f"gold records file not found: {path}", "check the path")
+        raise CliError(EXIT_ENV_ERROR, f"gold records file not found: {path}", _CHECK_PATH)
     ledger_file = Path(args.review_file) if args.review_file else gold.ledger_path(path)
     if args.serve:
         return _serve_gold(path, ledger_file, args.port, json_mode, tuple(args.allow_host or ()))
@@ -341,7 +344,7 @@ def _gold_mode(args: argparse.Namespace, json_mode: bool) -> int:
         drafted = gold.read_drafted(path)
         ledger = gold.read_ledger(ledger_file)
     except ValueError as exc:
-        raise CliError(EXIT_USER_ERROR, str(exc), "fix or restore the file") from None
+        raise CliError(EXIT_USER_ERROR, str(exc), _FIX_FILE) from None
     test = [r for r in drafted if r.split == gold.TEST_SPLIT]
     entries, working = _gold_entries(test, _gold_decisions(args), args)
     edited = any(e["action"] == "edit" for e in entries)
@@ -401,7 +404,7 @@ def _serve_drafts(app: Any, port: int, json_mode: bool, allow_hosts: tuple[str, 
         httpd = server.make_server(app, port, allow_hosts=allow_hosts)
     except OSError as exc:
         raise CliError(
-            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", "pass a free --port"
+            EXIT_ENV_ERROR, f"cannot listen on {server.HOST}:{port}: {exc}", _FREE_PORT
         ) from None
     url = server.local_url(httpd.server_address[1])
     ledger = app.ledger_file
@@ -437,16 +440,22 @@ def _drafts_entries(records: list[Any], args: argparse.Namespace) -> list[dict[s
     return entries
 
 
+def _drafts_inputs(args: argparse.Namespace) -> tuple[Path, Path | None]:
+    """The ``--drafts`` file and the optional ``--evidence`` file, each checked to exist."""
+    path = Path(args.drafts)
+    if not path.is_file():
+        raise CliError(EXIT_ENV_ERROR, f"drafted records file not found: {path}", _CHECK_PATH)
+    evidence = Path(args.evidence) if args.evidence else None
+    if evidence is not None and not evidence.is_file():
+        raise CliError(EXIT_ENV_ERROR, f"evidence file not found: {evidence}", _CHECK_PATH)
+    return path, evidence
+
+
 def _drafts_mode(args: argparse.Namespace, json_mode: bool) -> int:
     """Review drafted records of every split; ``--apply`` appends to the draft ledger."""
     from jev_factory.review import drafts, gold
 
-    path = Path(args.drafts)
-    if not path.is_file():
-        raise CliError(EXIT_ENV_ERROR, f"drafted records file not found: {path}", "check the path")
-    evidence = Path(args.evidence) if args.evidence else None
-    if evidence is not None and not evidence.is_file():
-        raise CliError(EXIT_ENV_ERROR, f"evidence file not found: {evidence}", "check the path")
+    path, evidence = _drafts_inputs(args)
     ledger_file = Path(args.review_file) if args.review_file else drafts.ledger_path(path)
     if args.serve:
         from jev_factory.review import server
@@ -462,7 +471,7 @@ def _drafts_mode(args: argparse.Namespace, json_mode: bool) -> int:
         resolved = drafts.resolve(after, records)
         reviewed = drafts.apply_ledger(records, after)
     except ValueError as exc:
-        raise CliError(EXIT_USER_ERROR, str(exc), "fix or restore the file") from None
+        raise CliError(EXIT_USER_ERROR, str(exc), _FIX_FILE) from None
     out = Path(args.reviewed_out) if args.reviewed_out else None
     if args.apply:
         for entry in entries:
@@ -480,21 +489,27 @@ def _drafts_mode(args: argparse.Namespace, json_mode: bool) -> int:
         "reviewed_out": str(out) if out and args.apply else None,
         "orphans": drafts.orphans(after, records),
     }
-    lines = [
-        f"records: {path}",
-        f"ledger: {ledger_file}",
-        f"{result['total']} record(s): "
-        + ", ".join(f"{n} {k}" for k, n in result["counts"].items()),
-        f"the reviewed file would hold {len(reviewed)} record(s)",
-    ]
-    lines.extend(f"orphan ledger entry: {o}" for o in result["orphans"])
-    lines.append(f"{'recorded' if args.apply else 'would record'} {len(entries)} decision(s)")
-    if result["reviewed_out"]:
-        lines.append(f"wrote the reviewed drafts to {out}")
-    if (entries or out) and not args.apply:
-        lines.append("dry run: nothing was written; pass --apply to record and write")
+    lines = _drafts_lines(result, apply=bool(args.apply), dry_run=bool(entries or out))
     emit_result(result if json_mode else "\n".join(lines), json_mode=json_mode)
     return 0
+
+
+def _drafts_lines(result: dict[str, Any], *, apply: bool, dry_run: bool) -> list[str]:
+    """The human rendering of a ``--drafts`` result."""
+    lines = [
+        f"records: {result['records']}",
+        f"ledger: {result['ledger']}",
+        f"{result['total']} record(s): "
+        + ", ".join(f"{n} {k}" for k, n in result["counts"].items()),
+        f"the reviewed file would hold {result['reviewed_records']} record(s)",
+    ]
+    lines.extend(f"orphan ledger entry: {o}" for o in result["orphans"])
+    lines.append(f"{'recorded' if apply else 'would record'} {result['decisions']} decision(s)")
+    if result["reviewed_out"]:
+        lines.append(f"wrote the reviewed drafts to {result['reviewed_out']}")
+    if dry_run and not apply:
+        lines.append("dry run: nothing was written; pass --apply to record and write")
+    return lines
 
 
 def cmd_review(args: argparse.Namespace) -> int:
@@ -513,6 +528,11 @@ def cmd_review(args: argparse.Namespace) -> int:
             "a domain (or --corrections FILE) is required",
             "pass a domain, or --corrections <corrections.jsonl>",
         )
+    return _seed_mode(args, json_mode)
+
+
+def _seed_mode(args: argparse.Namespace, json_mode: bool) -> int:
+    """Review a domain's seed corpus: dry-run plan, ``--serve`` the site, ``--apply`` to write."""
     domain = _domain(args.domain)
     seed = Path(domain.seed_corpus)  # type: ignore[arg-type]
     review_file = Path(args.review_file) if args.review_file else core.review_path(seed)
