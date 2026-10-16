@@ -1556,25 +1556,47 @@ def state_inventory(state: Mapping[str, Any]) -> list[dict[str, str]]:
 
 
 def _torso_shell(config: Any, revision: str) -> Any:
-    """A Qwen3.5 text torso with its parameters on the meta device (risk r9), or ``None``.
+    """The base's text torso with its parameters on the meta device (risk r9), or ``None``.
 
-    The saved quantized state carries every parameter and is assigned over the shell, so
-    the bf16 base weights are never loaded: serving peaks near the int4 artifact's size,
-    not the bf16 model's. Buffers (the rotary tables) are built for real. Any other model
-    family returns ``None`` and loads the base as before."""
+    Built from the base's config alone (its text config's causal-LM class), so the bf16
+    weights are never loaded; the saved quantized state is then assigned over it and the
+    server peaks near the int4 artifact's size, not the bf16 model's. Buffers (rotary
+    tables) are built for real. ``None`` when the config maps to no causal-LM class."""
     transformers = _load("transformers")
-    base_cfg = transformers.AutoConfig.from_pretrained(config.base_model, revision=revision)
-    if base_cfg.model_type not in ("qwen3_5", "qwen3_5_text"):
-        return None
     torch = _load("torch")
     accelerate = _load("accelerate")
-    with accelerate.init_empty_weights(include_buffers=False):
-        lm = transformers.Qwen3_5ForCausalLM._from_config(
-            base_cfg.get_text_config(), torch_dtype=getattr(torch, config.torch_dtype)
-        )
-    torso = lm.model
-    torso.config.use_cache = True
+    base_cfg = transformers.AutoConfig.from_pretrained(config.base_model, revision=revision)
+    try:
+        with accelerate.init_empty_weights(include_buffers=False):
+            lm = transformers.AutoModelForCausalLM.from_config(
+                base_cfg.get_text_config(), dtype=getattr(torch, config.torch_dtype)
+            )
+    except (ValueError, KeyError):
+        return None
+    torso = getattr(lm, "model", None)
+    if torso is not None:
+        torso.config.use_cache = True
     return torso
+
+
+def _filled_torso(
+    torso: Any, modeling: Any, manifest: Mapping[str, Any], artifact: Path, device: str
+) -> Any:
+    """*torso* made servable: attention, unused parts dropped, packed embedding, int4 state."""
+    attn = modeling.serving_attn_implementation(torso.config)
+    if attn:
+        torso.set_attn_implementation(attn)
+    drop_unused(torso)
+    kept = read_kept_ids(artifact) if is_pruned(manifest) else None
+    if kept is not None and manifest["embedding"].get("rows") != len(kept):
+        raise _refuse(f"{MANIFEST_FILE}: the embedding rows disagree with {KEPT_IDS_FILE}")
+    install_packed_embedding(torso, manifest["embedding"], kept)
+    load_quantized_state(torso, player.member(artifact, TORSO_FILE), device=device)
+    return torso
+
+
+def _meta_parameters(torso: Any) -> list[str]:
+    return [name for name, p in torso.named_parameters() if p.is_meta]
 
 
 def load_quantized_state(module: Any, path: Path | str, *, device: str) -> None:
@@ -1751,19 +1773,18 @@ def _load_engine(artifact: Path, device: str, model_name: str) -> tuple[Any, dic
     if config.force_bos:
         modeling.ensure_bos(tok)
     device_map = device if device not in ("cpu", "mps", "mlx") else None
-    torso = _torso_shell(config, revision) or modeling.StrandsDeciderModel._load_torso(
-        config, device_map, None
-    )
-    attn = modeling.serving_attn_implementation(torso.config)
-    if attn:
-        torso.set_attn_implementation(attn)
-    drop_unused(torso)
-    kept = read_kept_ids(artifact) if is_pruned(manifest) else None
-    if kept is not None and manifest["embedding"].get("rows") != len(kept):
-        raise _refuse(f"{MANIFEST_FILE}: the embedding rows disagree with {KEPT_IDS_FILE}")
-    install_packed_embedding(torso, manifest["embedding"], kept)
-    load_quantized_state(torso, player.member(artifact, TORSO_FILE), device=device)
-    if meta := [name for name, p in torso.named_parameters() if p.is_meta]:
+    torso, shell = None, _torso_shell(config, revision)
+    if shell is not None:
+        try:
+            torso = _filled_torso(shell, modeling, manifest, artifact, device)
+        except RuntimeError:  # the saved state does not fit the shell's keys
+            torso = None
+        if torso is not None and _meta_parameters(torso):
+            torso = None
+    if torso is None:  # load the base, as before r9
+        base = modeling.StrandsDeciderModel._load_torso(config, device_map, None)
+        torso = _filled_torso(base, modeling, manifest, artifact, device)
+    if meta := _meta_parameters(torso):
         raise _refuse(f"the saved torso state left {len(meta)} parameter(s) unset: {meta[:3]}")
     model = modeling.StrandsDeciderModel.__new__(modeling.StrandsDeciderModel)
     torch.nn.Module.__init__(model)

@@ -1440,12 +1440,23 @@ def test_pruned_embedding_answers_kept_rows_and_refuses_any_other_id(tmp_path):
             fresh.embed_tokens(unkept)
 
 
-def test_a_non_qwen35_base_gets_no_torso_shell(monkeypatch):
-    """r9: only Qwen3.5 serves from a meta shell; any other family loads its base as before."""
+def test_a_base_with_no_causal_lm_class_gets_no_torso_shell(monkeypatch):
+    """r9: a config the causal-LM auto class cannot build falls back to loading the base."""
+    import contextlib
     from types import SimpleNamespace
 
-    cfg = SimpleNamespace(model_type="llama", get_text_config=lambda: None)
-    fake = SimpleNamespace(AutoConfig=SimpleNamespace(from_pretrained=lambda *a, **k: cfg))
-    monkeypatch.setattr(qz, "_load", lambda name: fake)
+    def no_class(*a, **k):
+        raise ValueError("Unrecognized configuration class")
+
+    cfg = SimpleNamespace(get_text_config=lambda: cfg)
+    fakes = {
+        "transformers": SimpleNamespace(
+            AutoConfig=SimpleNamespace(from_pretrained=lambda *a, **k: cfg),
+            AutoModelForCausalLM=SimpleNamespace(from_config=no_class),
+        ),
+        "torch": SimpleNamespace(bfloat16="bf16"),
+        "accelerate": SimpleNamespace(init_empty_weights=lambda **k: contextlib.nullcontext()),
+    }
+    monkeypatch.setattr(qz, "_load", fakes.__getitem__)
     config = SimpleNamespace(base_model="some/base", torch_dtype="bfloat16")
     assert qz._torso_shell(config, "0" * 40) is None
