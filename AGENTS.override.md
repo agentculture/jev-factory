@@ -102,9 +102,11 @@ into the student **Strands Decider 2B**. The full write-up is
   cap, on non-test data only. The board command is in `docs/distill.md`.
 - Serving of the result belongs to the lobes `decider` role; training belongs
   here. The two consumers are the operator and that role.
-- **Current state.** The code is built and tested on fixtures. No distill run
-  has happened and no issue-20 model has been trained or measured, so report
-  no distilled student, quantized build or bundle as shipped.
+- **Current state.** The issue-20 run has happened once, as a proving run on
+  unverified, model-drafted gold: an int4 student was trained, measured and
+  bundled, but not uploaded or verified. Report it as a proving run only,
+  never as shipped; `docs/evidence/2026-10-16-jetson-ops-proving-run.md`
+  holds its state.
 
 ## Four harnesses, four files, no shared base
 

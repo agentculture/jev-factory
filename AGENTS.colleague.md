@@ -91,9 +91,10 @@ model name; do not mix it up with the jev-like decider whose candidates are
 - Corrections need operator review before training, and human-gold test
   records need an operator approval in the `jev review --gold` ledger. Tests must run CPU-only
   with stdlib fakes: no GPU, network or model downloads.
-- Serving is lobes' `decider` role; training is here. No distill run has
-  happened yet and no issue-20 model has been trained or measured, so no
-  student bundle exists.
+- Serving is lobes' `decider` role; training is here. The issue-20 run has
+  happened once, as a proving run on unverified model-drafted gold; its int4
+  student is bundled but neither uploaded nor verified, so never report it as
+  shipped. Its state is in `docs/evidence/2026-10-16-jetson-ops-proving-run.md`.
 
 Keep these invariants, whatever the task says:
 

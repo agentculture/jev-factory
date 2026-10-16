@@ -76,17 +76,24 @@ under `~/jev-runs/envs/`) and the lockfile regenerated.
 
 ## Still running
 
-On the AGX Orin, the shipped int4 serves under a cgroup cap (the operator
-keeps it for now):
+Nothing of this run serves on a board. The operator had the AGX Orin server
+(`jev-quant-final`) stopped to free its memory for an embedder. To serve the
+shipped int4 there again (port 18092, cgroup cap 8G; the r9 fix should lower
+its peak, not yet measured on a board):
 
 ```bash
-ssh orin 'systemctl --user status jev-quant-final'     # port 18092, MemoryMax 8G
-ssh orin 'systemctl --user stop jev-quant-final'       # when it is no longer wanted
+ssh orin 'systemd-run --user --unit=jev-quant-final -p MemoryMax=8G \
+  -E HF_HUB_CACHE=$HOME/jev-runs/hf-cache -E HF_HUB_OFFLINE=1 \
+  -E PYTHONPATH=$HOME/jev-runs/src/strands-decider:$HOME/jev-runs/src/strands-decider/src \
+  $HOME/jev-runs/envs/quant/bin/python -m jev_factory.backbones.pointer.quantized serve \
+  $HOME/jev-runs/artifacts/jops20-int4-d14 --host 127.0.0.1 --port 18092 \
+  --model-name distill-final-student'
 ```
 
+Re-ship `jev-factory` at HEAD to `~/jev-runs/src/jev-factory` on the Orin first.
+
 On the Spark, as background tasks of the pausing session (gone when that
-session ends): the tunnel to the AGX Orin quant (`127.0.0.1:18092`), the
-tunnel to Clef (`127.0.0.1:18090`), the stock 2610 server (`127.0.0.1:18071`)
+session ends): the tunnel to Clef (`127.0.0.1:18090`), the stock 2610 server (`127.0.0.1:18071`)
 and the draft review site. To bring the tunnels and stock server back:
 
 ```bash

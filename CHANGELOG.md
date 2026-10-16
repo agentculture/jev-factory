@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.12.0] - 2026-10-15
+## [0.12.0] - 2026-10-16
 
 ### Added
 
@@ -24,7 +24,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reference role `stock_v21` renamed to `stock` (config keys `distill_stock_url` / `distill_stock_model`); pins, pre-registration (schema 2, c17 bars for both the bf16 student and the shipped quant) and contamination manifest retargeted to 2610.
 - Dataset stage admits cc-by-4.0 records with attribution; questions over 24 options and records over 4096 tokens are refused and counted, never truncated; bundles carry a NOTICE and refuse upload on secret, host/IP, side-model-name or probe-set hits.
 - Final scores four models (Clef, stock, bf16 student, AGX-served quant) and reports the c17 verdict; quantize ships nothing (no bf16 fallback) when no quantized build qualifies.
-- docs/distill.md, docs/distill-bundle-format.md and the four harness prompt files describe the Jetson-ops run; no #20 model has been trained or measured yet.
+- docs/distill.md, docs/distill-bundle-format.md and the four harness prompt files describe the Jetson-ops run; the #20 run has happened once as a proving run on unverified, model-drafted gold (deviation d10): an int4 student was trained, measured and bundled, not uploaded. Its state is in docs/evidence/2026-10-16-jetson-ops-proving-run.md.
+- Review: drafted gold as per-option probabilities, an added option and restore (d7); Jetson-ops questions are choice-only (d8) with a one-click "I'm not sure." option (d9).
+- `final --knob unverified_gold=true` (with a deviation id) reports an UNVERIFIED c17 block on model-drafted test gold beside the human-gold headline (d10).
+- `quantize` knobs, each refused without a deviation id: `heal_mix` (d11), `gating=clean|clean-report` to read the rules on the contamination stage's clean sources with the guard reported (d12, d14), and `heal_repeat` to weigh the heal set's domain and guard rows (d13); a guard below its floor is a heal reason.
+- The quant server builds the torso on the meta device and assigns the int4 state over it, never loading the bf16 base (risk r9), falling back to the base when the state does not fit; answers unchanged.
+- The bundle scan proves `torch.save` archives (`*.pt`) and walks their pickle without loading it: imports must be allowlisted tensor-rebuild functions, strings get the secret and private-host checks.
+
+### Fixed
+
+- Train wrote the pointer head as a pickled `slot_head.pt`; it now writes `head.safetensors`, proven equal.
+- `--allow-foreign-gpu` now reaches the train scorer, the quant measurer and the torchao build guard.
+- Score answers are mapped to levels by description, never by position (stored prediction files have sorted keys, which scrambled every score question read back from disk).
+- `benchmark` and `final` ask Clef with the bearer key and model header (they got HTTP 401).
+- The quant serve engine is built under `no_grad` so torchao int4 tensors can move; int4 builds use torchao's tinygemm layout (`tile_packed_to_4d`).
 
 ## [0.11.0] - 2026-10-14
 

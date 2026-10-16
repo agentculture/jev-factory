@@ -120,8 +120,10 @@ unrelated and the distillery does not build it.
 - Headline numbers use operator-approved human-gold records from clean
   sources only.
 - Serving belongs to lobes (its `decider` role); training belongs here.
-- The code is built, but no distill run has happened. No issue-20 model has
-  been trained or measured, and no student bundle exists yet.
+- The issue-20 run has happened once as a proving run on unverified,
+  model-drafted gold: a student was trained, quantized to int4, measured and
+  bundled, but not uploaded or verified. `docs/evidence/2026-10-16-jetson-ops-proving-run.md`
+  has its state; do not describe it as shipped.
 
 ## Prompt files by harness
 

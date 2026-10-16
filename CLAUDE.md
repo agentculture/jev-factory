@@ -154,11 +154,13 @@ straight:
   `decider` role, Clef W4A16 on the Orin, the 2B in bf16 on any box); training
   is here. The two consumers are the operator running `jev distill` and
   lobes' `decider` role over `/v1/systemone`.
-- **State.** The code is built and fixture-tested. No distill run has
-  happened (the #18 operator run, t26, and the #20 operator run, t23, are
-  pending). **No #20 model has been trained or measured**, so no distilled
-  student, quantized build, edge measurement, bundle or report exists; never
-  claim one as shipped.
+- **State.** The #20 operator run (t23) has run once, as a **proving run on
+  unverified, model-drafted gold** (deviation d10). Every stage through
+  `bundle` completed and an un-healed int4 build was bundled; it is **not
+  uploaded and not verified**. Read `docs/evidence/2026-10-16-jetson-ops-proving-run.md`
+  before claiming anything about it, and never call it shipped: verified gold,
+  a fresh `final` and the publish gate come first. The #18 run (t26) has not
+  happened.
 - **Environments.** The teacher, student runtime and trainer each need their
   own pinned venv or image (their transformers versions conflict). The base
   import pulls in none of them, and `dependencies = []` stays.
