@@ -885,3 +885,15 @@ def test_student_distributions_are_the_students_own_softmax_in_canonical_order(t
     sess = td._Session(torch, None, Fmt, None, None, Raw(), {}, "cpu")
     out = td.student_distributions(sess, Coll(), items, batch_size=1)
     assert out == [pytest.approx([0.75, 0.25])] * 2  # slot 1 is canonical option 0
+
+
+def test_head_to_safetensors_replaces_the_pickled_head(tmp_path):
+    torch = pytest.importorskip("torch")
+    st = pytest.importorskip("safetensors.torch")
+    state = {"proj.weight": torch.randn(3, 4), "proj.bias": torch.randn(3)}
+    torch.save(state, str(tmp_path / "slot_head.pt"))
+    td.head_to_safetensors(torch, tmp_path)
+    assert not (tmp_path / "slot_head.pt").exists()
+    back = st.load_file(str(tmp_path / "head.safetensors"))
+    assert set(back) == set(state)
+    assert all(torch.equal(back[k], state[k]) for k in state)

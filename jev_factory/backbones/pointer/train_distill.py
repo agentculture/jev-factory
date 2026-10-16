@@ -1012,6 +1012,25 @@ def _fit(
     )
 
 
+def head_to_safetensors(torch: Any, out: Path) -> None:
+    """Replace upstream ``save_pretrained``'s pickled ``slot_head.pt`` by ``head.safetensors``.
+
+    The export layout (and ``strands-decider``'s loader, which refuses a checkpoint holding
+    both) wants the safetensors head; the tensors are proven equal before the pickle goes.
+    """
+    st = _load("safetensors.torch")
+    src = safepath.regular_file(out / "slot_head.pt", out)
+    state = torch.load(str(src), map_location="cpu", weights_only=True)
+    if not isinstance(state, dict) or not all(isinstance(v, torch.Tensor) for v in state.values()):
+        raise CliError(EXIT_USER_ERROR, f"{src}: not a flat state dict of tensors")
+    dst = safepath.contained(out / "head.safetensors", out)
+    st.save_file({k: v.contiguous() for k, v in state.items()}, str(dst), metadata={"format": "pt"})
+    back = st.load_file(str(dst))
+    if set(back) != set(state) or not all(torch.equal(back[k], state[k]) for k in state):
+        raise CliError(EXIT_USER_ERROR, f"{dst} does not equal {src}")
+    src.unlink()
+
+
 def _save(
     args: argparse.Namespace,
     hp: Mapping[str, Any],
@@ -1022,6 +1041,7 @@ def _save(
 ) -> int:
     out = Path(args.output_dir)
     sess.model.save_pretrained(str(out))
+    head_to_safetensors(sess.torch, out)
     merge = hp["init_mode"] == "merge_fresh"
     stacked = _save_stacked(sess.model, sess.info, out) if merge else None
     record = {
