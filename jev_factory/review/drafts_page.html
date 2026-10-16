@@ -781,7 +781,7 @@ function dock(item) {
   const panel = el("section", { className: "panel dock", "aria-label": "Decision" });
   const note = el("input", { type: "text", placeholder: "Add a note, Enter saves it", id: "note" });
   note.onkeydown = ev => { if (ev.key === "Enter") saveNote(item); else if (ev.key === "Escape") note.blur(); };
-  panel.append(
+  panel.append(...[
     el("div", { className: "btns" },
       el("button", { type: "button", className: "act keep", onclick: () => decide(item, "keep", {}, true) }, "Keep", el("kbd", { textContent: "k" })),
       el("button", { type: "button", className: "act drop", onclick: () => decide(item, "drop", {}, true) }, "Drop", el("kbd", { textContent: "d" })),
@@ -791,7 +791,7 @@ function dock(item) {
     el("div", { className: "nav" },
       el("button", { type: "button", onclick: () => move(-1), textContent: "Previous" }),
       el("button", { type: "button", className: "primary", onclick: () => nextUnreviewed(), textContent: "Next unreviewed (u)" }),
-      el("button", { type: "button", onclick: () => move(1), textContent: "Next" })));
+      el("button", { type: "button", onclick: () => move(1), textContent: "Next" }))].filter(Boolean));
   return panel;
 }
 
