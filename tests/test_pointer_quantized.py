@@ -1438,3 +1438,14 @@ def test_pruned_embedding_answers_kept_rows_and_refuses_any_other_id(tmp_path):
         unkept = torch.tensor([[2]])
         with pytest.raises(qz.OutOfVocabulary):
             fresh.embed_tokens(unkept)
+
+
+def test_a_non_qwen35_base_gets_no_torso_shell(monkeypatch):
+    """r9: only Qwen3.5 serves from a meta shell; any other family loads its base as before."""
+    from types import SimpleNamespace
+
+    cfg = SimpleNamespace(model_type="llama", get_text_config=lambda: None)
+    fake = SimpleNamespace(AutoConfig=SimpleNamespace(from_pretrained=lambda *a, **k: cfg))
+    monkeypatch.setattr(qz, "_load", lambda name: fake)
+    config = SimpleNamespace(base_model="some/base", torch_dtype="bfloat16")
+    assert qz._torso_shell(config, "0" * 40) is None
