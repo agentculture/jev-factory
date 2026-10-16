@@ -780,9 +780,22 @@ def read_artifact(path: Path | str) -> dict[str, Any]:
     return {"root": str(root), "manifest": manifest, "config": config}
 
 
-def bundle_attestation(path: Path | str) -> dict[str, Any]:
-    """What ``GET /v1/bundle`` answers: the verified manifest's per-file sha256 and sizes."""
-    info = read_artifact(path)
+def file_snapshot(path: Path | str) -> dict[str, tuple[int, int, int]]:
+    """(size, mtime_ns, inode) of every file of the artifact; cheap, no hashing."""
+    root = Path(path)
+    return {
+        f.name: (st.st_size, st.st_mtime_ns, st.st_ino)
+        for f in sorted(root.iterdir())
+        if f.is_file() and (st := f.stat())
+    }
+
+
+def bundle_attestation(path: Path | str, info: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """What ``GET /v1/bundle`` answers: the verified manifest's per-file sha256 and sizes.
+
+    *info* is a :func:`read_artifact` result for *path* already in hand (the server's own
+    load), so the weights are not hashed a second time."""
+    info = read_artifact(path) if info is None else info
     manifest = info["manifest"]
     keys = ("artifact_format", "format", "bits", "scheme", "files", "base_model_revision")
     return {
@@ -1824,7 +1837,16 @@ def _serve_in_env(artifact: Path, host: str, port: int, device: str, model_name:
     schema = _load("strands_decider.schema")
     pydantic = _load("pydantic")
     lock = threading.Lock()
-    attested = bundle_attestation(artifact)  # verified at load; files never change in place
+    attested = bundle_attestation(artifact, info)  # from the load's own verification
+    snapshot = file_snapshot(artifact)
+
+    def bundle() -> Mapping[str, Any]:
+        # The attested files must still be the ones loaded: unchanged stat -> the load's
+        # attestation; any change -> re-verify from disk, so a swapped file shows up.
+        if file_snapshot(artifact) == snapshot:
+            return attested
+        return bundle_attestation(artifact)
+
     accelerator = _accelerator(torch)
 
     def evaluate(body: dict[str, Any]) -> Mapping[str, Any]:
@@ -1866,7 +1888,7 @@ def _serve_in_env(artifact: Path, host: str, port: int, device: str, model_name:
         port,
         evaluate=evaluate,
         health=health,
-        bundle=lambda: attested,
+        bundle=bundle,
         stats=lambda: {**host_stats(), "accelerator": accelerator},
     )
     try:

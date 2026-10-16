@@ -1460,3 +1460,22 @@ def test_a_base_with_no_causal_lm_class_gets_no_torso_shell(monkeypatch):
     monkeypatch.setattr(qz, "_load", fakes.__getitem__)
     config = SimpleNamespace(base_model="some/base", torch_dtype="bfloat16")
     assert qz._torso_shell(config, "0" * 40) is None
+
+
+def test_the_attestation_reuses_the_loads_verification(tmp_path, monkeypatch):
+    """Review of PR #21: the server hashes its ~1 GB artifact once, not twice."""
+    art = _artifact(tmp_path / "art")
+    info = qz.read_artifact(art)
+    monkeypatch.setattr(qz, "read_artifact", lambda *a, **k: pytest.fail("hashed twice"))
+    assert qz.bundle_attestation(art, info)["files"] == info["manifest"]["files"]
+
+
+def test_a_changed_file_changes_the_snapshot_the_bundle_route_checks(tmp_path):
+    """/v1/bundle re-verifies from disk once a file's size, mtime or inode moved."""
+    art = _artifact(tmp_path / "art")
+    before = qz.file_snapshot(art)
+    assert qz.file_snapshot(art) == before
+    (art / qz.TORSO_FILE).write_bytes(b"swapped-torso-bytes")
+    assert qz.file_snapshot(art) != before
+    with pytest.raises(CliError):
+        qz.bundle_attestation(art)  # the swapped torso no longer matches its manifest
