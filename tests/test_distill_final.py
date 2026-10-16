@@ -771,3 +771,21 @@ def test_clefs_client_carries_the_key_and_the_model_header(monkeypatch):
     assert client.auth_env == "JEV_TEST_TEACHER_KEY"
     assert client.model_header == "decider:general"
     assert client._key == "k"
+
+
+def test_runtime_counts_the_sealed_sides_and_the_board_reports_its_own_memory(env, tmp_path):
+    """Review of PR #21: probe-set calls are counted apart from the sealed-side runtime, and
+    the pre-served quant's memory comes from its own /v1/stats, not this box's GPU."""
+    probe = tmp_path / "probe.jsonl"
+    rows = [_rec(f"probe-{i}", "train").to_json() for i in range(4)]
+    probe.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    models = _models(env, env["log"])
+    inputs = F.FinalInputs(probe=probe)
+    out = _run(env, models, inputs=inputs)
+    runtime = out["final"]["runtime"]
+    for name in F.MODELS:
+        assert runtime[name]["n_records"] == 18  # 12 test + 6 held-out
+        assert runtime[name]["probe_records"] == 4
+        assert runtime[name]["latency"]["n"] == 18
+    assert runtime[R.STUDENT]["memory"]["probe"] == "v1/stats"
+    assert runtime[R.STUDENT]["memory"]["rss_bytes_after"] == 700_000_000

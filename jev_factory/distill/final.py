@@ -309,6 +309,34 @@ def load_probe(path: Path | str | None, sealed: Mapping[str, dataset.SealedSide]
     return records
 
 
+def _sealed_runtime(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Counts and latency over the sealed sides only; probe-set calls are counted apart."""
+    rows = [p for p in result["predictions"] if p.get("fold") != PROBE_FOLD]
+    failed = sum(1 for p in rows if p.get("error") or bench._has_error(p))  # noqa: SLF001
+    return {
+        "n_records": len(rows),
+        "n_failed": failed,
+        "latency": bench.latency_summary([p["latency_s"] for p in rows]),
+        "memory": result["memory"],
+        "probe_records": len(result["predictions"]) - len(rows),
+    }
+
+
+def _served_memory(get: Callable[[str], Mapping[str, Any]]) -> dict[str, Any]:
+    """The served process's own memory, read from its ``/v1/stats`` after scoring."""
+    try:
+        stats = get(dedge.STATS_PATH)
+    except (CliError, OSError, ValueError) as exc:
+        return {"probe": "v1/stats", "measured": False, "reason": str(exc)}
+    rss = stats.get("rss_bytes")
+    return {
+        "probe": "v1/stats",
+        "measured": isinstance(rss, int),
+        "rss_bytes_after": rss,
+        "mem_available_bytes": stats.get("mem_available_bytes"),
+    }
+
+
 def _getter(model: FinalModel) -> Callable[[str], Mapping[str, Any]]:
     if model.get is not None:
         return model.get
@@ -611,13 +639,16 @@ def _measure(
                 or bench.SystemOneClient(model.target.base_url, model=model.target.model)
             )
             counted.append(client)
+            remote = model.target.start is None and name == ATTESTED  # served on the board
             results[name] = bench.benchmark_model(
                 model.target,
                 folds,
-                memory_probe=memory_probe,
+                memory_probe=None if remote else memory_probe,
                 client=client,
                 proc_root=proc_root,
             )
+            if remote:  # this box's GPU says nothing about the board's memory
+                results[name]["memory"] = _served_memory(_getter(model))
             if name == ATTESTED:  # the bundle that answered is still the one attested
                 dedge.check_bundle(_getter(model)(dedge.BUNDLE_PATH), base["deployed"]["bundle"])
     except BaseException:
@@ -627,16 +658,7 @@ def _measure(
     ledger_records = record(once.MEASURED)
     out_dir = run_dir / FINAL_REL
     _write_predictions(out_dir, results)
-    runtime = {
-        name: {
-            "host": host,
-            "n_records": r["n_records"],
-            "n_failed": r["n_failed"],
-            "latency": r["latency"],
-            "memory": r["memory"],
-        }
-        for name, r in results.items()
-    }
+    runtime = {name: {"host": host, **_sealed_runtime(r)} for name, r in results.items()}
     final = {
         **base,
         "dry_run": False,
