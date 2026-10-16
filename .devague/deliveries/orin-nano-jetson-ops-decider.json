@@ -2,13 +2,13 @@
   "plan_slug": "orin-nano-jetson-ops-decider",
   "schema_version": 2,
   "created": "2026-10-15T17:16:36Z",
-  "updated": "2026-10-16T09:08:39Z",
+  "updated": "2026-10-16T11:34:01Z",
   "deviations": [
     {
       "id": "d1",
       "what": "contamination manifest also lists 2610's non-card training sources from training/sources.md (e.g. MuSiQue), beyond t6's 'exactly the 48 card datasets'",
       "task_ref": "t6",
-      "reason": "operator: fail closed — a source 2610 trained on but missing from the card would otherwise check clean",
+      "reason": "operator: fail closed \u2014 a source 2610 trained on but missing from the card would otherwise check clean",
       "affects": [],
       "origin": "user",
       "status": "approved",
@@ -214,7 +214,608 @@
       "seq": 16
     }
   ],
-  "evidence": [],
-  "deltas": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/test_distill_edge.py::test_bundle_mismatch_refused tests/test_distill_edge.py::test_reference_from_another_bundle_refused_before_any_request",
+      "behavior_text": "the named pytest tests assert: the bundle measured on the AGX Orin or Nano has the same per-file sha256 as the bundle final measured; a mismatch exits non-zero before any request",
+      "contract_text": "the bundle measured on the AGX Orin or Nano has the same per-file sha256 as the bundle final measured; a mismatch exits non-zero before any request",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/test_distill_records.py::test_unknown_question_kind_refused_with_record_id tests/test_distill_records.py::test_invalid_systemone_body_refused_with_record_id",
+      "behavior_text": "the named pytest tests assert: every Jetson-ops record parses as a /v1/systemone body with question kinds only in {choice, noul, score}; anything else is refused with its id",
+      "contract_text": "every Jetson-ops record parses as a /v1/systemone body with question kinds only in {choice, noul, score}; anything else is refused with its id",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/test_distill_bundle.py::test_model_bundle_has_the_layout_and_the_fitted_temperatures tests/test_distill_bundle.py::test_the_bundle_ships_the_fitted_gate_from_the_gate_stage tests/test_distill_bundle.py::test_notice_lists_every_manifest_attribution_in_both_bundles tests/test_pointer_quantized.py::test_serve_argv_is_loopback_only tests/test_pointer_quantized.py::test_the_serve_entry_refuses_a_non_loopback_host_before_loading_anything",
+      "behavior_text": "the named pytest tests assert: the bundle holds the quantized weights, calibration.json, gate.json, NOTICE (CC-BY-4.0 attribution) and the loader-contract doc; the serve wrapper loads it with no network access and answers /v1/systemone on 127.0.0.1",
+      "contract_text": "the bundle holds the quantized weights, calibration.json, gate.json, NOTICE (CC-BY-4.0 attribution) and the loader-contract doc; the serve wrapper loads it with no network access and answers /v1/systemone on 127.0.0.1",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "5 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/test_distill_pins.py::test_default_pins_carry_full_2610_digests_and_base_revision tests/test_distill_pins.py::test_no_v21_left_in_pins_module tests/test_distill_prereg.py::test_lora_hyperparameters_come_from_the_2610_adapter_config tests/test_distill_prereg.py::test_lora_targets_are_exactly_the_12_modules_of_2610",
+      "behavior_text": "the named pytest tests assert: pins name strands-decider-2B-qwen3.5-v1-2610 @216d1ccb with adapter sha256 ae1d0cd1... and head sha256 ace56742...; the prereg example's lora r/alpha/targets equal lora/adapter_config.json (r48, alpha 96, 12 targets); no v21 repo id, digest or stock_v21 row remains",
+      "contract_text": "pins name strands-decider-2B-qwen3.5-v1-2610 @216d1ccb with adapter sha256 ae1d0cd1... and head sha256 ace56742...; the prereg example's lora r/alpha/targets equal lora/adapter_config.json (r48, alpha 96, 12 targets); no v21 repo id, digest or stock_v21 row remains",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "4 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/test_distill_dataset.py::test_licence_allowlist_is_explicit_and_rejects_compound tests/test_distill_dataset.py::test_ccby_with_attribution_admitted_and_listed_in_manifest tests/test_distill_dataset.py::test_ccby_without_attribution_is_refused_by_the_build tests/test_distill_dataset.py::test_other_licence_is_refused_and_counted",
+      "behavior_text": "the named pytest tests assert: apache-2.0, mit and cc-by-4.0 are admitted; a cc-by-4.0 record without an attribution entry, or any other licence, is refused; the manifest has a per-licence table",
+      "contract_text": "apache-2.0, mit and cc-by-4.0 are admitted; a cc-by-4.0 record without an attribution entry, or any other licence, is refused; the manifest has a per-licence table",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "4 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/test_distill_report.py::test_the_headline_counts_only_approved_human_gold_test_records tests/test_distill_report.py::test_headline_is_human_gold_from_clean_sources_and_overlap_is_reported_apart",
+      "behavior_text": "the named pytest tests assert: headline bars are computed only on approved human-gold test records (n printed); the Clef probe-set table carries no pass/fail",
+      "contract_text": "headline bars are computed only on approved human-gold test records (n printed); the Clef probe-set table carries no pass/fail",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/test_distill_quant.py::test_a_build_at_or_over_the_size_budget_is_unavailable_never_a_candidate tests/test_distill_quant.py::test_the_size_is_measured_from_the_files_on_disk tests/test_distill_quant.py::test_every_build_over_the_size_budget_ships_nothing",
+      "behavior_text": "the named pytest tests assert: the on-disk weight size is the byte sum of the bundle's weight files; a build at or over the budget is recorded unavailable, never shipped",
+      "contract_text": "the on-disk weight size is the byte sum of the bundle's weight files; a build at or over the budget is recorded unavailable, never shipped",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "3 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "tests/test_distill_quant.py::test_a_second_heal_of_the_same_format_needs_a_deviation_id tests/test_distill_quant.py::test_agreement_is_computed_on_fit_and_selection_only tests/test_distill_quant.py::test_a_protected_id_in_the_heal_input_exits_non_zero_before_the_round",
+      "behavior_text": "the named pytest tests assert: a second heal of the same format is refused without a deviation id; heal agreement is computed on fit and selection records only and a test or held-out id in its input exits non-zero",
+      "contract_text": "a second heal of the same format is refused without a deviation id; heal agreement is computed on fit and selection records only and a test or held-out id in its input exits non-zero",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "3 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/test_bundle_format_doc.py::test_every_file_the_bundle_stage_writes_is_in_the_doc tests/test_bundle_format_doc.py::test_the_check_fails_on_a_file_the_doc_does_not_list",
+      "behavior_text": "the named pytest tests assert: docs name every file the bundle stage writes, its dtype/quant scheme and the loader entry point; a test fails when the bundle writes a file the doc does not list",
+      "contract_text": "docs name every file the bundle stage writes, its dtype/quant scheme and the loader entry point; a test fails when the bundle writes a file the doc does not list",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "tests/test_distill_systemone.py::test_non_localhost_refused tests/test_distill_systemone.py::test_headers_carry_bearer_and_model_header",
+      "behavior_text": "the named pytest tests assert: a non-127.0.0.1 URL is refused; requests carry Authorization: Bearer from the env var named in config and X-Lobes-Model: decider:general; the key value never appears in a manifest, log or exception text",
+      "contract_text": "a non-127.0.0.1 URL is refused; requests carry Authorization: Bearer from the env var named in config and X-Lobes-Model: decider:general; the key value never appears in a manifest, log or exception text",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "tests/test_distill_boundaries.py::test_every_distill_stage_dry_runs_and_applies_with_loopback_only_connections tests/test_distill_teacher.py::test_mode_recorded_and_per_question_sends_one_each",
+      "behavior_text": "the named pytest tests assert: no stage opens a connection to any host other than 127.0.0.1; teacher labelling sends one request at a time",
+      "contract_text": "no stage opens a connection to any host other than 127.0.0.1; teacher labelling sends one request at a time",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "tests/test_distill_report.py::test_every_c17_bar_is_computed_for_bf16_and_quant_with_paired_ci_and_n tests/test_distill_report.py::test_c17_follows_the_locked_prereg_and_a_tightened_bar_misses tests/test_distill_report.py::test_latency_and_memory_are_reported_for_all_three_on_the_same_box",
+      "behavior_text": "the named pytest tests assert: each bar is computed for both the bf16 student and the shipped quant with a paired bootstrap CI and cited against the hashed prereg; latency median and p95 are reported without a pass/fail",
+      "contract_text": "each bar is computed for both the bf16 student and the shipped quant with a paired bootstrap CI and cited against the hashed prereg; latency median and p95 are reported without a pass/fail",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "3 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 28
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o13",
+      "test_ref": "tests/test_distill_contamination.py::test_tasksource_typed_decisions_hf_id_is_overlapping tests/test_distill_contamination.py::test_localllama_typed_decisions_is_overlapping_fail_closed",
+      "behavior_text": "the named pytest tests assert: with the 2610 manifest, a record from tasksource/tasksource-jev-typed-decisions or LocalLLaMA/typed-decisions is reported overlapping",
+      "contract_text": "with the 2610 manifest, a record from tasksource/tasksource-jev-typed-decisions or LocalLLaMA/typed-decisions is reported overlapping",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 29
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o14",
+      "test_ref": "tests/test_distill_benchmark.py::test_reproduction_that_matches_the_card_is_recorded_without_mismatch tests/test_distill_benchmark.py::test_reproduction_whose_ci_excludes_the_card_marks_base_mismatch",
+      "behavior_text": "the named pytest tests assert: stock 2610 on JevBench w4096 is recorded with n and CI; a result outside the card's 0.7792 CI stops the train stage until a deviation is recorded",
+      "contract_text": "stock 2610 on JevBench w4096 is recorded with n and CI; a result outside the card's 0.7792 CI stops the train stage until a deviation is recorded",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o15",
+      "test_ref": "tests/test_review_gold.py::test_an_approve_entry_carries_sha_decision_and_iso_time tests/test_distill_final.py::test_a_test_record_without_an_approve_entry_is_refused_printing_ids_only tests/test_distill_final.py::test_a_rejected_or_edited_after_approval_record_is_refused",
+      "behavior_text": "the named pytest tests assert: approving a drafted test record writes an append-only entry (record sha256, decision, time); final refuses any test record without a matching approved entry",
+      "contract_text": "approving a drafted test record writes an append-only entry (record sha256, decision, time); final refuses any test record without a matching approved entry",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "3 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 31
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o16",
+      "test_ref": "tests/test_distill_dataset.py::test_max_slots_default_is_24_and_a_knob tests/test_distill_dataset.py::test_over_length_counted_by_reason_and_never_truncated",
+      "behavior_text": "the named pytest tests assert: a question with more than 24 options or a record over 4096 student tokens is refused and counted by reason; none is truncated",
+      "contract_text": "a question with more than 24 options or a record over 4096 student tokens is refused and counted by reason; none is truncated",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 32
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o17",
+      "test_ref": "tests/test_distill_bundle.py::test_upload_refuses_a_secret tests/test_distill_bundle.py::test_upload_refuses_a_side_model_name_and_prints_file_and_line_only tests/test_distill_bundle.py::test_upload_refuses_a_probe_set_record_by_id_or_state",
+      "behavior_text": "the named pytest tests assert: upload refuses when scan-secrets, the hostname/IP scan or the side-model-name scan hits, or when the Clef probe set is present; it prints file and line only",
+      "contract_text": "upload refuses when scan-secrets, the hostname/IP scan or the side-model-name scan hits, or when the Clef probe set is present; it prints file and line only",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "3 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 33
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o18",
+      "test_ref": "tests/test_distill_quant.py::test_the_pruned_build_is_reported_beside_the_full_build_and_never_shipped tests/test_distill_quant.py::test_a_pruned_format_is_never_a_candidate",
+      "behavior_text": "the named pytest tests assert: the pruned-vocabulary build is recorded with its kept id list and is reported beside the full-vocabulary quant (weight bytes, selection-fold accuracy, count of records refused for out-of-vocabulary tokens); it is never selected as the shipped build",
+      "contract_text": "the pruned-vocabulary build is recorded with its kept id list and is reported beside the full-vocabulary quant (weight bytes, selection-fold accuracy, count of records refused for out-of-vocabulary tokens); it is never selected as the shipped build",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "2 behavioral pytest test(s) ran green at the named commit (66/66 mapped tests passed; full suite 3347 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:33:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 34
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o1",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/edge/agx-orin/edge_manifest.json",
+      "behavior_text": "edge on the AGX Orin read /v1/bundle through the tunnel and matched final's per-file sha256 (torso 07101f79..., head 8a9757a0...) before any request; 877/883 selection answers agreed with the Spark measurement",
+      "contract_text": "the bundle measured on the AGX Orin or Nano has the same per-file sha256 as the bundle final measured; a mismatch exits non-zero before any request",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T09:34:11",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 35
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o10",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/final.run1/predictions/clef.json",
+      "behavior_text": "final run 1 (d10) asked Clef through benchmark/final's own client without the bearer key or X-Lobes-Model: all 538 records got HTTP 401, although SystemOneClient carries them when given; fixed in 5679a19 (_clef_client), and final run 2 (d15) got 538/538 answers",
+      "contract_text": "a non-127.0.0.1 URL is refused; requests carry Authorization: Bearer from the env var named in config and X-Lobes-Model: decider:general; the key value never appears in a manifest, log or exception text",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-16T11:45:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 36
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o10",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/final/predictions/clef.json",
+      "behavior_text": "after 5679a19, final run 2 (d15) asked Clef with the key named by DISTILL_TEACHER_KEY and the model header over the 127.0.0.1 tunnel: 538/538 records answered, no error",
+      "contract_text": "a non-127.0.0.1 URL is refused; requests carry Authorization: Bearer from the env var named in config and X-Lobes-Model: decider:general; the key value never appears in a manifest, log or exception text",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T12:05:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 37
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o13",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/contamination.json",
+      "behavior_text": "the contamination stage on the live inputs reported LocalLLaMA/typed-decisions overlapping and the five jetson-ops sources clean",
+      "contract_text": "with the 2610 manifest, a record from tasksource/tasksource-jev-typed-decisions or LocalLLaMA/typed-decisions is reported overlapping",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T07:45:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 38
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o14",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/benchmark/stock_reproduction.json",
+      "behavior_text": "stock 2610 on JevBench w4096: 165/213 = 0.775, Wilson CI 0.714-0.826 covers the card's 0.7792, base_mismatch false; train ran after it",
+      "contract_text": "stock 2610 on JevBench w4096 is recorded with n and CI; a result outside the card's 0.7792 CI stops the train stage until a deviation is recorded",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T07:48:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 39
+    },
+    {
+      "id": "e24",
+      "obligation_ref": "o7",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/quant/measurements.json",
+      "behavior_text": "the shipped int4 build measured 985,675,969 weight bytes on disk (< 10^9) and /v1/bundle attested the same; the int8 build at 1,655,785,029 bytes was recorded unavailable",
+      "contract_text": "the on-disk weight size is the byte sum of the bundle's weight files; a build at or over the budget is recorded unavailable, never shipped",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:20:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 40
+    },
+    {
+      "id": "e25",
+      "obligation_ref": "o8",
+      "test_ref": "~/jev-runs/jetson-ops-20/work/distill/quant/heal_log.jsonl",
+      "behavior_text": "heal rounds 2 and 3 ran only with fresh deviation ids d11 and d13; agreement was computed on fit+selection only",
+      "contract_text": "a second heal of the same format is refused without a deviation id; heal agreement is computed on fit and selection records only and a test or held-out id in its input exits non-zero",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed in the #20 proving run's stage outputs (unverified gold, d10)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-16T11:10:00",
+        "commit": "856fe8d"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 41
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "drafted gold can be per-option probabilities (argmax = label), an option can be added in review and a question's or record's edits restored",
+      "caused_by": [
+        "d7"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "Jetson-ops questions are choice-only (true/false claims and level_0..n ratings become choice options) with required instructions",
+      "caused_by": [
+        "d8"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "the review page adds an \"I'm not sure.\" option with one click; drafters do not add it",
+      "caused_by": [
+        "d9"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "added",
+      "behavior_text": "final --knob unverified_gold=true (deviation id required) reports an UNVERIFIED c17 block on model-drafted test gold beside the human-gold headline",
+      "caused_by": [
+        "d10"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "added",
+      "behavior_text": "quantize --knob heal_mix sets a later heal round's bf16/Clef target mix; refused without a deviation id; the heal log records both mixes",
+      "caused_by": [
+        "d11"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "amended",
+      "behavior_text": "with --knob gating=clean, quantize's accuracy, calibration, heal trigger and agreement read only the contamination stage's clean sources; the guard is reported and a guard below stock-5 is a heal reason",
+      "caused_by": [
+        "d12"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "added",
+      "behavior_text": "quantize --knob heal_repeat repeats the heal set's domain and guard rows (deviation id and gating required)",
+      "caused_by": [
+        "d13"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b8",
+      "kind": "amended",
+      "behavior_text": "with --knob gating=clean-report the guard is reported beside stock's and never heals or fails a format; the un-healed int4 is the shipped build",
+      "caused_by": [
+        "d14"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b9",
+      "kind": "amended",
+      "behavior_text": "benchmark and final ask Clef with the bearer key and model header; final may run a second time only under a recorded deviation",
+      "caused_by": [
+        "d15"
+      ],
+      "evidence_refs": [
+        "e21"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b10",
+      "kind": "amended",
+      "behavior_text": "edge may measure the shipped quant on the AGX Orin with the fit fold as its probe set and the server's real cgroup cap",
+      "caused_by": [
+        "d16"
+      ],
+      "evidence_refs": [
+        "e19"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }
