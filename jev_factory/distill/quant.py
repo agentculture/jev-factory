@@ -120,7 +120,7 @@ from jev_factory.distill import train as dtrain
 from jev_factory.distill.assemble import OUT_REL as TRAIN_SET_REL
 from jev_factory.distill.records import Record
 from jev_factory.distill.runspec import Bootstrap, GpuLimits, TrainerEnv
-from jev_factory.factory import gpu
+from jev_factory.factory import gpu, safepath
 
 QUANT_REL = "distill/quant"
 MEASUREMENTS_FILE = "measurements.json"
@@ -310,6 +310,7 @@ def _stop(message: str) -> CliError:
 
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    path = safepath.contained(path, path.parent)  # a symlink out of the folder is refused
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     os.replace(tmp, path)

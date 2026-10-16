@@ -467,6 +467,7 @@ def read_prompt_set(path: Path | str) -> list[dict[str, Any]]:
     path = Path(path)
     if not path.is_file():
         raise _refuse(f"the prompt set {path} does not exist")
+    path = safepath.regular_file(path, path.parent)  # a regular file, never a symlink
     rows = []
     for line, text in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not text.strip():
