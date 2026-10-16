@@ -1746,8 +1746,10 @@ def _load_engine(artifact: Path, device: str, model_name: str) -> tuple[Any, dic
     model.tokenizer = tok
     model.head = modeling.build_head(config, modeling.StrandsDeciderModel.hidden_size(torso))
     model.head.load_state_dict(safetensors.load_file(str(player.member(artifact, player.HEAD))))
-    model.head.to(torch.float32)
-    with torch.inference_mode():
+    model.head.to(device=device, dtype=torch.float32)
+    # no_grad, not inference_mode: the engine's model.to(device) swaps each parameter, and
+    # torchao's int4 tensor subclasses (tinygemm layout) can only be swapped outside it.
+    with torch.no_grad():
         engine = infer.SystemOneEngine(
             model, infer.EngineConfig(device=device, model_name=model_name)
         )
