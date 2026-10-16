@@ -753,3 +753,23 @@ def test_a_probe_record_with_a_sealed_id_is_refused(env, tmp_path):
     with pytest.raises(CliError) as exc:
         _run(env, models, inputs=F.FinalInputs(probe=probe))
     assert "t0" not in exc.value.message
+
+
+def test_clefs_client_carries_the_key_and_the_model_header(monkeypatch):
+    """benchmark and final ask Clef as teacher-label does; a bare client gets a 401."""
+    from types import SimpleNamespace
+
+    from jev_factory.distill import pipeline as dpipe
+
+    cfg = {
+        "distill_teacher_url": "http://127.0.0.1:18090",
+        "distill_teacher_model": "decider:general",
+        "distill_teacher_key_env": "JEV_TEST_TEACHER_KEY",
+        "distill_teacher_model_header": "decider:general",
+    }
+    monkeypatch.setenv("JEV_TEST_TEACHER_KEY", "k")
+    config = SimpleNamespace(get=cfg.get, require=cfg.__getitem__)
+    client = dpipe._clef_client(SimpleNamespace(config=config))
+    assert client.auth_env == "JEV_TEST_TEACHER_KEY"
+    assert client.model_header == "decider:general"
+    assert client._key == "k"

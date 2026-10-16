@@ -637,6 +637,20 @@ def _probe_records(ctx: DistillContext) -> list[Any]:
     return dfinal.load_probe(path, {"held_out": held_out, "test": test})
 
 
+def _clef_client(ctx: DistillContext) -> Any:
+    """Clef's /v1/systemone client with the bearer key (by env-var name) and model header,
+    as teacher-label sends them; without them the gateway answers 401."""
+    from jev_factory.distill.systemone import SystemOneClient
+
+    get = ctx.config.get
+    return SystemOneClient(
+        str(ctx.config.require("distill_teacher_url")),
+        model=str(ctx.config.require("distill_teacher_model")),
+        auth_env=get("distill_teacher_key_env") or None,
+        model_header=get("distill_teacher_model_header") or None,
+    )
+
+
 def stage_benchmark(workdir: Path, knobs: dict[str, Any]) -> None:
     """Zero-shot benchmark of Clef and stock, plus the stock JevBench w4096 reproduction."""
     from jev_factory.distill import benchmark as bench
@@ -656,12 +670,15 @@ def stage_benchmark(workdir: Path, knobs: dict[str, Any]) -> None:
     tasks_path = Path(ctx.config.require("distill_jevbench_tasks"))
     tasks = bench.load_jevbench(tasks_path)  # refused before any model is served
     probe = _probe_records(ctx)
+    clients = ctx.services.benchmark_clients
+    if clients is None and ctx.services.benchmark_targets is None:
+        clients = {"clef": _clef_client(ctx)}
     result = bench.run_benchmark(
         list(targets.values()),
         _folds(ctx),
         sealed=_sealed(ctx),
         memory_probe=_memory_probe(ctx),
-        clients=ctx.services.benchmark_clients,
+        clients=clients,
     )
     _write_json(Path(workdir) / BENCHMARK_FILE, result)
     stock = targets["stock"]
@@ -920,7 +937,8 @@ def _final_models(ctx: DistillContext) -> Mapping[str, Any]:
         report.CLEF: dfinal.FinalModel(
             bench.Target(
                 report.CLEF, str(req("distill_teacher_url")), str(req("distill_teacher_model"))
-            )
+            ),
+            client=_clef_client(ctx),
         ),
         report.STOCK: dfinal.FinalModel(
             bench.Target(
