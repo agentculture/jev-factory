@@ -158,3 +158,5 @@ pending approval (not yet evidence): `l1`, `l2`, `l3`, `l4`, `l5`, `l6`, `l7`, `
 - `l1`–`l9` and `o18`'s live coverage await operator adjudication; evidence `e1`–`e25` and deltas `b1`–`b10` await confirmation.
 - A second independent verifier model (Nemotron) is to be served by the operator.
 - The JetPack 7.2 L4T topic text in `general-ops-topics.json` should say R39.
+- Heal rule (code review of PR #21): after a heal, quantize measures the healed build's accuracy drop against the heal round's own bf16, while agreement (and final) use the selected bf16 student. Whether the drop should also use the selected student is a rule change for the operator to decide.
+- PR #21 code review: nine of ten findings fixed (stale teacher-label lock, board memory from `/v1/stats`, sealed-only runtime, `/v1/bundle` re-verification, single hashing at serve start, CLI edits see ledger-added options, `--allow-host` error path, relative deployed artifact in edge, one agreement readout); the tenth is the heal-rule question above.
