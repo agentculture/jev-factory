@@ -209,8 +209,9 @@ def test_sealed_id_in_input_refused(world, server, sealed_id):
 def test_test_split_record_in_probe_refused(world, server):
     """AC1: a record whose split is test is refused even with an unknown id."""
     _jsonl(world["probe"], [_rec("p9", split="test")])
+    url = server().url
     with pytest.raises(CliError):
-        _go(world, server().url)
+        _go(world, url)
 
 
 def test_non_selection_fold_refused(world, server):
@@ -218,8 +219,9 @@ def test_non_selection_fold_refused(world, server):
     other = world["ds"] / "fit.jsonl"
     _jsonl(other, [_rec("f1")])
     world["sel"] = other
+    url = server().url
     with pytest.raises(CliError):
-        _go(world, server().url)
+        _go(world, url)
 
 
 def test_bundle_mismatch_refused(world, server):

@@ -597,8 +597,10 @@ def test_served_scorer_passes_allow_foreign_to_the_gpu_guard(tmp_path, monkeypat
     score = T.served_scorer(
         env=None, jobdir=tmp_path, port=1, base_revision="0" * 40, allow_foreign=allow
     )
+    candidate = T.Candidate("c000", {})
+    checkpoint = tmp_path / "c000" / "checkpoint"
     with pytest.raises(Stop):
-        score(T.Candidate("c000", {}), tmp_path / "c000" / "checkpoint", {})
+        score(candidate, checkpoint, {})
     assert seen == {"stage": "measure", "allow_foreign": allow}
 
 

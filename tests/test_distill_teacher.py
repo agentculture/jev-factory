@@ -253,8 +253,9 @@ def test_missing_key_env_is_exit_2_without_value(make, tmp_path, monkeypatch):
     monkeypatch.delenv("TEACHER_KEY_MISSING", raising=False)
     srv = make()
     cfg = _cfg(srv.url, auth_env="TEACHER_KEY_MISSING")
+    records = [_record("r1")]
     with pytest.raises(CliError) as info:
-        label_records([_record("r1")], tmp_path, cfg, allowed_ids={"r1"})
+        label_records(records, tmp_path, cfg, allowed_ids={"r1"})
     assert info.value.code == 2
     assert "TEACHER_KEY_MISSING" in info.value.message
     assert not srv.bodies

@@ -672,13 +672,10 @@ def _model_drafted_sides(env) -> None:
 def test_the_unverified_gold_final_is_refused_without_a_deviation_id(env, apply):
     """d10: measuring on gold no human approved needs a recorded deviation."""
     _model_drafted_sides(env)
+    models = _models(env, env["log"])
+    inputs = F.FinalInputs(unverified_gold=True)
     with pytest.raises(CliError) as exc:
-        _run(
-            env,
-            _models(env, env["log"]),
-            apply=apply,
-            inputs=F.FinalInputs(unverified_gold=True),
-        )
+        _run(env, models, apply=apply, inputs=inputs)
     assert exc.value.code == EXIT_USER_ERROR
     assert "deviation" in exc.value.message
     assert env["log"] == []
@@ -750,8 +747,9 @@ def test_a_probe_record_with_a_sealed_id_is_refused(env, tmp_path):
     probe = tmp_path / "probe.jsonl"
     probe.write_text(json.dumps(_rec("t0", "train").to_json()) + "\n", encoding="utf-8")
     models = _models(env, [])
+    inputs = F.FinalInputs(probe=probe)
     with pytest.raises(CliError) as exc:
-        _run(env, models, inputs=F.FinalInputs(probe=probe))
+        _run(env, models, inputs=inputs)
     assert "t0" not in exc.value.message
 
 

@@ -386,11 +386,13 @@ def test_reproduction_within_noise_is_not_a_mismatch(servers):
 def test_reproduction_refuses_a_task_set_of_the_wrong_size_or_no_base(servers):
     srv = servers("stock")
     small = _tasks(10, n=20)
+    target = srv.target()
     with pytest.raises(CliError, match="231"):
-        bm.reproduce_stock(srv.target(), small, base_revision="rev1")
+        bm.reproduce_stock(target, small, base_revision="rev1")
     full = _tasks(180)
+    target = srv.target()
     with pytest.raises(CliError, match="base revision"):
-        bm.reproduce_stock(srv.target(), full, base_revision="")
+        bm.reproduce_stock(target, full, base_revision="")
     assert srv.requests == []
 
 
@@ -529,11 +531,15 @@ def test_measure_stock_refuses_sealed_unknown_and_empty(servers):
     srv = servers("stock")
     test_rec = _bench_task(1, "fix")
     test_rec = Record(**{**test_rec.__dict__, "split": "test"})
+    target = srv.target()
     with pytest.raises(CliError, match="test"):
-        bm.measure_stock(srv.target(), {"fit": [test_rec]})
+        bm.measure_stock(target, {"fit": [test_rec]})
+    held_out = {"held_out": [_bench_task(2, "fix")]}
+    target = srv.target()
     with pytest.raises(CliError, match="unknown"):
-        bm.measure_stock(srv.target(), {"held_out": [_bench_task(2, "fix")]})
+        bm.measure_stock(target, held_out)
+    target = srv.target()
     with pytest.raises(CliError, match="no sets"):
-        bm.measure_stock(srv.target(), {})
+        bm.measure_stock(target, {})
     assert srv.requests == []
     assert srv.log == []

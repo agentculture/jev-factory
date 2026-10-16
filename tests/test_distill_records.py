@@ -235,8 +235,9 @@ def test_unknown_question_kind_refused_with_record_id():
 )
 def test_invalid_systemone_body_refused_with_record_id(questions):
     """AC3: a record that cannot be a valid /v1/systemone body is refused with its id."""
+    gold = {next(iter(questions)): {"label": "a"}}
     with pytest.raises(R.InvalidSystemOneBody) as ei:
-        _rec(id="bad-body", questions=questions, gold={next(iter(questions)): {"label": "a"}})
+        _rec(id="bad-body", questions=questions, gold=gold)
     assert "bad-body" in str(ei.value)
 
 
