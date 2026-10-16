@@ -222,11 +222,14 @@ class Gating:
 
     Accuracy, calibration, the heal trigger and agreement with the bf16 student are computed
     on records from *sources* (the contamination stage's clean sources). The guard's raw
-    selection accuracy is reported per format and only fails a format below *guard_floor*.
+    selection accuracy is reported per format and only fails a format below *guard_floor*;
+    with no floor (``gating=clean-report``, d14) it is reported beside *guard_stock* only.
     """
 
     sources: frozenset[str]
     guard_floor: float | None = None
+    #: stock's guard selection accuracy, for the report (d14)
+    guard_stock: float | None = None
 
     def split(
         self, fold_records: Mapping[str, Sequence[Record]]
@@ -765,6 +768,7 @@ def _measure_format(
             "sources": sorted({r.source for rs in guard.values() for r in rs}),
             "selection": raw_accuracy(guard["selection"], raw.get("selection") or []),
             "floor": gating.guard_floor,
+            "stock": gating.guard_stock,
         }
     entry = {**assessed, "size": size, "oov_refusals": oov_refusals(measured)}
     return entry, measured.get("predictions") or {}
@@ -1705,7 +1709,11 @@ def run_quant(
         "gating": (
             None
             if gating is None
-            else {"sources": sorted(gating.sources), "guard_floor": gating.guard_floor}
+            else {
+                "sources": sorted(gating.sources),
+                "guard_floor": gating.guard_floor,
+                "guard_stock": gating.guard_stock,
+            }
         ),
         "agreement_min": minimum,
         "agreement_folds": list(AGREEMENT_FOLDS),

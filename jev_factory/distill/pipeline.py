@@ -781,13 +781,18 @@ def _quant_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, An
     return kwargs
 
 
+#: ``gating`` knob values: the guard floors a format (d12) or is reported only (d14).
+GATING_VALUES = ("clean", "clean-report")
+
+
 def _gating(ctx: DistillContext, value: Any) -> Any:
     """Deviation d12: the quant rules read the contamination stage's clean sources only; the
     guard (every other source) fails a format only below stock's guard accuracy minus
-    ``GUARD_TOLERANCE_POINTS`` on the selection fold."""
-    if value != "clean":
+    ``GUARD_TOLERANCE_POINTS`` on the selection fold. ``clean-report`` (deviation d14) reports
+    the guard beside stock's and never fails or heals a format on it."""
+    if value not in GATING_VALUES:
         raise _err(
-            f'knob gating must be "clean", got {value!r}',
+            f"knob gating must be one of {list(GATING_VALUES)}, got {value!r}",
             "pass --knob gating=clean (with --deviation-id <id>) or leave it unset",
         )
     clean = _read_json(stage_dir(ctx.work) / CONTAMINATION_FILE).get("clean") or []
@@ -811,7 +816,11 @@ def _gating(ctx: DistillContext, value: Any) -> Any:
             "rerun the benchmark stage",
         )
     floor = stock["accuracy"] - dquant.GUARD_TOLERANCE_POINTS / 100.0
-    return dquant.Gating(sources=frozenset(clean), guard_floor=floor)
+    return dquant.Gating(
+        sources=frozenset(clean),
+        guard_floor=floor if value == "clean" else None,
+        guard_stock=stock["accuracy"],
+    )
 
 
 def stage_quantize(workdir: Path, knobs: dict[str, Any]) -> None:

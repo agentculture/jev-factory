@@ -2,7 +2,7 @@
   "plan_slug": "orin-nano-jetson-ops-decider",
   "schema_version": 2,
   "created": "2026-10-15T17:16:36Z",
-  "updated": "2026-10-16T07:22:02Z",
+  "updated": "2026-10-16T08:20:02Z",
   "deviations": [
     {
       "id": "d1",
@@ -169,6 +169,21 @@
       "status": "approved",
       "classification": "risky",
       "seq": 13
+    },
+    {
+      "id": "d14",
+      "what": "Ship the un-healed torch_int4_wo in the t23 proving run, with the quant rules on the clean (Jetson-ops) sources and the typed-decisions guard report-only: new gating value clean-report (deviation-gated) records the guard beside stock and never heals or fails a format on it. The pre-heal int4 passes every domain bar (Jetson-ops agreement .976 = 322/330, selection accuracy .952 vs bf16 .940, 985,675,969 weight bytes); its guard selection accuracy .469 is 15.6 points below stock (.625) and 12.3 below the bf16 student (.592), reported in final. Three heal rounds (d11 bf16 mix, d13 balanced repeat) each lowered Jetson-ops agreement to .961-.964 and none cleared both bars; their outputs are kept as evidence",
+      "task_ref": "t23",
+      "reason": "operator 2026-10-16 chose option 1: the spec says typed-decisions agreement is never gated; the Nano model is a Jetson-ops specialist, and the most accurate domain build is the un-healed int4",
+      "affects": [
+        "t12",
+        "t14",
+        "t23"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 14
     }
   ],
   "evidence": [],

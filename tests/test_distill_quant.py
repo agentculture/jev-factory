@@ -1814,9 +1814,8 @@ def test_gating_reads_the_domain_and_reports_the_guard(tmp_path):
     assert quant["agreement_vs_bf16"][Q.POOLED]["n_reference"] == 60  # 20 domain records x 3
     assert quant["guard"]["sources"] == ["guard"]
     assert quant["guard"]["selection"]["accuracy"] == 0.0
-    assert m["gating"] == {"sources": ["src"], "guard_floor": None} or out["gating"]["sources"] == [
-        "src"
-    ]
+    assert m["gating"] == {"sources": ["src"], "guard_floor": None, "guard_stock": None}
+    assert quant["guard"]["floor"] is None
 
 
 def test_a_guard_below_its_floor_is_healed_and_must_clear_it(tmp_path):
@@ -1871,3 +1870,14 @@ def test_a_heal_repeat_reaches_the_heal_set_and_the_log(tmp_path):
         _gated_run(tmp_path, gating, heal_repeat={"domain": 2, "guard": 1})
     trigger = [e for e in _log(tmp_path / "run") if e.get("event") == "heal_trigger"][-1]
     assert trigger["heal_repeat"] == {"domain": 2, "guard": 1}
+
+
+def test_a_report_only_guard_never_heals_or_fails_a_format(tmp_path):
+    """d14: with no floor the guard is reported beside stock's and decides nothing."""
+    out, run_dir, trainer = _gated_run(
+        tmp_path, Q.Gating(sources=frozenset({"src"}), guard_stock=0.6), deviation_id="d14"
+    )
+    assert out["chosen_format"] == "torch_int4_wo"
+    assert trainer.plans == []
+    guard = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]["torch_int4_wo"]["guard"]
+    assert (guard["floor"], guard["stock"], guard["selection"]["accuracy"]) == (None, 0.6, 0.0)

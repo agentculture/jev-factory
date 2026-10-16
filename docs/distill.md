@@ -277,6 +277,9 @@ Details that matter when operating them:
   shippable. `--knob heal_repeat='{"domain": 3, "guard": 2}'` (with a
   deviation id and the gating knob) repeats each side's rows in the heal set,
   weighing the sides without touching the registered heal epochs or lr.
+  `--knob gating=clean-report` (d14) applies the same domain rules but only
+  reports the guard beside stock's: it never heals or fails a format, as the
+  spec's "typed-decisions agreement is never gated" reads.
 - **No bf16 fallback.** When no quantized build is under the byte budget and
   survives safety and calibration, `quantize` records a failed `no qualifying
   format` result and exits non-zero. `final` and `bundle` refuse that
