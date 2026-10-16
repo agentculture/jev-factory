@@ -1557,7 +1557,7 @@ def test_a_protected_id_in_the_heal_input_exits_non_zero_before_the_round(tmp_pa
     assert _log(run_dir) == []
 
 
-def _rerun(tmp_path, path, run_dir, deviation_id=None):
+def _rerun(tmp_path, path, run_dir, deviation_id=None, **extra):
     builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
     trainer = FakeTrainer(run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE)
     out = Q.run_quant(
@@ -1569,6 +1569,7 @@ def _rerun(tmp_path, path, run_dir, deviation_id=None):
         hooks=Q.QuantHooks(builders=builders, measurer=measurer, trainer=trainer),
         bootstrap=Bootstrap(resamples=50),
         deviation_id=deviation_id,
+        **extra,
     )
     return out, trainer
 
@@ -1588,6 +1589,28 @@ def test_a_second_heal_of_the_same_format_needs_a_deviation_id(tmp_path):
     assert trainer.plans[0]["train_file"].endswith("onnx_int8/round-2/heal_set.jsonl")
     with pytest.raises(CliError, match="already paid"):
         _rerun(tmp_path, path, run_dir, deviation_id="d9")
+
+
+def test_a_deviation_heal_mix_replaces_the_registered_one_and_both_are_logged(tmp_path):
+    """A heal mix other than the registered one is refused without a deviation id; with one
+    the round's spec trains on it and the trigger logs it beside the registered mix."""
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    _out, run_dir, _ = run(tmp_path, builders=builders, measurer=measurer)
+    path = tmp_path / "prereg.json"
+    mix = {"bf16_student": 1.0, "clef": 0.0}
+    with pytest.raises(CliError, match="needs a deviation id"):
+        _rerun(tmp_path, path, run_dir, heal_mix_override=mix)
+    with pytest.raises(CliError, match="sum to 1"):
+        _rerun(tmp_path, path, run_dir, "d11", heal_mix_override={"bf16_student": 1.0, "clef": 1.0})
+    out, _trainer = _rerun(tmp_path, path, run_dir, "d11", heal_mix_override=mix)
+    spec = json.loads(
+        (run_dir / Q.QUANT_REL / "heal" / "onnx_int8" / "round-2" / Q.HEAL_SPEC_FILE).read_text()
+    )
+    assert spec["mix"] == mix
+    trigger = [e for e in _log(run_dir) if e.get("event") == "heal_trigger"][-1]
+    assert trigger["heal_mix"] == mix
+    assert trigger["heal_mix_registered"] == {"bf16_student": 0.5, "clef": 0.5}
+    assert out["heal_mix"] == mix
 
 
 def test_a_spent_round_for_one_format_does_not_spend_another_formats(tmp_path):

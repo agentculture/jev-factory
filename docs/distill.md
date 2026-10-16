@@ -264,7 +264,10 @@ Details that matter when operating them:
   Agreement with the bf16 student is computed on the fit and selection folds
   only and must reach **0.97**; a test or held-out id in the heal input exits
   non-zero, and a second heal of the same format is refused without a
-  deviation id. A healed build under 0.97 is not shippable.
+  deviation id. That round may train on another mix
+  (`--knob heal_mix='{"bf16_student": 1.0, "clef": 0.0}'`), which also needs
+  the deviation id; the heal log records both mixes. A healed build under
+  0.97 is not shippable.
 - **No bf16 fallback.** When no quantized build is under the byte budget and
   survives safety and calibration, `quantize` records a failed `no qualifying
   format` result and exits non-zero. `final` and `bundle` refuse that

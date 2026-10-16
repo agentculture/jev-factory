@@ -1277,6 +1277,14 @@ class _HealRun:
     builders: Mapping[str, Builder]
     measurer: Measurer
     kw: Mapping[str, Any]
+    #: A deviation's heal mix in place of the registered one (``run_quant(heal_mix=...)``).
+    mix_override: Mapping[str, float] | None = None
+
+    @property
+    def mix(self) -> dict[str, float]:
+        if self.mix_override is not None:
+            return dict(self.mix_override)
+        return heal_mix(self.reg)
 
     @property
     def heal_log(self) -> Path:
@@ -1342,7 +1350,8 @@ def _heal_trigger(
         "quant_accuracy": measured[fmt]["accuracy"],
         "margin_points": HEAL_MARGIN_POINTS,
         "heal_knobs": heal_knobs(hr.reg),
-        "heal_mix": heal_mix(hr.reg),
+        "heal_mix": hr.mix,
+        "heal_mix_registered": heal_mix(hr.reg),
         "heal_source": hr.reg.raw["heal"]["source"],
         "heal_set": dict(heal_set),
     }
@@ -1407,7 +1416,7 @@ def _heal_round(
     heal_set = write_heal_set(hr.train_file, root / HEAL_SET_FILE, protected)  # refuses first
     spec = {
         "format": fmt,
-        "mix": heal_mix(hr.reg),
+        "mix": hr.mix,
         "fake_quant": fake_quant_scheme(fmt, measured[fmt].get("artifact")),
         "protected_id_sha256": protected,
         "bf16_student": str(hr.winner["checkpoint"]),
@@ -1487,16 +1496,26 @@ def run_quant(
     formats: Sequence[str] = tuple(FORMATS),
     bootstrap: Bootstrap = Bootstrap(),
     probe: Sequence[Record] = (),
+    heal_mix_override: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     """Plan (dry-run) or run the format spike, the heal round and the recalibration.
 
     *probe* (the operator's private probe set, never a sealed record) is asked of the pruned
-    comparison build only, to count its out-of-vocabulary refusals (risk r14)."""
+    comparison build only, to count its out-of-vocabulary refusals (risk r14).
+    *heal_mix_override* replaces the registered ``heal.mix`` and needs a deviation id; both
+    mixes are recorded in the heal log."""
     prereg_path, run_dir = Path(prereg_path), Path(run_dir)
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
     bars = quant_bars(reg)
     minimum = agreement_min(reg)
     heal_mix(reg)  # refused before anything runs when the heal block names no mix
+    if heal_mix_override is not None:
+        if not (deviation_id or "").strip():
+            raise _refuse(
+                "a heal mix other than the registered heal.mix needs a deviation id",
+                "record a deviation and pass --deviation-id with the heal_mix knob",
+            )
+        heal_mix_override = td.check_mix(heal_mix_override, where="knob heal_mix")
     _refuse_comparison_candidates(formats)
     unknown = [f for f in formats if f not in FORMATS]
     if unknown:
@@ -1525,6 +1544,7 @@ def run_quant(
         builders=dict(hooks.builders or {}),
         measurer=hooks.measurer,  # type: ignore[arg-type]
         kw=kw,
+        mix_override=heal_mix_override,
     )
     base = {
         "stage": "distill-quant",
@@ -1533,7 +1553,8 @@ def run_quant(
         "folds": {f: len(fold_records[f]) for f in dtrain.FOLDS},
         "heal_margin_points": HEAL_MARGIN_POINTS,
         "heal_rounds_max": HEAL_ROUNDS,
-        "heal_mix": heal_mix(reg),
+        "heal_mix": hr.mix,
+        "heal_mix_registered": heal_mix(reg),
         "agreement_min": minimum,
         "agreement_folds": list(AGREEMENT_FOLDS),
         "size_budget_bytes": SIZE_BUDGET_BYTES,
