@@ -2,7 +2,7 @@
   "plan_slug": "orin-nano-jetson-ops-decider",
   "schema_version": 2,
   "created": "2026-10-15T17:16:36Z",
-  "updated": "2026-10-15T21:02:46Z",
+  "updated": "2026-10-15T21:40:19Z",
   "deviations": [
     {
       "id": "d1",
@@ -112,6 +112,21 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 9
+    },
+    {
+      "id": "d10",
+      "what": "Proving run of t23 overnight on unverified model-drafted gold for every side (train targets, fit/selection evals, held-out and test): final runs in an unverified-gold mode that needs this deviation id and reports an UNVERIFIED c17 block on clean model-drafted test records beside the (empty) human-gold headline; one-point knob grid (alpha 0.7, temperature 1.0, epochs 2, lr 1e-4, init continue, teacher_filter all, weak floor 0.6, teacher_only), heal 2 epochs / lr 1e-4 with the 0.5/0.5 mix placeholder; pilot not fully reviewed, gold not cross-checked by other models",
+      "task_ref": "t23",
+      "reason": "operator 2026-10-16: continue with the unverified gold, marked with its unverified share, on all datasets just to prove the process, and have a trained, healed and tested 2B model by morning",
+      "affects": [
+        "t22",
+        "t14",
+        "t4"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 10
     }
   ],
   "evidence": [],

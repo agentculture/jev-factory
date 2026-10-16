@@ -110,6 +110,8 @@ TORCHAO_APIS: dict[int, tuple[str, str]] = {
     8: ("Int8WeightOnlyConfig", "int8_weight_only"),
     4: ("Int4WeightOnlyConfig", "int4_weight_only"),
 }
+#: The int4 layout asked of torchao configs that take one (tinygemm: torch's own int4 mm).
+INT4_PACKING_FORMAT = "tile_packed_to_4d"
 #: bits -> the pruned-vocabulary comparison build's format name (c38: never shipped).
 PRUNED_FORMAT_OF_BITS: dict[int, str] = {b: f"{f}_pruned_vocab" for b, f in FORMAT_OF_BITS.items()}
 #: The pruned build's kept token ids (canonical JSON: sorted, no spaces).
@@ -1300,13 +1302,29 @@ def _version(dist: str) -> str | None:
         return None
 
 
+def _accepts(factory: Any, name: str) -> bool:
+    """Whether the torchao config class (or function) *factory* takes the keyword *name*."""
+    import inspect
+
+    try:
+        return name in inspect.signature(factory).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 def _quant_config(bits: int, group_size: int | None = None) -> tuple[str, Any]:
     """The torchao weight-only config for the block linears (int4 takes *group_size*)."""
     aoq = _load(TORCHAO_QUANTIZATION)
-    kwargs = {"group_size": group_size} if bits == 4 and group_size else {}
+    kwargs: dict[str, Any] = {"group_size": group_size} if bits == 4 and group_size else {}
     for api in TORCHAO_APIS[bits]:
         factory = getattr(aoq, api, None)
         if factory is not None:
+            if bits == 4 and _accepts(factory, "int4_packing_format"):
+                # torchao >= 0.16 defaults int4 to the "plain" layout, whose CUDA kernel needs
+                # the separate mslk package; the tinygemm layout runs on torch's own int4 mm
+                # (sm_80+, so the GB10 and the Orin's sm_87 alike).
+                kwargs["int4_packing_format"] = INT4_PACKING_FORMAT
+                return f"{api}(int4_packing_format={INT4_PACKING_FORMAT})", factory(**kwargs)
             return api, factory(**kwargs)
     raise CliError(
         EXIT_ENV_ERROR,
