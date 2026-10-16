@@ -321,3 +321,33 @@ def test_an_injected_getter_answers_bundle_and_stats(world, server):
     out = _go(world, srv.url, get=get)
     assert out["n_records"] == 3
     assert seen[:2] == [edge.BUNDLE_PATH, edge.STATS_PATH]
+
+
+def _write_lock(run, **holder):
+    path = edge.teacher_lock_path(run)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(holder) + "\n", encoding="utf-8")
+    return path
+
+
+def test_a_lock_whose_process_is_gone_is_replaced_and_does_not_block(tmp_path, monkeypatch):
+    """A hard-killed teacher-label run leaves its lock; a dead pid on this host is stale."""
+    import socket
+
+    monkeypatch.setattr(edge, "_pid_alive", lambda pid: False)
+    _write_lock(tmp_path, owner="teacher-label", pid=12345, host=socket.gethostname())
+    edge.require_no_teacher_lock(tmp_path)  # stale: final and edge are not blocked
+    path = edge.acquire_teacher_lock(tmp_path)
+    holder = json.loads(path.read_text(encoding="utf-8"))
+    assert holder["host"] == socket.gethostname()
+    assert holder["pid"] != 12345
+
+
+@pytest.mark.parametrize("holder", [{"pid": 12345, "host": "another-box"}, {"note": "no pid"}])
+def test_a_lock_from_another_host_or_unreadable_still_blocks(tmp_path, monkeypatch, holder):
+    monkeypatch.setattr(edge, "_pid_alive", lambda pid: False)
+    _write_lock(tmp_path, **holder)
+    with pytest.raises(CliError, match="busy labelling"):
+        edge.require_no_teacher_lock(tmp_path)
+    with pytest.raises(CliError, match="already held"):
+        edge.acquire_teacher_lock(tmp_path)

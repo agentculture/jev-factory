@@ -35,6 +35,7 @@ import datetime as _dt
 import hashlib
 import json
 import os
+import socket
 import time
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
@@ -90,16 +91,59 @@ def teacher_lock_path(run_dir: Path | str) -> Path:
     return Path(run_dir) / TEACHER_LOCK_REL
 
 
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:  # it exists, owned by someone else
+        return True
+    return True
+
+
+def lock_is_stale(path: Path) -> bool:
+    """True only when the lock names a pid on this host that is no longer running.
+
+    A lock from another host, or one that cannot be read, is never called stale: its
+    owner's liveness is unknown, so it keeps blocking (fail closed)."""
+    try:
+        holder = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    pid = holder.get("pid") if isinstance(holder, Mapping) else None
+    if (
+        not isinstance(pid, int)
+        or isinstance(pid, bool)
+        or holder.get("host") != socket.gethostname()
+    ):
+        return False
+    return not _pid_alive(pid)
+
+
 def acquire_teacher_lock(run_dir: Path | str, owner: str = "teacher-label") -> Path:
-    """Create the lock (for the teacher-label stage to call); refuse if it is already held."""
+    """Create the lock (for the teacher-label stage to call); refuse if it is already held.
+
+    A stale lock (its pid on this host no longer runs, e.g. after a hard kill) is
+    replaced, so a killed run never blocks its own resume."""
     path = teacher_lock_path(run_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-    except FileExistsError:
-        raise _refuse(f"{path}: the teacher-label lock is already held") from None
+    for _attempt in range(2):
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            break
+        except FileExistsError:
+            if not lock_is_stale(path):
+                raise _refuse(
+                    f"{path}: the teacher-label lock is already held",
+                    "wait for the running teacher-label to finish; a lock whose process is "
+                    "gone is replaced on the next run",
+                ) from None
+            path.unlink(missing_ok=True)
+    else:
+        raise _refuse(f"{path}: the teacher-label lock could not be taken")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps({"owner": owner, "pid": os.getpid(), "date": _now()}) + "\n")
+        record = {"owner": owner, "pid": os.getpid(), "host": socket.gethostname(), "date": _now()}
+        fh.write(json.dumps(record) + "\n")
     return path
 
 
@@ -109,7 +153,7 @@ def release_teacher_lock(run_dir: Path | str) -> None:
 
 def require_no_teacher_lock(run_dir: Path | str) -> None:
     path = teacher_lock_path(run_dir)
-    if path.exists() or path.is_symlink():
+    if (path.exists() or path.is_symlink()) and not lock_is_stale(path):
         raise _refuse(
             f"{path}: the teacher-label lock exists; the box is busy labelling",
             "wait for teacher-label to finish (or remove a stale lock), then rerun",
@@ -207,6 +251,7 @@ def expected_bundle(run_dir: Path | str) -> dict[str, Any]:
     artifact = manifest.get("deployed_artifact")
     if not artifact:
         raise _refuse("the quant manifest names no deployed_artifact; cannot know the bundle")
+    artifact = Path(artifact) if Path(artifact).is_absolute() else run_dir / artifact
     from jev_factory.backbones.pointer import quantized
 
     att = quantized.bundle_attestation(artifact)
@@ -259,29 +304,12 @@ def memory_cap(stats: Mapping[str, Any], expected: int | None = None) -> dict[st
 # --------------------------------------------------------------------- agreement
 
 
-def _decision(question: Mapping[str, Any]) -> Any:
-    if question.get("error"):
-        return None
-    dist = question.get("distribution")
-    if isinstance(dist, Mapping) and dist:
-        return max(sorted(dist), key=lambda k: dist[k])
-    p_true = question.get("p_true")
-    return None if p_true is None else bool(p_true >= 0.5)
-
-
-def _decisions(rows: Sequence[Mapping[str, Any]]) -> dict[tuple[str, str], Any]:
-    out: dict[tuple[str, str], Any] = {}
-    for row in rows:
-        for qid, question in (row.get("questions") or {}).items():
-            out[(str(row.get("record_id")), qid)] = _decision(question)
-    return out
-
-
 def agreement(
     edge_rows: Sequence[Mapping[str, Any]], reference_rows: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:
     """Argmax agreement over the (record, question) keys both prediction sets answered."""
-    edge, ref = _decisions(edge_rows), _decisions(reference_rows)
+    # the same argmax readout quant's agreement uses (rows with an error are dropped)
+    edge, ref = dquant._answers(edge_rows), dquant._answers(reference_rows)  # noqa: SLF001
     shared = [k for k in edge if k in ref and edge[k] is not None and ref[k] is not None]
     agree = sum(1 for k in shared if edge[k] == ref[k])
     return {
