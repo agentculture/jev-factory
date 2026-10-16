@@ -145,7 +145,12 @@ DEFAULT_KNOBS: dict[str, dict[str, Any]] = {
     "assemble": {"teacher_filter": "all", "alt_labels": None},
     "benchmark": {},
     "train": {},
-    "quantize": {"formats": None, "heal_mix": None, "gating": None},
+    "quantize": {
+        "formats": None,
+        "heal_mix": None,
+        "gating": None,
+        "heal_repeat": None,
+    },
     "gate": {},
     "final": {"clef_calibration": None, "unverified_gold": False},
     "edge": {"label": "nano", "served_model": "distill-edge-student"},
@@ -771,6 +776,8 @@ def _quant_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, An
         kwargs["heal_mix_override"] = knobs["heal_mix"]
     if knobs.get("gating") is not None:
         kwargs["gating"] = _gating(ctx, knobs["gating"])
+    if knobs.get("heal_repeat") is not None:
+        kwargs["heal_repeat"] = knobs["heal_repeat"]
     return kwargs
 
 

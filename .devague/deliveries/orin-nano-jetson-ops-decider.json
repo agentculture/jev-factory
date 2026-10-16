@@ -2,7 +2,7 @@
   "plan_slug": "orin-nano-jetson-ops-decider",
   "schema_version": 2,
   "created": "2026-10-15T17:16:36Z",
-  "updated": "2026-10-16T07:10:06Z",
+  "updated": "2026-10-16T07:22:02Z",
   "deviations": [
     {
       "id": "d1",
@@ -155,6 +155,20 @@
       "status": "approved",
       "classification": "risky",
       "seq": 12
+    },
+    {
+      "id": "d13",
+      "what": "Third heal round of torch_int4_wo in the t23 proving run, balanced: gating=clean (d12), heal_mix 1.0 bf16_student, heal set rows repeated domain x3 / guard x2 (new heal_repeat knob, deviation-gated, needs gating; registered heal epochs 2 / lr 1e-4 unchanged). d12 refined: a guard below its floor (stock - 5 points) is now a heal reason and a healed build must clear it, instead of removing the format before any heal. Also fixed (052831a): score answers mapped to levels positionally, scrambling every score question read back from a sorted-key prediction file; earlier guard numbers (student 337/715, stock 346/715) were wrong; corrected stock .625, bf16 student .592",
+      "task_ref": "t23",
+      "reason": "operator 2026-10-16 chose a balanced third heal after the per-source re-measure: int4 pre-heal passes Jetson-ops (agreement .976, accuracy >= bf16) but its guard is .469 (floor .575); round 2 recovered guard to .557 but Jetson-ops agreement fell to .961. Scaling heal strength cannot clear both bars, so the heal set weighs the domain rows up while still training the guard",
+      "affects": [
+        "t12",
+        "t23"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 13
     }
   ],
   "evidence": [],

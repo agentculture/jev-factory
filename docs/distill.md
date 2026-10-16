@@ -272,8 +272,11 @@ Details that matter when operating them:
   trigger and agreement pool every fit and selection record, the
   typed-decisions guard included. With `--knob gating=clean` and a deviation
   id they read only the contamination stage's clean sources; the guard is
-  reported per format and fails it only when its selection accuracy is more
-  than 5 points below stock's (from the benchmark stage).
+  reported per format; a guard more than 5 points below stock's (from the
+  benchmark stage) is a heal reason, and a healed build still below it is not
+  shippable. `--knob heal_repeat='{"domain": 3, "guard": 2}'` (with a
+  deviation id and the gating knob) repeats each side's rows in the heal set,
+  weighing the sides without touching the registered heal epochs or lr.
 - **No bf16 fallback.** When no quantized build is under the byte budget and
   survives safety and calibration, `quantize` records a failed `no qualifying
   format` result and exits non-zero. `final` and `bundle` refuse that

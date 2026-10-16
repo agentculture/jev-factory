@@ -1776,7 +1776,7 @@ class GuardWrongMeasurer(FakeMeasurer):
         return out
 
 
-def _gated_run(tmp_path, gating, deviation_id="d12"):
+def _gated_run(tmp_path, gating, deviation_id="d12", **extra):
     profile = {"bf16": PROFILE["bf16"], "torch_int4_wo": PROFILE["bf16"]}
     measurer = GuardWrongMeasurer(profile, {"bf16": PROFILE["bf16"]})
     builders = FakeBuilders(formats=("bf16", "torch_int4_wo"))
@@ -1788,6 +1788,7 @@ def _gated_run(tmp_path, gating, deviation_id="d12"):
         formats=("torch_int4_wo",),
         gating=gating,
         deviation_id=deviation_id,
+        **extra,
     )
 
 
@@ -1818,9 +1819,55 @@ def test_gating_reads_the_domain_and_reports_the_guard(tmp_path):
     ]
 
 
-def test_a_guard_below_its_floor_fails_the_format(tmp_path):
-    """d12: the guard fails a format only below its floor."""
-    with pytest.raises(CliError, match="no qualifying format"):
+def test_a_guard_below_its_floor_is_healed_and_must_clear_it(tmp_path):
+    """d12/d13: a guard below its floor is a heal reason; a healed build still below fails."""
+    with pytest.raises(CliError, match="guard selection accuracy 0.0 is below its floor 0.4"):
         _gated_run(tmp_path, Q.Gating(sources=frozenset({"src"}), guard_floor=0.4))
-    decision = _read(tmp_path / "run", Q.DECISION_FILE)
-    assert {"step": "guard", "survivors": []} in decision["trail"]
+    trigger = [e for e in _log(tmp_path / "run") if e.get("event") == "heal_trigger"][-1]
+    assert any(r.startswith("guard:") for r in trigger["reasons"])
+
+
+def test_a_heal_repeat_needs_a_deviation_id_gating_and_valid_counts():
+    gating = Q.Gating(sources=frozenset({"src"}))
+    with pytest.raises(CliError, match="needs a deviation id"):
+        Q._check_repeat({"domain": 2, "guard": 1}, gating, None)
+    with pytest.raises(CliError, match="needs the gating knob"):
+        Q._check_repeat({"domain": 2, "guard": 1}, None, "d13")
+    with pytest.raises(CliError, match="must be"):
+        Q._check_repeat({"domain": 2}, gating, "d13")
+    with pytest.raises(CliError, match="integer in"):
+        Q._check_repeat({"domain": 0, "guard": 1}, gating, "d13")
+    assert Q._check_repeat({"domain": 3, "guard": 2}, gating, "d13") == {"domain": 3, "guard": 2}
+    assert Q._check_repeat(None, None, None) is None
+
+
+def test_the_heal_set_repeats_each_side(tmp_path):
+    train = tmp_path / "train.jsonl"
+    base = {"question_id": "q", "kind": "choice", "state": "s", "options": [["a", ""], ["b", ""]]}
+    rows = [
+        {**base, "record_id": "d", "source": "src"},
+        {**base, "record_id": "g", "source": "guard"},
+    ]
+    train.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    info = Q.write_heal_set(
+        train,
+        tmp_path / "heal.jsonl",
+        [],
+        repeat={"domain": 3, "guard": 2},
+        sources=frozenset({"src"}),
+    )
+    ids = [json.loads(x)["record_id"] for x in (tmp_path / "heal.jsonl").read_text().splitlines()]
+    assert ids == ["d", "d", "d", "g", "g"]
+    assert (info["rows"], info["repeat"], info["domain_sources"]) == (
+        5,
+        {"domain": 3, "guard": 2},
+        ["src"],
+    )
+
+
+def test_a_heal_repeat_reaches_the_heal_set_and_the_log(tmp_path):
+    gating = Q.Gating(sources=frozenset({"src"}), guard_floor=0.4)
+    with pytest.raises(CliError, match="guard"):
+        _gated_run(tmp_path, gating, heal_repeat={"domain": 2, "guard": 1})
+    trigger = [e for e in _log(tmp_path / "run") if e.get("event") == "heal_trigger"][-1]
+    assert trigger["heal_repeat"] == {"domain": 2, "guard": 1}

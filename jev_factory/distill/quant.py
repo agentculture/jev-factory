@@ -1066,8 +1066,6 @@ def choose_format(
     step("available", lambda m: m["available"])
     step("safety", lambda m: m["safe"])
     step("calibration", lambda m: m["ece"] is not None and m["ece"] <= ece_max + _EPS)
-    if any("guard" in m for m in alive):
-        step("guard", _guard_holds)
     if not alive:
         return {
             "format": None,
@@ -1178,7 +1176,21 @@ def _clef_of(row: Mapping[str, Any]) -> Any:
 _HEAL_ROW_KEYS = ("record_id", "question_id", "kind", "state", "options")
 
 
-def write_heal_set(train_file: Path, path: Path, protected: Sequence[str]) -> dict[str, Any]:
+def _repeats(
+    row: Mapping[str, Any], repeat: Mapping[str, int] | None, sources: frozenset[str]
+) -> int:
+    if not repeat:
+        return 1
+    return int(repeat["domain"] if row.get("source") in sources else repeat["guard"])
+
+
+def write_heal_set(
+    train_file: Path,
+    path: Path,
+    protected: Sequence[str],
+    repeat: Mapping[str, int] | None = None,
+    sources: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
     """The heal input from the frozen train rows: Clef's distribution, no gold or teacher.
 
     Refuses (exit non-zero, nothing written) a row whose record id is protected.
@@ -1204,6 +1216,7 @@ def write_heal_set(train_file: Path, path: Path, protected: Sequence[str]) -> di
             "clef_source": r.get("target_source"),
         }
         for r in rows
+        for _ in range(_repeats(r, repeat, sources))
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in out), encoding="utf-8")
@@ -1211,6 +1224,8 @@ def write_heal_set(train_file: Path, path: Path, protected: Sequence[str]) -> di
         "path": str(path),
         "sha256": dp.sha256_file(path),
         "rows": len(out),
+        "repeat": dict(repeat) if repeat else None,
+        "domain_sources": sorted(sources) if repeat else [],
         "rows_with_clef": sum(r["clef"] is not None for r in out),
         "train_file_sha256": dp.sha256_file(Path(train_file)),
     }
@@ -1332,7 +1347,15 @@ def heal_reasons(
             f"agreement: {fmt} agrees {agreement} with the bf16 student on fit+selection "
             f"(< {minimum})"
         )
+    if not _guard_holds(measured[fmt]):
+        reasons.append(f"guard: {_guard_text(measured[fmt])}")
     return reasons
+
+
+def _guard_text(m: Mapping[str, Any]) -> str:
+    guard = m.get("guard") or {}
+    acc = (guard.get("selection") or {}).get("accuracy")
+    return f"{m['format']} guard selection accuracy {acc} is below its floor {guard.get('floor')}"
 
 
 @dataclass(frozen=True)
@@ -1355,6 +1378,8 @@ class _HealRun:
     #: A deviation's heal mix in place of the registered one (``run_quant(heal_mix=...)``).
     mix_override: Mapping[str, float] | None = None
     gating: Gating | None = None
+    #: A deviation's repeat counts for the heal set's domain and guard rows (d13).
+    repeat: Mapping[str, int] | None = None
 
     @property
     def mix(self) -> dict[str, float]:
@@ -1426,6 +1451,7 @@ def _heal_trigger(
         "quant_accuracy": measured[fmt]["accuracy"],
         "margin_points": HEAL_MARGIN_POINTS,
         "heal_knobs": heal_knobs(hr.reg),
+        "heal_repeat": dict(hr.repeat) if hr.repeat else None,
         "heal_mix": hr.mix,
         "heal_mix_registered": heal_mix(hr.reg),
         "heal_source": hr.reg.raw["heal"]["source"],
@@ -1471,6 +1497,8 @@ def _healed_problem(
             f"the healed {fmt} agrees {agreement} with the bf16 student on fit+selection, "
             f"below the {minimum} bar; it is not shippable"
         )
+    if not _guard_holds(again):
+        return f"the healed {_guard_text(again)}; it is not shippable"
     return None
 
 
@@ -1489,7 +1517,13 @@ def _heal_round(
     round_ = _check_heal_allowed(fmt, reasons, hr.heal_log, hr.train_file, hr.deviation_id)
     root = heal_root(hr.out_dir, fmt, round_)
     protected = protected_digests(hr.fold_records, hr.sealed)
-    heal_set = write_heal_set(hr.train_file, root / HEAL_SET_FILE, protected)  # refuses first
+    heal_set = write_heal_set(  # refuses first
+        hr.train_file,
+        root / HEAL_SET_FILE,
+        protected,
+        repeat=hr.repeat,
+        sources=hr.gating.sources if hr.gating else frozenset(),
+    )
     spec = {
         "format": fmt,
         "mix": hr.mix,
@@ -1558,6 +1592,31 @@ def _heal_plans(hr: _HealRun, formats: Sequence[str]) -> dict[str, Any]:
     }
 
 
+def _check_repeat(
+    repeat: Mapping[str, Any] | None, gating: Gating | None, deviation_id: str | None
+) -> dict[str, int] | None:
+    """A deviation's heal-set repeat counts ``{"domain": n, "guard": m}``, validated.
+
+    Repeating rows changes how much each side weighs in the heal without touching the
+    pre-registered heal epochs or lr; it needs the gating knob (which names the domain) and a
+    deviation id."""
+    if repeat is None:
+        return None
+    if not (deviation_id or "").strip():
+        raise _refuse(
+            "a heal repeat needs a deviation id",
+            "record a deviation and pass --deviation-id with the heal_repeat knob",
+        )
+    if gating is None:
+        raise _refuse("heal_repeat needs the gating knob (it names the domain sources)")
+    if not isinstance(repeat, Mapping) or sorted(repeat) != ["domain", "guard"]:
+        raise _refuse('knob heal_repeat must be {"domain": n, "guard": m}')
+    for side, n in repeat.items():
+        if not (isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= 10):
+            raise _refuse(f"heal_repeat.{side} must be an integer in [1, 10], not {n!r}")
+    return {"domain": int(repeat["domain"]), "guard": int(repeat["guard"])}
+
+
 def run_quant(
     *,
     prereg_path: Path | str,
@@ -1575,6 +1634,7 @@ def run_quant(
     probe: Sequence[Record] = (),
     heal_mix_override: Mapping[str, float] | None = None,
     gating: Gating | None = None,
+    heal_repeat: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     """Plan (dry-run) or run the format spike, the heal round and the recalibration.
 
@@ -1594,6 +1654,7 @@ def run_quant(
                 "record a deviation and pass --deviation-id with the heal_mix knob",
             )
         heal_mix_override = td.check_mix(heal_mix_override, where="knob heal_mix")
+    heal_repeat = _check_repeat(heal_repeat, gating, deviation_id)
     if gating is not None and not (deviation_id or "").strip():
         raise _refuse(
             "rules read from the gating sources only change the locked rule; they need a "
@@ -1630,6 +1691,7 @@ def run_quant(
         kw=kw,
         mix_override=heal_mix_override,
         gating=gating,
+        repeat=heal_repeat,
     )
     base = {
         "stage": "distill-quant",
