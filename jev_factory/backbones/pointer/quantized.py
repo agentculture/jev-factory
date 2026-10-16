@@ -781,10 +781,11 @@ def read_artifact(path: Path | str) -> dict[str, Any]:
 
 
 def file_snapshot(path: Path | str) -> dict[str, tuple[int, int, int]]:
-    """(size, mtime_ns, inode) of every file of the artifact; cheap, no hashing."""
+    """(size, ctime_ns, inode) of every file of the artifact: cheap, no hashing; a write,
+    rename or replacement changes ctime, which (unlike a stored timestamp) cannot be set back."""
     root = Path(path)
     return {
-        f.name: (st.st_size, st.st_mtime_ns, st.st_ino)
+        f.name: (st.st_size, st.st_ctime_ns, st.st_ino)
         for f in sorted(root.iterdir())
         if f.is_file() and (st := f.stat())
     }

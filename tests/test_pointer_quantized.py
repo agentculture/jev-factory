@@ -1471,7 +1471,7 @@ def test_the_attestation_reuses_the_loads_verification(tmp_path, monkeypatch):
 
 
 def test_a_changed_file_changes_the_snapshot_the_bundle_route_checks(tmp_path):
-    """/v1/bundle re-verifies from disk once a file's size, mtime or inode moved."""
+    """/v1/bundle re-verifies from disk once a file's size, ctime or inode moved."""
     art = _artifact(tmp_path / "art")
     before = qz.file_snapshot(art)
     assert qz.file_snapshot(art) == before
