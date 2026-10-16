@@ -1704,3 +1704,23 @@ def test_a_healed_build_keeps_the_healed_predictions(tmp_path):
     doc = _read(run_dir, Q.DEPLOYED_PREDICTIONS_FILE)
     assert doc["artifact"] == out["deployed_artifact"]
     assert Q.HEAL_DIR in Path(doc["artifact"]).parts
+
+
+@pytest.mark.parametrize("allow", [False, True])
+def test_the_torchao_builder_passes_allow_foreign_to_the_gpu_guard(tmp_path, monkeypatch, allow):
+    seen = {}
+
+    class Stop(Exception):
+        pass
+
+    def guard(stage, **kw):
+        seen.update(stage=stage, **kw)
+        raise Stop
+
+    monkeypatch.setattr(Q.gpu, "assert_gpu_free", guard)
+    build = Q.torch_wo_builder(
+        "0" * 40, python="py", decider_repo=tmp_path, memory_max="8G", allow_foreign=allow
+    )
+    with pytest.raises(Stop):
+        build("torch_int4_wo", tmp_path / "ckpt", tmp_path / "out")
+    assert seen == {"stage": "quantize", "allow_foreign": allow}

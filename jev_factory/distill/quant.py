@@ -372,8 +372,8 @@ def bf16_builder(base_revision: str) -> Builder:
     return build
 
 
-def _gpu_guard(stage: str) -> Any:
-    return gpu.assert_gpu_free(stage)
+def _gpu_guard(stage: str, allow_foreign: bool = False) -> Any:
+    return gpu.assert_gpu_free(stage, allow_foreign=allow_foreign)
 
 
 def _reusable(
@@ -448,7 +448,10 @@ def torch_wo_builder(
             return out_dir
         if not memory_max:
             raise _refuse("a GPU quantize build needs a memory cap", "pass memory_max with apply")
-        (guard or _gpu_guard)("quantize")
+        if guard is None:
+            _gpu_guard("quantize", allow_foreign=allow_foreign)
+        else:
+            guard("quantize")
         common = {
             "apply": True,
             "python": python,
