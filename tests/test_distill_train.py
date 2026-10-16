@@ -600,3 +600,23 @@ def test_served_scorer_passes_allow_foreign_to_the_gpu_guard(tmp_path, monkeypat
     with pytest.raises(Stop):
         score(T.Candidate("c000", {}), tmp_path / "c000" / "checkpoint", {})
     assert seen == {"stage": "measure", "allow_foreign": allow}
+
+
+def test_a_score_answer_maps_levels_by_description_not_by_position():
+    """A stored prediction file has its keys sorted; the levels must survive that."""
+    q = Question("score", [("0", "No sign."), ("1", "Mild."), ("2", "Clearly unhappy.")])
+    rec = Record(
+        id="r",
+        state="s",
+        questions={"q": q},
+        gold={"q": Gold(label="0")},
+        split="train",
+        source="src",
+        licence="mit",
+        gold_provenance="human",
+    )
+    served = {"No sign.": 0.7, "Mild.": 0.2, "Clearly unhappy.": 0.1}
+    stored = dict(sorted(served.items()))  # "Clearly unhappy." first
+    for dist in (served, stored):
+        assert T._answer_probs(rec, "q", {"distribution": dist}) == {"0": 0.7, "1": 0.2, "2": 0.1}
+    assert T._answer_probs(rec, "q", {"distribution": {"a": 0.5, "b": 0.3, "c": 0.2}}) is None

@@ -170,7 +170,15 @@ def _answer_probs(rec: Record, qid: str, ans: Mapping[str, Any]) -> dict[str, fl
     dist = ans.get("distribution")
     if not isinstance(dist, Mapping) or len(dist) != len(names):
         return None
-    values = [dist[n] for n in names] if set(dist) == set(names) else list(dist.values())
+    # A score answer is keyed by each level's description (the wire sends descriptions only).
+    # Map by key, never by position: a stored prediction file has its keys sorted.
+    descriptions = tuple(desc for _, desc in q.criteria)
+    if set(dist) == set(names):
+        values = [dist[n] for n in names]
+    elif len(set(descriptions)) == len(names) and set(dist) == set(descriptions):
+        values = [dist[d] for d in descriptions]
+    else:
+        return None
     if not all(isinstance(v, (int, float)) and v >= 0 for v in values):
         return None
     total = math.fsum(values)
