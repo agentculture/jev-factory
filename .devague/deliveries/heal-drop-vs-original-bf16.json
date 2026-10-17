@@ -2,7 +2,7 @@
   "plan_slug": "heal-drop-vs-original-bf16",
   "schema_version": 2,
   "created": "2026-10-17T06:45:26Z",
-  "updated": "2026-10-17T07:02:09Z",
+  "updated": "2026-10-17T07:06:48Z",
   "deviations": [],
   "evidence": [
     {
@@ -210,7 +210,7 @@
         "commit": "62fe2c2"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 11
     }
