@@ -14,11 +14,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from jev_factory.backbones import registry
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.factory.detach import start_detached
 from jev_factory.measure.preflight import require_localhost
 
-ROLES = ("teacher", "student", "trainer")
+# EnvSpec and ROLES live in the shared layer (deviation d1) and keep this import path.
+from jev_factory.runtime.envs import ROLES, EnvSpec
+
 SERVER_ROLES = ("teacher", "student")
 KINDS = ("strands-decider", "clef-transformers", "sglang-dev-clef", "vllm-clef")
 #: Clef serving recipes: variant (upper-case) -> (engine kind, quantization or None). Data, so a
@@ -32,8 +35,8 @@ VARIANT_RECIPES: dict[str, tuple[str, str | None]] = {
 LOOPBACK = "127.0.0.1"
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
-_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-_LOCK = re.compile(r"^[0-9a-f]{64}$")
+#: Server kinds a backbone serves, and the registered backbone that builds their command line.
+KIND_BACKBONES = {"strands-decider": "pointer"}
 #: An exact version pin: a digit first, then alphanumeric runs joined by single ``.``, ``+``
 #: or ``-`` separators, ending alphanumeric (``1.2.3``, ``2.12.1+cu130``, ``1.0rc1``). The same
 #: language as the earlier ``^[0-9]+(\.[0-9]+)*([.+-]?[A-Za-z0-9]+)*$``, but every separator in
@@ -62,37 +65,6 @@ def variant_recipe(variant: str) -> tuple[str, str | None]:
 
 def _refuse(message: str, remediation: str = "") -> CliError:
     return CliError(code=EXIT_USER_ERROR, message=message, remediation=remediation)
-
-
-@dataclass(frozen=True)
-class EnvSpec:
-    """One pinned environment: a python path xor an image digest, plus a lockfile hash."""
-
-    role: str
-    lockfile_hash: str
-    python: str | None = None
-    image_digest: str | None = None
-
-    def __post_init__(self) -> None:
-        if self.role not in ROLES:
-            raise _refuse(f"unknown environment role {self.role!r}", f"use one of {ROLES}")
-        if bool(self.python) == bool(self.image_digest):
-            raise _refuse(
-                f"{self.role} environment needs exactly one of python or image_digest",
-                "give a python path or an image digest, not both and not neither",
-            )
-        if self.image_digest and not _DIGEST.match(self.image_digest):
-            raise _refuse(f"{self.role} image_digest must be sha256:<64 hex>")
-        if not _LOCK.match(self.lockfile_hash or ""):
-            raise _refuse(f"{self.role} lockfile_hash must be 64 hex characters (sha256)")
-
-    def record(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"role": self.role, "lockfile_hash": self.lockfile_hash}
-        if self.python:
-            out["python"] = self.python
-        if self.image_digest:
-            out["image_digest"] = self.image_digest
-        return out
 
 
 def describe_environments(config: Mapping[str, Mapping[str, Any]]) -> tuple[EnvSpec, ...]:
@@ -185,13 +157,12 @@ def build_argv(spec: ServerSpec) -> list[str]:
             spec.hf_revision,
         ]
     python = str(spec.env.python)
-    if spec.kind == "strands-decider":
-        # Imported here: pointer.serve imports this module for EnvSpec. ``model`` must be a
-        # verified local bundle directory (a Hub id would be fetched unpinned); the revision
-        # pin above refers to the bundle's source commit and is not a CLI flag.
-        from jev_factory.backbones.pointer.serve import serve_argv
-
-        return serve_argv(python, spec.model, port=spec.port, host=spec.host)
+    if spec.kind in KIND_BACKBONES:
+        # The backbone's own serve hook. ``model`` must be a verified local bundle directory (a
+        # Hub id would be fetched unpinned); the revision pin above refers to the bundle's
+        # source commit and is not a CLI flag.
+        backbone = registry.get(KIND_BACKBONES[spec.kind])
+        return backbone.serve_argv(python, spec.model, port=spec.port, host=spec.host)
     module = {
         "clef-transformers": ["-m", "transformers_sidecar", "load_release_model"],
         "sglang-dev-clef": ["-m", "sglang.launch_server"],

@@ -50,16 +50,17 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from jev_factory.backbones.pointer import train_distill as td
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill import assemble as dassemble
 from jev_factory.distill import audit as daudit
+from jev_factory.distill import executor as dex
 from jev_factory.distill import final as dfinal
 from jev_factory.distill import gate as dgate
 from jev_factory.distill import prereg as dprereg
 from jev_factory.distill import quant as dquant
 from jev_factory.distill import train as dtrain
 from jev_factory.distill.runspec import GpuLimits, TrainerEnv
+from jev_factory.distill.student import backbone as student_backbone
 from jev_factory.factory.config import RunConfig
 from jev_factory.factory.lock import RunLock
 from jev_factory.factory.stages import (
@@ -67,6 +68,7 @@ from jev_factory.factory.stages import (
     SKIPPED,
     Registry,
     Stage,
+    manifest_path,
     read_manifest,
     run_stage,
     sha256_path,
@@ -316,6 +318,11 @@ class DistillContext:
     allow_foreign_gpu: bool = False
     services: Services = field(default_factory=Services)
     _profile: Any = field(default=None, init=False, repr=False, compare=False)
+    #: Job manifests a non-local executor ran during the current stage (deviation d3); the
+    #: stage manifest records them under ``jobs`` (:func:`run`).
+    recorded_jobs: list[dict[str, Any]] = field(
+        default_factory=list, init=False, repr=False, compare=False
+    )
 
     def profile(self) -> Any:
         """The run's student profile, resolved once: ``distill_student_profile`` (a TOML file),
@@ -426,6 +433,16 @@ def _student_env(ctx: DistillContext) -> Any:
         lockfile_hash=str(ctx.config.require("distill_student_lockfile")),
         python=str(ctx.config.require("distill_student_python")),
     )
+
+
+def _student(ctx: DistillContext) -> Any:
+    """The run's student backbone: ``registry.get(profile.backbone)`` (deviation d2)."""
+    return student_backbone(ctx.profile())
+
+
+def _checkpoint_outputs(ctx: DistillContext) -> tuple[str, ...]:
+    """The checkpoint files a training job must return (hash-verified by the executor seam)."""
+    return tuple(_student(ctx).trainer().CHECKPOINT_OUTPUTS)
 
 
 def _require_reg(ctx: DistillContext) -> dprereg.DistillPrereg:
@@ -830,6 +847,36 @@ def _executor(ctx: DistillContext) -> Any:
     return LocalExecutor()
 
 
+class _JobRecorder:
+    """The executor seam (:mod:`jev_factory.distill.executor`) that keeps each job manifest a
+    non-local executor ran, for the stage manifest (deviation d3). A local job is returned by
+    ``run_train`` only, so under ``local`` the train and quantize manifests are unchanged."""
+
+    JobLimits = dex.JobLimits
+
+    def __init__(self, ctx: DistillContext) -> None:
+        self._ctx = ctx
+
+    def job_spec_from_plan(self, plan: Mapping[str, Any], **kwargs: Any) -> Any:
+        return dex.job_spec_from_plan(plan, **kwargs)
+
+    def run_job(self, spec: Any, executor: Any = None, **kwargs: Any) -> dict[str, Any]:
+        job = dex.run_job(spec, executor, **kwargs)
+        if job.get("executor") != dex.LocalExecutor.name:
+            self._ctx.recorded_jobs.append(job)
+        return job
+
+
+def _record_jobs(workdir: Path, name: str, manifest: dict[str, Any], jobs: list) -> dict:
+    """Append each non-local job manifest under ``jobs`` (``executor.record_job``) and rewrite
+    the stage manifest in the stage engine's format."""
+    for job in jobs:
+        manifest = dex.record_job(manifest, job)
+    path = manifest_path(workdir, name)
+    path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    return manifest
+
+
 def _heal_trainer(ctx: DistillContext) -> Any:
     """quantize's heal trainer: the train stage's executor seam (same executor, checkpoint
     outputs hash-verified). The executor is resolved only when a heal actually runs."""
@@ -844,7 +891,8 @@ def _heal_trainer(ctx: DistillContext) -> Any:
             memory_floor=limits.memory_floor,
             timeout=limits.timeout,
             executor=_executor(ctx),
-            expected_outputs=td.CHECKPOINT_OUTPUTS,
+            expected_outputs=_checkpoint_outputs(ctx),
+            jobs=_JobRecorder(ctx),
         )
         return trainer(plan)
 
@@ -871,13 +919,15 @@ def stage_train(workdir: Path, knobs: dict[str, Any]) -> None:
             port=int(ctx.config.get("distill_student_port")),
             base_revision=_base_revision(ctx),
             allow_foreign=ctx.allow_foreign_gpu,
+            profile=ctx.profile(),
         )
     dtrain.run_grid(
         **_train_kwargs(ctx),
         apply=True,
         scorer=scorer,
         executor=_executor(ctx),
-        expected_outputs=td.CHECKPOINT_OUTPUTS,
+        expected_outputs=_checkpoint_outputs(ctx),
+        jobs=_JobRecorder(ctx),
     )
 
 
@@ -1000,9 +1050,9 @@ def _bf16_artifact(ctx: DistillContext) -> Path:
 def _bf16_final_model(ctx: DistillContext, artifact: Path) -> Any:
     """The distilled bf16 student, served from *artifact* on the Spark (127.0.0.1); the folder
     is its ``served_from`` (what a bf16 deployed student is attested by)."""
-    from jev_factory.backbones.pointer import serve as pserve
     from jev_factory.distill import benchmark as bench
 
+    pserve = _student(ctx).server()
     env, jobdir = _student_env(ctx), jobs_dir(ctx.work)
     port = int(ctx.config.get("distill_student_port"))
     base_url = f"http://{pserve.LOOPBACK}:{port}"
@@ -1027,10 +1077,10 @@ def _agx_final_model(ctx: DistillContext) -> Any:
 
     ``/v1/bundle`` and ``/v1/stats`` are read through the same tunnel (FinalModel.get), so the
     final attests the bundle that answers before any request."""
-    from jev_factory.backbones.pointer import serve as pserve
     from jev_factory.distill import benchmark as bench
     from jev_factory.distill import edge as dedge
 
+    pserve = _student(ctx).server()
     base_url = _deployed_url(ctx)
     name = "distill-final-student"
     return dfinal.FinalModel(
@@ -1397,9 +1447,14 @@ def _skip_reason(name: str, ctx: DistillContext, reg: dprereg.DistillPrereg | No
 
 
 def _stage_for(name: str, ctx: DistillContext, reg: dprereg.DistillPrereg | None) -> Stage:
-    """Stage *name* with the inputs this run actually has: under bf16 the deployed calibration
-    is select/calibration.json and there are no quant predictions; after a skipped
-    corrections-draft assemble reads no corrections file. Unchanged for a quant ship."""
+    return stage_for(name, ctx.work, reg)
+
+
+def stage_for(name: str, work: Path, reg: dprereg.DistillPrereg | None) -> Stage:
+    """Stage *name* with the inputs the run at *work* actually has, under its locked
+    pre-registration *reg*: under bf16 the deployed calibration is select/calibration.json and
+    there are no quant predictions; after a skipped corrections-draft assemble reads no
+    corrections file. Unchanged for a quant ship (and before the lock: *reg* None)."""
     stage = REGISTRY.get(name)
     inputs = stage.inputs
     if reg is not None and dprereg.deployed_format(reg) == "bf16":
@@ -1409,10 +1464,24 @@ def _stage_for(name: str, ctx: DistillContext, reg: dprereg.DistillPrereg | None
             if rel != QUANT_PREDICTIONS
         )
     if name == "assemble":
-        draft = read_manifest(stage_dir(ctx.work), "corrections-draft") or {}
+        draft = read_manifest(stage_dir(work), "corrections-draft") or {}
         if draft.get("status") == SKIPPED:
             inputs = tuple(rel for rel in inputs if rel != CORRECTIONS_FILE)
     return stage if inputs == stage.inputs else replace(stage, inputs=inputs)
+
+
+def effective_registry(work: Path, deviation_id: str | None = None) -> Registry:
+    """Every distill stage with the inputs the run at *work* actually has (:func:`stage_for`,
+    under the locked pre-registration, or the registered inputs before the lock). What
+    ``jev status`` judges distill staleness with, so it agrees with the pipeline (d4)."""
+    try:
+        reg = dprereg.require_locked(Path(work) / dprereg.PREREG_REL, Path(work), deviation_id)
+    except (CliError, OSError, ValueError):  # no lock yet, or one status cannot read
+        reg = None
+    out = Registry()
+    for name in REGISTRY.names():
+        out.register(stage_for(name, Path(work), reg))
+    return out
 
 
 def _registry_for(
@@ -1582,7 +1651,11 @@ def run(
             one = _registry_for(
                 ctx, reg, wrap=lambda st: replace(st, func=_guarded(st.func)), only=name
             )
-            return run_stage(stage_dir(work), name, effective, registry=one, force=force)
+            ctx.recorded_jobs.clear()
+            man = run_stage(stage_dir(work), name, effective, registry=one, force=force)
+            if ctx.recorded_jobs and not man.get("skipped"):
+                man = _record_jobs(stage_dir(work), name, man, ctx.recorded_jobs)
+            return man
     finally:
         _CURRENT.reset(token)
 

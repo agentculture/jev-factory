@@ -10,17 +10,22 @@ the file and key it came from; every knob a run uses must be in the grid.
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from jev_factory.backbones.pointer.quantized import SIZE_BUDGET_BYTES
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill.profile import DEFAULT_2610, StudentProfile
+from jev_factory.distill.student import backbone as student_backbone
 from jev_factory.factory import safepath
+from jev_factory.runtime import prereg_lock
+from jev_factory.runtime.prereg_lock import sha256_file  # noqa: F401  (re-exported)
+
+#: The deployed build's weight budget: the student backbone's own (the c17 bar's 10^9 bytes),
+#: read through the registry (deviation d2).
+SIZE_BUDGET_BYTES = student_backbone(DEFAULT_2610).quantizer().SIZE_BUDGET_BYTES
 
 #: 3 = roles and a deployed format: ``roles`` declares the teacher (Clef, with its locked
 #: build ``variant``), the stock target and the student (all mandatory) and the alt teacher,
@@ -38,7 +43,7 @@ SCHEMA_VERSION = 3
 V2_SCHEMA_VERSION = 2
 SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (V2_SCHEMA_VERSION, SCHEMA_VERSION)
 PREREG_REL = "distill/prereg.json"
-LOCK_REL = "distill/prereg.lock.json"
+LOCK_REL = prereg_lock.LOCK_REL
 
 #: Knobs a run may set that are searched over (each needs a registered grid).
 KNOB_NAMES: tuple[str, ...] = (
@@ -844,10 +849,6 @@ def teacher_bar(reg: DistillPrereg, build: str) -> float:
     return float(reg.v3_c17[build][TEACHER_BAR])
 
 
-def sha256_file(path: Path) -> str:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
 def load(path: Path) -> DistillPrereg:
     path = Path(path)
     try:
@@ -887,21 +888,9 @@ def require_locked(
     Refuses without a lock, with an invalid file, or when the sha256 no longer
     matches the lock and no ``deviation_id`` is given.
     """
-    lock_path = Path(run_dir) / LOCK_REL
-    if not lock_path.exists():
-        raise _err(
-            "no distill pre-registration is locked for this run",
-            "lock the distill pre-registration before any training command",
-        )
-    # The lock must be this run's own file: a symlink (e.g. to another run's lock) is refused.
-    lock_path = safepath.regular_file(lock_path, Path(run_dir))
-    recorded = json.loads(lock_path.read_text(encoding="utf-8"))
+    recorded = prereg_lock.read_lock(Path(run_dir))
     reg = load(prereg_path)
-    if sha256_file(prereg_path) != recorded.get("sha256") and not (deviation_id or "").strip():
-        raise _err(
-            "the distill pre-registration file changed since it was locked",
-            "record a deviation and pass its id (--deviation <id>)",
-        )
+    prereg_lock.check_unchanged(Path(prereg_path), recorded, deviation_id)
     return reg
 
 

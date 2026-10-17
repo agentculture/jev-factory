@@ -3,7 +3,7 @@
 A pointer head scores each named option from its own hidden state, so there is no letter
 readout and no letter-token logprob anywhere in this family: a row's distribution is the
 per-option ``probabilities`` a served ``strands-decider serve`` returns on /v1/systemone,
-read by :mod:`jev_factory.distill.systemone`. strands_decider is never imported in-process;
+read by :mod:`jev_factory.wire.systemone`. strands_decider is never imported in-process;
 it runs as a localhost subprocess in the pinned student env (:mod:`.serve`). Bundles are the
 ``hobson-hf-export/1`` layout (:mod:`.layout`).
 
@@ -187,6 +187,64 @@ class PointerBackbone(Backbone):
     def quantize_candidates(self, config: Mapping[str, Any]) -> Sequence[str]:
         """The served build is bf16 (``torch_dtype`` in the config); no GGUF path exists."""
         return ["bf16"]
+
+    # ---- the distillery's hooks (deviation d2) ---------------------------------------------
+    # Each delegate is looked up on its module at call time, so the distillery reaches exactly
+    # what the module holds now (a patched attribute in a test included).
+
+    def layout(self) -> Any:
+        """:mod:`.layout` (``hobson-hf-export/1``)."""
+        from jev_factory.backbones.pointer import layout
+
+        return layout
+
+    def config_files(self) -> Mapping[str, str]:
+        from jev_factory.backbones.pointer import layout, train_distill
+
+        return {
+            "served_config": layout.CONFIG,
+            "manifest": layout.MANIFEST,
+            "provenance": layout.PROVENANCE,
+            "train_config": train_distill.CONFIG_FILE,
+        }
+
+    def serve_argv(
+        self, python: str, bundle: Any, *, port: int, host: str = "127.0.0.1"
+    ) -> list[str]:
+        """``strands-decider serve`` on a verified local bundle (:func:`.serve.serve_argv`)."""
+        from jev_factory.backbones.pointer import serve
+
+        return serve.serve_argv(python, bundle, port=port, host=host)
+
+    def server(self) -> Any:
+        """:mod:`.serve` (``launch``, ``wait_ready``, ``job_status``, ``PointerClient``)."""
+        from jev_factory.backbones.pointer import serve
+
+        return serve
+
+    def plan_distill_train(self, **kwargs: Any) -> Mapping[str, Any]:
+        """:func:`.train_distill.plan_train` (the caller passes the ``prereg`` seam)."""
+        from jev_factory.backbones.pointer import train_distill
+
+        return train_distill.plan_train(**kwargs)
+
+    def run_distill_train(self, plan: Mapping[str, Any], **kwargs: Any) -> Mapping[str, Any]:
+        """:func:`.train_distill.run_train` (the caller passes the ``jobs`` seam)."""
+        from jev_factory.backbones.pointer import train_distill
+
+        return train_distill.run_train(plan, **kwargs)
+
+    def trainer(self) -> Any:
+        """:mod:`.train_distill`."""
+        from jev_factory.backbones.pointer import train_distill
+
+        return train_distill
+
+    def quantizer(self) -> Any:
+        """:mod:`.quantized` (the torchao weight-only artifact and its server)."""
+        from jev_factory.backbones.pointer import quantized
+
+        return quantized
 
 
 BACKBONE = PointerBackbone()

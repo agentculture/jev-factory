@@ -82,7 +82,7 @@ def collect(workdir: Path) -> dict[str, Any]:
     distill_stages = (
         _stage_entries(
             distill_dir,
-            distill.REGISTRY,
+            distill.effective_registry(workdir),  # the run's own stage inputs (d4)
             lambda n: [j for j in jobs if j["job"] == f"{distill.DISTILL_DIR}/{n}"],
         )
         if distill_dir.is_dir()

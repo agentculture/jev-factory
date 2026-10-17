@@ -895,6 +895,41 @@ def test_the_heal_round_goes_through_the_executor_injected_for_train(env):
         assert {"distill/dataset/fit.jsonl", "distill/dataset/selection.jsonl"} <= set(sources)
 
 
+class RemoteLikeExecutor(RecordingExecutor):
+    """The recording executor under another name: what a non-local executor looks like."""
+
+    name = "fake-remote"
+
+
+def _heal_once(env: Env) -> None:
+    env.measurer.profile["torch_int8_wo"] = (0.4, 3000.0, 0.04)  # 8/12 on the toy fold: heal
+    env.measurer.healed = {"bf16": PROFILE["bf16"], "torch_int8_wo": PROFILE["torch_int8_wo"]}
+
+
+def test_a_non_local_executor_records_its_jobs_in_the_stage_manifests(env):
+    """d3/h12: any executor but local appends each job manifest under ``jobs`` in the train
+    and quantize stage manifests (executor.record_job)."""
+    env.services.executor = RemoteLikeExecutor()
+    _heal_once(env)
+    _through(env, "quantize")
+    train = env.read("manifests/train.json")
+    quant = env.read("manifests/quantize.json")
+    assert [j["executor"] for j in train["jobs"]] == ["fake-remote", "fake-remote"]
+    assert [j["executor"] for j in quant["jobs"]] == ["fake-remote"]
+    assert all(j["verified"] for j in train["jobs"] + quant["jobs"])
+    assert "--heal" in quant["jobs"][0]["spec"]["argv"]
+    assert "jobs" not in env.read("manifests/assemble.json")
+
+
+def test_the_local_executor_leaves_the_stage_manifests_without_jobs(env):
+    """d3: under local the train and quantize manifests stay as on main (no ``jobs``)."""
+    env.services.executor = RecordingExecutor()
+    _heal_once(env)
+    _through(env, "quantize")
+    assert "jobs" not in env.read("manifests/train.json")
+    assert "jobs" not in env.read("manifests/quantize.json")
+
+
 def test_benchmark_gate_final_edge_and_the_quant_builds_never_read_the_executor(env, monkeypatch):
     """c11: the executor is resolved for training jobs only; the measuring stages and the
     quantize builds never read distill_executor."""

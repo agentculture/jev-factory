@@ -11,7 +11,7 @@ student is the train stage's selected candidate (the bf16 deployed contract):
 * the candidate is ``distill/select/summary.json`` field ``winner``;
 * its checkpoint is ``distill/train/<winner>/bundle`` (``hobson-hf-export/1``, the layout
   ``strands-decider serve`` loads; verified with
-  :func:`jev_factory.backbones.pointer.layout.read_layout`);
+  the student backbone's ``layout().read_layout``);
 * its calibration is ``distill/select/calibration.json`` (the fit-fold calibration the select
   step wrote for the winner);
 * its fit- and selection-fold predictions are ``distill/train/<winner>/predictions.json``
@@ -35,11 +35,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from jev_factory.backbones.pointer import layout
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill import prereg as dp
 from jev_factory.distill import train as dtrain
+from jev_factory.distill.student import backbone as student_backbone
 from jev_factory.release import hub
+
+#: The student's bundle layout, through the registry (deviation d2).
+layout = student_backbone().layout()
 
 BF16 = "bf16"
 QUANT = "quant"

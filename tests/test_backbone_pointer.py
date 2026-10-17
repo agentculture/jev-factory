@@ -447,9 +447,10 @@ import ast  # noqa: E402
 
 import jev_factory.backbones.pointer as _pointer_pkg  # noqa: E402
 
-# Known remaining couplings (serve: SystemOneClient/EnvSpec; quantized: EnvSpec; train_distill:
-# executor/prereg). Each is a larger change owned by a later task; shrink this set, never grow it.
-_KNOWN_DISTILL_IMPORTERS = {"serve.py", "quantized.py", "train_distill.py"}
+# d-t16 (deviations d1/d2) removed the last couplings: SystemOneClient lives in jev_factory.wire,
+# EnvSpec, id_digest and the pre-registration lock check in jev_factory.runtime, and the trainer
+# receives its executor and pre-registration seams from the caller. Keep this set empty.
+_KNOWN_DISTILL_IMPORTERS: set[str] = set()
 
 
 def _distill_importers() -> set[str]:
@@ -473,7 +474,7 @@ def test_pointer_init_does_not_import_distill():
 
 
 def test_pointer_package_distill_imports_do_not_grow():
-    assert _distill_importers() <= _KNOWN_DISTILL_IMPORTERS
+    assert _distill_importers() <= _KNOWN_DISTILL_IMPORTERS == set()
 
 
 def test_default_init_from_matches_default_profile():
