@@ -439,3 +439,47 @@ def test_read_layout_and_export_refuse_a_member_that_is_a_symlink(tmp_path):
         pointer.read_layout(src)
     with pytest.raises(CliError, match="symlink"):
         pb.export(src_arg, out_arg)
+
+
+# --- t6: the pointer backbone does not import jev_factory.distill ------------------------------
+
+import ast  # noqa: E402
+
+import jev_factory.backbones.pointer as _pointer_pkg  # noqa: E402
+
+# Known remaining couplings (serve: SystemOneClient/EnvSpec; quantized: EnvSpec; train_distill:
+# executor/prereg). Each is a larger change owned by a later task; shrink this set, never grow it.
+_KNOWN_DISTILL_IMPORTERS = {"serve.py", "quantized.py", "train_distill.py"}
+
+
+def _distill_importers() -> set[str]:
+    found = set()
+    for path in Path(_pointer_pkg.__file__).parent.glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            names = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module]
+            elif isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            if any(
+                n == "jev_factory.distill" or n.startswith("jev_factory.distill.") for n in names
+            ):
+                found.add(path.name)
+    return found
+
+
+def test_pointer_init_does_not_import_distill():
+    assert "__init__.py" not in _distill_importers()
+
+
+def test_pointer_package_distill_imports_do_not_grow():
+    assert _distill_importers() <= _KNOWN_DISTILL_IMPORTERS
+
+
+def test_default_init_from_matches_default_profile():
+    from jev_factory.distill.profile import DEFAULT_2610
+
+    assert _pointer_pkg.DEFAULT_INIT_FROM == DEFAULT_2610.decider_repo
+    plan = _pointer_pkg.PointerBackbone().train_plan({})
+    assert plan["init_from"] == DEFAULT_2610.decider_repo
+    assert _pointer_pkg.PointerBackbone().train_plan({"init_from": "x"})["init_from"] == "x"

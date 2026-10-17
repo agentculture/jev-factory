@@ -30,9 +30,14 @@ from jev_factory.backbones.pointer.serve import (
     wait_ready,
 )
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
-from jev_factory.distill.pins import DECIDER_REPO
+
+# Default ``init_from`` of :meth:`PointerBackbone.train_plan`. The backbone never imports
+# ``jev_factory.distill``; a caller with a student profile passes ``config["init_from"]`` (the
+# profile's ``decider_repo``). A test pins this string to ``DEFAULT_2610.decider_repo``.
+DEFAULT_INIT_FROM = "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610"
 
 __all__ = [
+    "DEFAULT_INIT_FROM",
     "BACKBONE",
     "FORMAT",
     "QUESTION_ID",
@@ -135,7 +140,7 @@ class PointerBackbone(Backbone):
             "argv": argv,
             "cwd": config.get("repo", "<strands-decider checkout>"),
             "head_type": "pointer",
-            "init_from": str(config.get("init_from", DECIDER_REPO)),
+            "init_from": str(config.get("init_from", DEFAULT_INIT_FROM)),
         }
 
     def merge_verify(self, adapter_dir: str, base: str) -> Mapping[str, Any]:
