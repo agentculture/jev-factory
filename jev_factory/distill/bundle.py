@@ -15,6 +15,12 @@ Two private upload folders are written under one output directory:
     target source, licence and teacher build, with no text), ``report.json`` (the single
     final comparison), ``assemble_manifest.json`` and ``distill_provenance.json``.
 
+    Under a bf16 ship (``deployed_format bf16``, quantize skipped) the student is the train
+    stage's winner, ``distill/train/<winner>/bundle`` (``hobson-hf-export/1``), with
+    ``distill/select/calibration.json`` (:mod:`jev_factory.distill.deployed`), and
+    ``distill_provenance.json`` additionally carries ``bundle_kind: bf16`` and
+    ``deployed_student`` (where it came from). A quant bundle is unchanged.
+
 ``dataset/``
     ``train.jsonl``: the frozen training rows, **only those whose source licence is
     Apache-2.0 or MIT**, each row keeping its ``licence``, ``source`` and ``target_source``;
@@ -50,10 +56,10 @@ from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill import assemble as dassemble
 from jev_factory.distill import audit as daudit
 from jev_factory.distill import dataset as ddataset
+from jev_factory.distill import deployed as ddeployed
 from jev_factory.distill import final as dfinal
 from jev_factory.distill import gate as dgate
 from jev_factory.distill import prereg as dprereg
-from jev_factory.distill import quant as dquant
 from jev_factory.release import hub, scan
 
 MODEL_DIR = "model"
@@ -69,6 +75,8 @@ CALIBRATION_FILE = "calibration.json"
 GATE_FILE = "gate.json"
 SCORER_TRAIN_FILE = "scorer-train.json"
 PROVENANCE_FILE = "distill_provenance.json"
+#: Set (to ``bf16``) in ``distill_provenance.json`` only for a bf16-kind bundle.
+BUNDLE_KIND_KEY = "bundle_kind"
 REPORT_FILE = "report.json"
 MANIFEST_COPY = "assemble_manifest.json"
 TRAIN_FILE = "train.jsonl"
@@ -358,8 +366,8 @@ def _provenance(
         if path.is_file():
             audits[role] = {"path": rel, "sha256": _sha256_bytes(_read_bytes(path, "audit"))}
     assemble = _read_json(run_dir / dassemble.MANIFEST_REL, _ASSEMBLE_MANIFEST)
-    manifest = student["manifest"]
-    return {
+    manifest = student["manifest"] or {}
+    prov = {
         "format": BUNDLE_FORMAT,
         "deployed_format": student["format"],
         "layout": dict(layout_info),
@@ -375,6 +383,23 @@ def _provenance(
         "environments": dict(extra.get("environments") or {}),
         "held_out_published": False,
         "test_published": False,
+    }
+    if student.get("deployed_format") == ddeployed.BF16:  # additive: a quant bundle is unchanged
+        prov[BUNDLE_KIND_KEY] = ddeployed.BF16
+        prov["deployed_student"] = _bf16_origin(student)
+    return prov
+
+
+def _bf16_origin(student: Mapping[str, Any]) -> dict[str, Any]:
+    """Where a bf16 bundle's student came from (the bf16 deployed contract, run-relative)."""
+    winner = str(student["winner"])
+    return {
+        "winner": winner,
+        "checkpoint": ddeployed.checkpoint_rel(winner),
+        "calibration": student["calibration_file"],
+        "predictions": ddeployed.predictions_rel(winner),
+        "attestation": dict(student["bundle"]),
+        "quantize": "skipped (deployed_format bf16)",
     }
 
 
@@ -435,15 +460,14 @@ def build_bundles(
     run_dir, out_dir, prereg_path = Path(run_dir), Path(out_dir), Path(prereg_path)
     model_out, data_out = out_dir / MODEL_DIR, out_dir / DATASET_DIR
     _require_fresh(model_out, data_out)
-    student = dfinal.deployed_student(run_dir)
+    reg = dprereg.require_locked(prereg_path, run_dir, deviation_id)
+    student = ddeployed.deployed_student(run_dir, reg)
     gate = _gate(prereg_path, run_dir, deviation_id, student["calibration_sha256"])
     blob, rows = _train_rows(run_dir)
     _refuse_sealed_rows(rows, dataset_dir)
     report = _read_bytes(run_dir / dfinal.FINAL_REL / dfinal.REPORT_FILE, "final report")
     assemble_bytes = _read_bytes(run_dir / dassemble.MANIFEST_REL, _ASSEMBLE_MANIFEST)
-    calibration_bytes = _read_bytes(
-        run_dir / dquant.QUANT_REL / dquant.CALIBRATION_FILE, "calibration"
-    )
+    calibration_bytes = _read_bytes(run_dir / student["calibration_file"], "calibration")
     calibration = json.loads(calibration_bytes)
     keep, excluded = _licensed_rows(rows)
     notice = _bundle_notice(keep, dataset_dir, dataset_manifest)

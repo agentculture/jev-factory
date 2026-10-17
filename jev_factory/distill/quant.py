@@ -143,6 +143,8 @@ HEAL_SPEC_FILE = "heal_spec.json"
 DEPLOYED_PREDICTIONS_FILE = "deployed_predictions.json"
 #: The outcome recorded when no quantized build qualifies; nothing ships (risk r10).
 NO_QUALIFYING = "no qualifying format"
+#: Why quantize (and its heal round) is skipped when the pre-registration ships bf16.
+BF16_SKIP_REASON = "deployed_format bf16"
 PROBE_FOLD = "probe"
 #: The folds agreement with the bf16 student is computed on (never test or held-out).
 AGREEMENT_FOLDS: tuple[str, ...] = dtrain.FOLDS
@@ -401,6 +403,26 @@ def heal_mix(reg: dp.DistillPrereg) -> dict[str, float]:
 def agreement_min(reg: dp.DistillPrereg) -> float:
     """``bars.c17.quant.quant_vs_bf16_agreement_min`` (validated >= 0.97 by the prereg)."""
     return float(reg.bars["c17"]["quant"]["quant_vs_bf16_agreement_min"])
+
+
+def skip_reason(reg: dp.DistillPrereg) -> str | None:
+    """:data:`BF16_SKIP_REASON` when *reg* ships the bf16 student, else None (a quant ship).
+
+    The pipeline records the skip (``factory.stages.write_skipped``) with this reason; under
+    bf16 nothing is quantized, healed or recalibrated here, and gate, bundle and edge take
+    the train stage's build (:mod:`jev_factory.distill.deployed`)."""
+    return BF16_SKIP_REASON if dp.deployed_format(reg) == "bf16" else None
+
+
+def _skipped(prereg_path: Path, reason: str) -> dict[str, Any]:
+    return {
+        "stage": "distill-quant",
+        "prereg_sha256": dp.sha256_file(prereg_path),
+        "status": "skipped",
+        "reason": reason,
+        "heal": "skipped",
+        "deployed_format": "bf16",
+    }
 
 
 def read_winner(run_dir: Path) -> dict[str, Any]:
@@ -1812,6 +1834,9 @@ def run_quant(
     deviation id; both mixes are recorded in the heal log."""
     prereg_path, run_dir = Path(prereg_path), Path(run_dir)
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
+    reason = skip_reason(reg)
+    if reason is not None:  # a bf16 ship: nothing is built, healed or written
+        return _skipped(prereg_path, reason)
     bars = quant_bars(reg)
     minimum = agreement_min(reg)
     heal_mix(reg)  # refused before anything runs when the heal block names no mix

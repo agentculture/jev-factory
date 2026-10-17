@@ -27,6 +27,13 @@ the attestation of the build that answered); agreement is over the ``(record_id,
 both hold (an empty overlap is reported, not hidden). The expected bundle is ``final.json``
 ``deployed.bundle`` when the final recorded one, else the deployed artifact on disk
 (``quant_manifest.json`` ``deployed_artifact``). Dry-run by default; stdlib only.
+
+Under a bf16 ship (``deployed_format bf16``, quantize skipped; :mod:`jev_factory.distill.deployed`)
+the fallback expected bundle is the per-file sha256 of ``distill/train/<winner>/bundle`` and the
+reference is that winner's ``distill/train/<winner>/predictions.json`` (selection fold), refused
+unless the folder still hashes to the expected bundle. The served build must still attest itself
+over ``/v1/bundle``: ``strands-decider serve`` has none, so edge refuses such a server with a
+clear message rather than skip the check (an operator-reported sha256 is not an attestation).
 """
 
 from __future__ import annotations
@@ -46,6 +53,7 @@ from typing import Any
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from jev_factory.distill import benchmark as bench
 from jev_factory.distill import dataset
+from jev_factory.distill import deployed as ddeployed
 from jev_factory.distill import prereg as dp
 from jev_factory.distill import quant as dquant
 from jev_factory.distill.records import Record
@@ -237,8 +245,12 @@ def _get_json(base_url: str, path: str, timeout: float = HTTP_TIMEOUT) -> dict[s
     return doc
 
 
-def expected_bundle(run_dir: Path | str) -> dict[str, Any]:
-    """The final's bundle: per-file sha256s and the manifest sha256 of the deployed artifact."""
+def expected_bundle(run_dir: Path | str, deployed_format: str = ddeployed.QUANT) -> dict[str, Any]:
+    """The final's bundle: per-file sha256s and the manifest sha256 of the deployed artifact.
+
+    Under ``deployed_format bf16`` the fallback when the final recorded none is the train
+    winner's ``hobson-hf-export/1`` folder (:func:`jev_factory.distill.deployed.attestation`:
+    per-file sha256, no manifest sha256)."""
     run_dir = Path(run_dir)
     final = _read_json(run_dir / FINAL_REL / FINAL_FILE, "final.json")
     recorded = (final.get("deployed") or {}).get("bundle")
@@ -247,6 +259,8 @@ def expected_bundle(run_dir: Path | str) -> dict[str, Any]:
             "files": dict(recorded["files"]),
             "manifest_sha256": recorded.get("manifest_sha256"),
         }
+    if deployed_format == ddeployed.BF16:
+        return dict(ddeployed.bf16_student(run_dir)["bundle"])
     manifest = _read_json(run_dir / dquant.QUANT_REL / dquant.MANIFEST_FILE, "quant manifest")
     artifact = manifest.get("deployed_artifact")
     if not artifact:
@@ -256,6 +270,31 @@ def expected_bundle(run_dir: Path | str) -> dict[str, Any]:
 
     att = quantized.bundle_attestation(artifact)
     return {"files": dict(att["files"]), "manifest_sha256": att["manifest_sha256"]}
+
+
+def served_bundle(
+    get: Callable[[str], Mapping[str, Any]], deployed_format: str = ddeployed.QUANT
+) -> Mapping[str, Any]:
+    """``GET /v1/bundle``. A bf16 server that cannot answer it is refused, never skipped:
+    ``strands-decider serve`` has no ``/v1/bundle``, and an operator-reported sha256 of the
+    served folder is not an attestation."""
+    if deployed_format != ddeployed.BF16:
+        return get(BUNDLE_PATH)
+    try:
+        served = get(BUNDLE_PATH)
+    except CliError as exc:
+        served, cause = None, exc.message
+    else:
+        cause = "it answered no per-file sha256s"
+    if isinstance(served, Mapping) and isinstance(served.get("files"), Mapping):
+        return served
+    raise _refuse(
+        f"edge cannot attest the served bf16 build: {cause}. strands-decider serve has no "
+        f"{BUNDLE_PATH}, and an operator-reported sha256 of the served folder is not an "
+        "attestation",
+        f"serve the bf16 bundle behind a server that answers {BUNDLE_PATH} (per-file sha256 of "
+        f"the folder) and {STATS_PATH} (the cgroup cap), or do not run edge for this build",
+    )
 
 
 def check_bundle(served: Mapping[str, Any], expected: Mapping[str, Any]) -> None:
@@ -321,9 +360,34 @@ def agreement(
     }
 
 
-def reference_rows(run_dir: Path | str, expected: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+def reference_file(run_dir: Path | str, deployed_format: str = ddeployed.QUANT) -> str:
+    """The run-relative path of the reference predictions for *deployed_format*."""
+    if deployed_format == ddeployed.BF16:
+        return ddeployed.predictions_rel(ddeployed.bf16_student(run_dir)["winner"])
+    return REFERENCE_PREDICTIONS
+
+
+def _bf16_reference_rows(run_dir: Path, expected: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    student = ddeployed.bf16_student(run_dir)
+    if dict(student["bundle"]["files"]) != dict(expected["files"]):
+        raise _refuse(
+            f"{student['artifact']}: the bf16 bundle's file sha256s differ from the final's",
+            "the reference predictions must come from the bundle the final measured",
+        )
+    rows = ddeployed.read_predictions(student).get(FOLD_SELECTION) or []
+    return [r for r in rows if isinstance(r, Mapping)]
+
+
+def reference_rows(
+    run_dir: Path | str, expected: Mapping[str, Any], deployed_format: str = ddeployed.QUANT
+) -> list[Mapping[str, Any]]:
     """The quant stage's selection-fold predictions of the shipped build; refused when absent
-    or produced by a bundle other than *expected* (manifest sha256, then per-file sha256s)."""
+    or produced by a bundle other than *expected* (manifest sha256, then per-file sha256s).
+
+    Under ``deployed_format bf16``: the train winner's selection-fold predictions, refused
+    unless its bundle folder still hashes, file for file, to *expected*."""
+    if deployed_format == ddeployed.BF16:
+        return _bf16_reference_rows(Path(run_dir), expected)
     path = Path(run_dir) / REFERENCE_PREDICTIONS
     if not path.is_file():
         raise _refuse(
@@ -395,11 +459,15 @@ def run_edge(
     now: Callable[[], str] = _now,
     expected_cap: int | None = None,
     get: Callable[[str], Mapping[str, Any]] | None = None,
+    deployed_format: str = ddeployed.QUANT,
 ) -> dict[str, Any]:
     """Plan (dry-run) or run the edge measurement; write the manifest and predictions.
 
     *expected_cap* is the cgroup cap (bytes) the board's server must report; *get* answers
-    ``GET /v1/bundle`` and ``/v1/stats`` (default: HTTP on the localhost *base_url*)."""
+    ``GET /v1/bundle`` and ``/v1/stats`` (default: HTTP on the localhost *base_url*).
+    *deployed_format* is the pre-registration's (``prereg.deployed_format``): under ``bf16``
+    the expected bundle and the reference predictions are the train winner's
+    (:mod:`jev_factory.distill.deployed`), and a server that cannot attest it is refused."""
     run_dir = Path(run_dir)
     try:
         require_localhost(base_url)
@@ -421,12 +489,14 @@ def run_edge(
             },
         },
     }
+    if deployed_format == ddeployed.BF16:  # additive: a quant manifest is unchanged
+        base["deployed_format"] = ddeployed.BF16
     if not apply:
         return {**base, "dry_run": True}
     get = get or (lambda path: _get_json(base_url, path))
-    expected = expected_bundle(run_dir)
-    reference = reference_rows(run_dir, expected)
-    served = get(BUNDLE_PATH)
+    expected = expected_bundle(run_dir, deployed_format)
+    reference = reference_rows(run_dir, expected, deployed_format)
+    served = served_bundle(get, deployed_format)
     check_bundle(served, expected)
     first = get(STATS_PATH)
     cap = memory_cap(first, expected_cap)
@@ -444,7 +514,17 @@ def run_edge(
             predictions.append(_row_for(fold, rec, result, elapsed))
             raw_ids.append(rec.id)
             _sample(get, peaks)
-    measured = _Measured(first, cap, served, peaks, latencies, predictions, raw_ids, reference)
+    measured = _Measured(
+        first,
+        cap,
+        served,
+        peaks,
+        latencies,
+        predictions,
+        raw_ids,
+        reference,
+        reference_file(run_dir, deployed_format),
+    )
     return _finish(base, run_dir, measured, now())
 
 
@@ -460,6 +540,7 @@ class _Measured:
     predictions: list[dict[str, Any]]
     raw_ids: Sequence[str]
     reference: Sequence[Mapping[str, Any]]
+    reference_file: str = REFERENCE_PREDICTIONS
 
 
 def _finish(base: dict[str, Any], run_dir: Path, m: _Measured, date: str) -> dict[str, Any]:
@@ -487,7 +568,7 @@ def _finish(base: dict[str, Any], run_dir: Path, m: _Measured, date: str) -> dic
         "n_failed": sum(1 for p in predictions if p["error"] or bench._has_error(p)),
         "agreement": {
             **agreement(raw_rows, m.reference),
-            "reference": REFERENCE_PREDICTIONS,
+            "reference": m.reference_file,
             "fold": FOLD_SELECTION,
         },
         "predictions_file": PREDICTIONS_FILE,
