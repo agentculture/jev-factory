@@ -5,9 +5,12 @@ Two halves in one module:
 * **Planning, here (stdlib only).** :func:`plan_train` reads every hyperparameter from the
   locked distill pre-registration (:func:`jev_factory.distill.prereg.require_locked`) and
   returns the trainer's subprocess command without running anything. :func:`run_train` is
-  dry-run unless ``apply``; with ``apply`` the command runs through
+  dry-run unless ``apply`` (it prints the plan and its executor-neutral job spec); with
+  ``apply`` the job goes through the executor seam (:mod:`jev_factory.distill.executor`:
+  protected-id and secret/host checks, then the executor, then sha256 verification of the
+  declared outputs). The default local executor runs the command through
   :func:`jev_factory.factory.gpu.run_gpu_stage` (residency guard, memory cap, memory-floor
-  watchdog) and nowhere else.
+  watchdog) exactly as before.
 * **Training, in the trainer env.** ``python -m jev_factory.backbones.pointer.train_distill``
   (:func:`main`) re-checks the lock itself, loads the stock checkpoint with upstream's
   ``StrandsDeciderModel.load``, renders rows with upstream's ``SystemOneCollator`` (the
@@ -85,8 +88,9 @@ from typing import Any, Callable, Mapping, Sequence
 
 from jev_factory.backbones.pointer import distill_loss as dl
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
+from jev_factory.distill import executor as dex
 from jev_factory.distill import prereg as dp
-from jev_factory.factory import gpu, safepath
+from jev_factory.factory import safepath
 
 MODULE = "jev_factory.backbones.pointer.train_distill"
 STAGE = "train"
@@ -94,6 +98,9 @@ INIT_MODES = ("continue", "merge_fresh")
 QUESTION_KINDS = ("choice", "noul", "score")
 CONFIG_FILE = "distill_train_config.json"
 HISTORY_FILE = "distill_history.json"
+#: What every trainer run writes into ``--output-dir`` (train and heal alike): a caller passes
+#: these as ``run_train(expected_outputs=...)`` to have the executor seam verify them.
+CHECKPOINT_OUTPUTS = ("head.safetensors", CONFIG_FILE, HISTORY_FILE)
 TEACHER_SUM_TOLERANCE = 0.01
 
 UPSTREAM_PROVENANCE: dict[str, Any] = {
@@ -365,37 +372,50 @@ def run_train(
     memory_max: str | None = None,
     memory_floor: str = "8G",
     timeout: float | None = None,
+    executor: dex.Executor | None = None,
+    expected_outputs: Sequence[str] = (),
+    environment: dex.JobEnvironment | None = None,
+    protected: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """Dry-run by default; with *apply*, run the planned command via ``run_gpu_stage``."""
+    """Dry-run by default (the plan plus its executor-neutral ``job_spec``); with *apply*, run
+    the job through the executor seam (:mod:`jev_factory.distill.executor`).
+
+    The seam refuses a protected record id or a scan hit before any executor runs. The default
+    :class:`~jev_factory.distill.executor.LocalExecutor` calls ``gpu.run_gpu_stage`` exactly as
+    before. *expected_outputs* (names under the output directory, e.g.
+    :data:`CHECKPOINT_OUTPUTS`) are verified by sha256 after a zero exit; the job manifest is
+    returned under ``job`` for the stage manifest (``executor.record_job``)."""
+    limits = dex.JobLimits(
+        memory_max=memory_max,
+        memory_floor=memory_floor,
+        timeout=timeout,
+        allow_foreign=allow_foreign,
+    )
     if not apply:
-        return {**plan, "dry_run": True}
+        spec = dex.job_spec_from_plan(
+            plan, expected_outputs=expected_outputs, environment=environment, limits=limits
+        )
+        return {**plan, "dry_run": True, "job_spec": spec.to_json()}
     if not memory_max:
         raise _refuse(
             "a GPU training run needs a memory cap", "pass memory_max (e.g. '100G') with apply"
         )
-    env = {**os.environ, **plan["env"]}
-    done = gpu.run_gpu_stage(
-        STAGE,
-        plan["run_dir"],
-        list(plan["argv"]),
-        allow_foreign=allow_foreign,
-        memory_max=memory_max,
-        memory_floor=memory_floor,
-        env=env,
-        timeout=timeout,
+    spec = dex.job_spec_from_plan(
+        plan, expected_outputs=expected_outputs, environment=environment, limits=limits
     )
-    if done.returncode != 0:
-        tail = (done.stderr or "").strip().splitlines()[-5:]
+    job = dex.run_job(spec, executor, protected=protected)
+    if job["returncode"] != 0:
         raise CliError(
             EXIT_ENV_ERROR,
-            f"distill trainer exited {done.returncode}: {' | '.join(tail)}",
+            f"distill trainer exited {job['returncode']}: {' | '.join(job['stderr_tail'])}",
             "read the trainer log under the run directory; status 3 is the memory watchdog",
         )
     return {
         "dry_run": False,
-        "returncode": done.returncode,
+        "returncode": job["returncode"],
         "output_dir": plan["output_dir"],
-        "stdout_tail": (done.stdout or "").strip().splitlines()[-5:],
+        "stdout_tail": job["stdout_tail"],
+        "job": job,
     }
 
 
