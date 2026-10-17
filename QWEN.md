@@ -111,9 +111,22 @@ unrelated and the distillery does not build it.
   most once (at least 0.97 agreement with the bf16 student), and there is no
   bf16 fallback when no quant qualifies. The decision gate is per question
   kind and fitted on the fit fold.
-- `final` scores Clef, the stock model, the bf16 student and the quant once,
-  the quant served on the AGX Orin through a tunnel and attested by
-  `/v1/bundle`. `edge` measures the quant on a board on non-test data only.
+- The distillery is configurable (`docs/distill.md`): minimum roles are Clef
+  (any build variant, `distill_teacher_variant`; its serving recipes in
+  `envs.VARIANT_RECIPES` are unverified), the stock target and the student;
+  `alt_teacher`, `deployed_server` and `edge` are optional roles declared in
+  the schema-3 pre-registration, and a bar relative to an absent one reports
+  `not_applicable` (results: `pass`, `fail`, `not_applicable`, `reported`; the
+  old `miss` is `fail`). The student comes from a profile
+  (`distill/profile.py`, default 2610; `distill_student_profile`).
+  `deployed_format` is `quant` or `bf16` (bf16 skips quantize and bundles the
+  bf16 kind; `edge` cannot attest it). Train and heal go through the executor
+  seam (`distill/executor.py`; `distill_executor`, only `local`; train-side
+  rows only). No AWS code yet.
+- `final` scores the declared models once (Clef, the stock model, the bf16
+  student, the deployed build), the deployed build served on a loopback
+  server through a tunnel (`distill_deployed_url`, alias `distill_agx_url`)
+  and attested by `/v1/bundle`. `edge` measures the quant on a board on non-test data only.
   The board serves it under a cgroup cap with `systemd-run --user -p
   MemoryMax=<cap> python -m jev_factory.backbones.pointer.quantized serve
   ARTIFACT --host 127.0.0.1 --port N`.

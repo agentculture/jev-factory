@@ -102,6 +102,16 @@ into the student **Strands Decider 2B**. The full write-up is
   cap, on non-test data only. The board command is in `docs/distill.md`.
 - Serving of the result belongs to the lobes `decider` role; training belongs
   here. The two consumers are the operator and that role.
+- The distillery is configurable (`docs/distill.md`). Minimum roles: Clef
+  (any build variant; the serving recipes in `envs.VARIANT_RECIPES` are
+  unverified), the stock target and the student. `alt_teacher`,
+  `deployed_server` and `edge` are optional roles declared in the schema-3
+  pre-registration; a bar relative to an absent one is `not_applicable`, and
+  bar results are `pass`, `fail`, `not_applicable`, `reported` (the old `miss`
+  is `fail`). The student comes from a profile (default 2610,
+  `distill_student_profile`). The deployed format is `quant` or `bf16`; bf16
+  skips quantize. Train and heal run through the executor seam
+  (`distill_executor`, only `local` for now; train-side rows only).
 - **Current state.** The issue-20 run has happened once, as a proving run on
   unverified, model-drafted gold: an int4 student was trained, measured and
   bundled, but not uploaded or verified. Report it as a proving run only,

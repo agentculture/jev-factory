@@ -84,10 +84,29 @@ straight:
 - **Student (#20).** `StrandsAgents/strands-decider-2B-qwen3.5-v1-2610` at
   revision `216d1ccb` (pins and the pre-registration seed in `pins.py` and
   `prereg.py`). The reference role is the model-neutral `stock`, not a named
-  version; the pre-registration is schema version 2 with the c17 bars
-  (top-1 at least stock + 10 points and within 5 points of Clef W4A16, for the
-  bf16 student and the quant; quant-vs-bf16 agreement at least 0.97; weight
-  bytes under 10^9; latency reported, not gated).
+  version; the pre-registration is schema version 3 with the c17 bars
+  (top-1 at least stock + 10 points and within 5 points of the Clef variant the
+  run serves, for the bf16 student and the quant; quant-vs-bf16 agreement at
+  least 0.97; weight bytes under 10^9; latency reported, not gated). Locked v2
+  files still load through a mapping (W4A16, all roles present, quant).
+- **Configurable (spec `2026-10-17-configurable-distillery-and-remote-training`).**
+  Minimum roles: Clef (teacher, any build variant, `distill_teacher_variant`),
+  the stock target and the student. Optional, declared in the pre-registration
+  `roles`: `alt_teacher`, `deployed_server`, `edge`. A bar relative to an
+  absent role or format reports `not_applicable`; bar results are `pass`,
+  `fail`, `not_applicable`, `reported` (the old `miss` is `fail`). The teacher
+  bar (`top1_under_teacher_max_points`) is relative to the locked Clef variant.
+  The student comes from a profile (`distill/profile.py`, `DEFAULT_2610`;
+  `distill_student_profile` selects another TOML). `envs.VARIANT_RECIPES`
+  (BF16, NVFP4, FP4, W4A16) is **unverified** until a variant is served with
+  those flags. `deployed_format` is `quant` or `bf16`; bf16 records
+  `quantize` skipped and bundles the bf16 kind (`docs/distill-bundle-format.md`),
+  which `edge` cannot attest and refuses. Train and heal go through the
+  executor seam (`distill/executor.py`, `distill_executor`, only `local`;
+  train-side rows only, sha256 on inputs and outputs, job records only for
+  non-local executors); no AWS code yet. `distill_deployed_url` (alias
+  `distill_agx_url`) is any attested loopback server. Shared layers:
+  `wire/systemone.py`, `runtime/`; backbones via `registry.get`.
 - **Verb and stages.** `jev distill <stage>` takes the stage as a positional
   argument, so the jev-CLI domain gains one `jev.distill` operation (deviation
   d5), not fifteen. Its own registry (`jev_factory/distill/pipeline.py`) holds
@@ -136,10 +155,11 @@ straight:
   and Clef's soft labels, and a healed build needs at least 0.97 agreement
   with the bf16 student. When no quant qualifies there is no bf16 fallback:
   the stage fails and `final` and `bundle` refuse it.
-- **Final and edge.** `final` measures four models once (Clef, the stock model,
-  the bf16 student, the quant), the quant pre-served on the AGX Orin through a
-  tunnel and checked against its `/v1/bundle` attestation. `edge` (after
-  `final`) measures the shipped quant on the AGX Orin or the Nano, on
+- **Final and edge.** `final` measures the declared models once (Clef, the
+  stock model, the bf16 student, the deployed build), the deployed build
+  pre-served on a loopback server through a tunnel and checked against its
+  `/v1/bundle` attestation. `edge` (after
+  `final`) measures the shipped quant on a Jetson board (AGX Orin or Nano), on
   non-test data only, and refuses a server with no cgroup cap. jev never
   ssh-executes on a board; the operator serves it with `systemd-run --user -p
   MemoryMax=<cap> python -m jev_factory.backbones.pointer.quantized serve
@@ -151,7 +171,7 @@ straight:
   human-gold records from clean (non-overlapping) sources on the test side only. typed-decisions
   agreement is a secondary table and is never gated.
 - **Lobes split.** Serving is in lobes-cli (`orin-decision-models`: the
-  `decider` role, Clef W4A16 on the Orin, the 2B in bf16 on any box); training
+  `decider` role, a quantized Clef on the Orin, the 2B in bf16 on any box); training
   is here. The two consumers are the operator running `jev distill` and
   lobes' `decider` role over `/v1/systemone`.
 - **State.** The #20 operator run (t23) has run once, as a **proving run on
