@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-17T05:46:54Z",
-  "updated": "2026-10-17T06:29:54Z",
+  "updated": "2026-10-17T06:45:43Z",
   "claims": [
     {
       "id": "c1",
@@ -495,8 +495,8 @@
       "text": "jev run's heal compares the healed quant against the healed bf16 (factory/pipeline.py:1689-1710); file an issue and fix in its own change",
       "kind": "follow_up",
       "claim_id": null,
-      "resolved": false,
-      "resolution": "",
+      "resolved": true,
+      "resolution": "Filed as issue #22",
       "resolution_claim_id": null
     },
     {

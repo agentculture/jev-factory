@@ -1,0 +1,201 @@
+{
+  "plan_slug": "heal-drop-vs-original-bf16",
+  "schema_version": 2,
+  "created": "2026-10-17T06:45:26Z",
+  "updated": "2026-10-17T06:45:26Z",
+  "deviations": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/test_distill_quant.py::test_a_heal_that_lowers_the_bf16_is_judged_against_the_original",
+      "behavior_text": "healed quant 5 below original, 0 below healed bf16, pooled agreement 39/40: refused, message names the original bf16 student",
+      "contract_text": "o1",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "red on 1ab41ad (lowers: DID NOT RAISE; raises: refused at 10.0 vs own bf16), green at bef8463",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T09:45:26+03:00",
+        "commit": "bef8463"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 1
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/test_distill_quant.py::test_a_heal_that_lowers_the_bf16_is_judged_against_the_original",
+      "behavior_text": "heal_result: drop 5, vs-heal 0, drift 5",
+      "contract_text": "o2",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "red on 1ab41ad (lowers: DID NOT RAISE; raises: refused at 10.0 vs own bf16), green at bef8463",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T09:45:26+03:00",
+        "commit": "bef8463"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 2
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/test_distill_quant.py::test_a_gated_heal_drop_is_against_the_original_on_the_domain_sources",
+      "behavior_text": "gating=clean: original bf16 and healed quant both domain-only 0.9, quant wrong on every guard answer; drop 0",
+      "contract_text": "o3",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "runs the gated heal end to end through run_quant at bef8463",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T09:45:26+03:00",
+        "commit": "bef8463"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 3
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/test_distill_quant.py (pre-existing tests) + full suite",
+      "behavior_text": "no pre-existing assertion edited; 3358 passed",
+      "contract_text": "o4",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite run before commit; quant tests rerun at bef8463",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T09:45:26+03:00",
+        "commit": "bef8463"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 4
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/test_distill_quant.py::test_a_heal_that_lowers_the_bf16_is_judged_against_the_original",
+      "behavior_text": "agreement_vs_bf16 == 39/40, only true against the original predictions (1.0 vs the healed bf16)",
+      "contract_text": "o5",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "value discriminates the two references",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T09:45:26+03:00",
+        "commit": "bef8463"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/test_distill_quant.py::test_a_heal_that_raises_the_bf16_is_still_judged_against_the_original",
+      "behavior_text": "manifest bf16_selection_accuracy 0.9 == measurements formats.bf16, healed_bf16_selection_accuracy 1.0, quant_vs_bf16_delta_points 0.0",
+      "contract_text": "o6",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "red on 1ab41ad (lowers: DID NOT RAISE; raises: refused at 10.0 vs own bf16), green at bef8463",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T09:45:26+03:00",
+        "commit": "bef8463"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/test_distill_quant.py::test_a_heal_that_raises_the_bf16_is_still_judged_against_the_original",
+      "behavior_text": "real report.c43_bars on the healed manifest: max_accuracy_drop_points 0.0; report.py unchanged",
+      "contract_text": "o7",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "calls c43_bars on the manifest the run wrote",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T09:45:26+03:00",
+        "commit": "bef8463"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "tests/test_distill_quant.py::test_a_heal_that_raises_the_bf16_is_still_judged_against_the_original",
+      "behavior_text": "shippable heal_result carries drop_points, drop_points_vs_heal_bf16, heal_bf16_drift_points",
+      "contract_text": "o8",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "red on 1ab41ad (lowers: DID NOT RAISE; raises: refused at 10.0 vs own bf16), green at bef8463",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T09:45:26+03:00",
+        "commit": "bef8463"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/test_distill_quant.py::test_a_heal_that_lowers_the_bf16_is_judged_against_the_original",
+      "behavior_text": "heal_result records original 0.9, healed bf16 0.85, quant 0.85, consistent with the drops",
+      "contract_text": "o9",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "red on 1ab41ad (lowers: DID NOT RAISE; raises: refused at 10.0 vs own bf16), green at bef8463",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T09:45:26+03:00",
+        "commit": "bef8463"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "tests/test_distill_quant.py::test_a_heal_that_lowers_the_bf16_is_judged_against_the_original",
+      "behavior_text": "refused heal: measurements healed.onnx_int8 drop/delta == heal_result's; healed.bf16 stays 0.85",
+      "contract_text": "o10",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "red on 1ab41ad (lowers: DID NOT RAISE; raises: refused at 10.0 vs own bf16), green at bef8463",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T09:45:26+03:00",
+        "commit": "bef8463"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    }
+  ],
+  "deltas": [],
+  "supersessions": []
+}
