@@ -2,7 +2,7 @@
   "plan_slug": "heal-drop-vs-original-bf16",
   "schema_version": 2,
   "created": "2026-10-17T06:45:26Z",
-  "updated": "2026-10-17T06:53:56Z",
+  "updated": "2026-10-17T07:02:09Z",
   "deviations": [],
   "evidence": [
     {
@@ -194,6 +194,25 @@
       "status": "approved",
       "superseded": false,
       "seq": 10
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o3",
+      "test_ref": "tests/test_distill_quant.py::test_a_gated_heal_drop_is_against_the_original_on_the_domain_sources",
+      "behavior_text": "gating=clean, healed bf16 raised to 1.0 on the domain: healed quant (domain 0.9, every guard answer wrong) ships with drop 0 vs the original and 10 vs the healed bf16",
+      "contract_text": "o3: gated drop on domain sources for both, against the original",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "red with main's quant.py (refused at 10 points vs its own bf16), green at 62fe2c2",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-17T10:02:09+03:00",
+        "commit": "62fe2c2"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
     }
   ],
   "deltas": [
