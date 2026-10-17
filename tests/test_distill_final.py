@@ -1003,11 +1003,8 @@ def test_a_bf16_ship_refuses_a_bf16_calibration_other_than_the_deployed_one(bf16
     env = bf16_env
     other = tmp_path / "cal.json"
     other.write_text(json.dumps({"temperature_by_kind": {"choice": 9.0}}), encoding="utf-8")
+    models = _bf16_models(env, env["log"])
+    inputs = F.FinalInputs(bf16_calibration=other)
     with pytest.raises(CliError) as exc:
-        _run(
-            env,
-            _bf16_models(env, env["log"]),
-            apply=False,
-            inputs=F.FinalInputs(bf16_calibration=other),
-        )
+        _run(env, models, apply=False, inputs=inputs)
     assert "calibration" in exc.value.message

@@ -99,13 +99,28 @@ def profile_from_table(table: Mapping[str, Any]) -> StudentProfile:
     """Build a profile from a TOML table, refusing (exit 1, field named) anything malformed."""
     if not isinstance(table, Mapping):
         raise _bad(RUN_TOML_KEY, "must be a table")
+    _check_keys(table)
+    kw: dict[str, Any] = dict(table)
+    _check_scalars(kw)
+    kw["lora_targets"] = _lora_targets(kw["lora_targets"])
+    kw["temperature_by_kind"] = _temperatures(kw["temperature_by_kind"])
+    if kw.get("card") is not None:
+        kw["card"] = _card(kw["card"])
+    return StudentProfile(**kw)
+
+
+def _check_keys(table: Mapping[str, Any]) -> None:
+    """Refuse an unknown key, then a missing required field."""
     for key in table:
         if key not in _KNOWN:
             raise _bad(str(key), "is not a known key")
     for name in sorted(_REQUIRED):
         if name not in table:
             raise _bad(name, "is required but missing")
-    kw: dict[str, Any] = dict(table)
+
+
+def _check_scalars(kw: Mapping[str, Any]) -> None:
+    """The integer fields, then the string fields, then ``lora_dropout``."""
     for name in _INT:
         if isinstance(kw[name], bool) or not isinstance(kw[name], int):
             raise _bad(name, "must be an integer")
@@ -114,33 +129,38 @@ def profile_from_table(table: Mapping[str, Any]) -> StudentProfile:
             raise _bad(name, "must be a string")
     if isinstance(kw["lora_dropout"], bool) or not isinstance(kw["lora_dropout"], (int, float)):
         raise _bad("lora_dropout", "must be a number")
-    targets = kw["lora_targets"]
+
+
+def _lora_targets(targets: Any) -> tuple[str, ...]:
     if not isinstance(targets, (list, tuple)) or not all(isinstance(t, str) for t in targets):
         raise _bad("lora_targets", "must be a list of strings")
-    kw["lora_targets"] = tuple(targets)
-    temps = kw["temperature_by_kind"]
+    return tuple(targets)
+
+
+def _temperatures(temps: Any) -> dict[str, Any]:
     if not isinstance(temps, Mapping) or not all(
         isinstance(v, (int, float)) and not isinstance(v, bool) for v in temps.values()
     ):
         raise _bad("temperature_by_kind", "must be a table of numbers")
-    kw["temperature_by_kind"] = dict(temps)
-    if kw.get("card") is not None:
-        card = kw["card"]
-        if not isinstance(card, Mapping):
-            raise _bad("card", "must be a table with n, correct, tasks_sha256")
-        for key in card:
-            if key not in ("n", "correct", "tasks_sha256"):
-                raise _bad(f"card.{key}", "is not a known key")
-        for key in ("n", "correct", "tasks_sha256"):
-            if key not in card:
-                raise _bad(f"card.{key}", "is required but missing")
-        for key in ("n", "correct"):
-            if isinstance(card[key], bool) or not isinstance(card[key], int):
-                raise _bad(f"card.{key}", "must be an integer")
-        if not isinstance(card["tasks_sha256"], str):
-            raise _bad("card.tasks_sha256", "must be a string")
-        kw["card"] = CardBaseline(card["n"], card["correct"], card["tasks_sha256"])
-    return StudentProfile(**kw)
+    return dict(temps)
+
+
+def _card(card: Any) -> CardBaseline:
+    """The ``card`` table: known keys only, all three present, typed."""
+    if not isinstance(card, Mapping):
+        raise _bad("card", "must be a table with n, correct, tasks_sha256")
+    for key in card:
+        if key not in ("n", "correct", "tasks_sha256"):
+            raise _bad(f"card.{key}", "is not a known key")
+    for key in ("n", "correct", "tasks_sha256"):
+        if key not in card:
+            raise _bad(f"card.{key}", "is required but missing")
+    for key in ("n", "correct"):
+        if isinstance(card[key], bool) or not isinstance(card[key], int):
+            raise _bad(f"card.{key}", "must be an integer")
+    if not isinstance(card["tasks_sha256"], str):
+        raise _bad("card.tasks_sha256", "must be a string")
+    return CardBaseline(card["n"], card["correct"], card["tasks_sha256"])
 
 
 def load_profile_file(path: Path | str) -> StudentProfile:

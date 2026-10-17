@@ -22,7 +22,7 @@ from jev_factory.distill import pins as dpins
 from jev_factory.distill import prereg as dp
 from jev_factory.distill import train as T
 from jev_factory.distill.records import Gold, Question, Record
-from jev_factory.distill.runspec import Bootstrap, GpuLimits, TrainerEnv
+from jev_factory.distill.runspec import Bootstrap, GpuLimits, StudentSource, TrainerEnv
 from jev_factory.factory import gpu
 
 REV = "a" * 40
@@ -181,8 +181,7 @@ def run(tmp_path, cache, *, doc=None, apply=True, scorer=None, train=True, **kw)
     args = dict(
         prereg_path=path,
         run_dir=run_dir,
-        cache_dir=cache,
-        pins=student_pins(),
+        student_source=StudentSource(cache_dir=cache, pins=kw.pop("pins", student_pins())),
         folds=folds(),
         trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path / "strands-decider"),
         apply=apply,
@@ -202,12 +201,12 @@ def test_refuses_without_a_locked_prereg(tmp_path, cache):
     pins = student_pins()
     fold_set = folds()
     env = TrainerEnv(python="python3", decider_repo=tmp_path)
+    source = StudentSource(cache_dir=cache, pins=pins)
     with pytest.raises(CliError, match="locked"):
         T.run_grid(
             prereg_path=path,
             run_dir=run_dir,
-            cache_dir=cache,
-            pins=pins,
+            student_source=source,
             folds=fold_set,
             trainer_env=env,
         )
@@ -254,12 +253,12 @@ def test_apply_refuses_without_memory_cap_scorer_or_train_set(tmp_path, cache, m
     run_dir_b = tmp_path / "b" / "run"
     env = TrainerEnv(python="python3", decider_repo=tmp_path)
     limits = GpuLimits(memory_max="100G")
+    source = StudentSource(cache_dir=cache, pins=pins)
     with pytest.raises(CliError, match="scorer"):
         T.run_grid(
             prereg_path=prereg_b,
             run_dir=run_dir_b,
-            cache_dir=cache,
-            pins=pins,
+            student_source=source,
             folds=fold_set,
             trainer_env=env,
             apply=True,

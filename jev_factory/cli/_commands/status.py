@@ -108,22 +108,30 @@ def _stage_entries(
     for name in names:
         man = read_manifest(workdir, name)
         mine = jobs_of(name)
-        entry: dict[str, Any] = {
-            "stage": name,
-            "status": man.get("status") if man else "not-run",
-            "stale": staleness(workdir, name, recorded, registry=registry),
-            "finished": man.get("finished") if man else None,
-            "rc": man.get("rc") if man else None,
-            "jobs": mine,
-        }
-        if man and man.get("error"):
-            entry["error"] = man["error"]
-        if man and man.get("status") == SKIPPED:
-            entry["reason"] = man.get("reason")
-        if any(j["state"] == "running" for j in mine):
-            entry["status"] = "running"
-        stages.append(entry)
+        stale = staleness(workdir, name, recorded, registry=registry)
+        stages.append(_stage_entry(name, man, mine, stale))
     return stages
+
+
+def _stage_entry(
+    name: str, man: dict[str, Any] | None, mine: list[dict[str, Any]], stale: Any
+) -> dict[str, Any]:
+    """One stage's status row from its manifest *man* (``None``: never run) and its jobs."""
+    entry: dict[str, Any] = {
+        "stage": name,
+        "status": man.get("status") if man else "not-run",
+        "stale": stale,
+        "finished": man.get("finished") if man else None,
+        "rc": man.get("rc") if man else None,
+        "jobs": mine,
+    }
+    if man and man.get("error"):
+        entry["error"] = man["error"]
+    if man and man.get("status") == SKIPPED:
+        entry["reason"] = man.get("reason")
+    if any(j["state"] == "running" for j in mine):
+        entry["status"] = "running"
+    return entry
 
 
 def _all_stages(doc: dict[str, Any]) -> list[dict[str, Any]]:

@@ -116,7 +116,7 @@ class JobSeam(Protocol):
     """What :func:`run_train` needs of an executor seam (the distillery passes
     :mod:`jev_factory.distill.executor`)."""
 
-    JobLimits: Any
+    def job_limits(self, **kwargs: Any) -> Any: ...
 
     def job_spec_from_plan(self, plan: Mapping[str, Any], **kwargs: Any) -> Any: ...
 
@@ -434,7 +434,7 @@ def run_train(
     :data:`CHECKPOINT_OUTPUTS`) are verified by sha256 after a zero exit; the job manifest is
     returned under ``job``. Whether a stage manifest records it is the caller's choice
     (deviation d3: only a non-local executor's jobs are recorded)."""
-    limits = jobs.JobLimits(
+    limits = jobs.job_limits(
         memory_max=memory_max,
         memory_floor=memory_floor,
         timeout=timeout,

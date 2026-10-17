@@ -453,29 +453,36 @@ def _check_run_teacher(
     """
     for role, rows in labels.items():
         for key, row in rows.items():
-            where = f"{role} teacher row {key[0]}/{key[1]}"
-            build = str(row.get("teacher_build_id"))
-            if run_build_id and build != run_build_id:
-                raise _fail(
-                    f"{where} has build {build!r} but the run is configured for {run_build_id!r}",
-                    "label with the run's teacher build, or record a deviation and pass its id",
-                )
-            if not run_variant:
-                continue
-            recorded = row.get("teacher_variant")
-            if recorded is None:
-                if run_build_id and build == run_build_id:
-                    continue
-                raise _fail(
-                    f"{where} records no variant and its build cannot be matched to the run's",
-                    "set the run's teacher build id, re-label, or pass a deviation id",
-                )
-            if recorded != run_variant:
-                raise _fail(
-                    f"{where} is variant {recorded!r} but the run is configured for"
-                    f" {run_variant!r}",
-                    "label with the run's variant, or record a deviation and pass its id",
-                )
+            _check_teacher_row(
+                f"{role} teacher row {key[0]}/{key[1]}", row, run_variant, run_build_id
+            )
+
+
+def _check_teacher_row(
+    where: str, row: Mapping[str, Any], run_variant: str | None, run_build_id: str | None
+) -> None:
+    """One teacher label row against the run's configured build id and variant."""
+    build = str(row.get("teacher_build_id"))
+    if run_build_id and build != run_build_id:
+        raise _fail(
+            f"{where} has build {build!r} but the run is configured for {run_build_id!r}",
+            "label with the run's teacher build, or record a deviation and pass its id",
+        )
+    if not run_variant:
+        return
+    recorded = row.get("teacher_variant")
+    if recorded is None:
+        if run_build_id and build == run_build_id:
+            return
+        raise _fail(
+            f"{where} records no variant and its build cannot be matched to the run's",
+            "set the run's teacher build id, re-label, or pass a deviation id",
+        )
+    if recorded != run_variant:
+        raise _fail(
+            f"{where} is variant {recorded!r} but the run is configured for" f" {run_variant!r}",
+            "label with the run's variant, or record a deviation and pass its id",
+        )
 
 
 def _require_audits(

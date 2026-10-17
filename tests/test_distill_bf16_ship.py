@@ -131,23 +131,26 @@ def test_final_and_the_stages_share_one_bf16_resolver_and_attestation(tmp_path, 
 def test_the_helper_refuses_a_bundle_that_does_not_verify(tmp_path):
     run, prereg, bundle = make_bf16_run(tmp_path)
     (bundle / player.HEAD).write_bytes(tb.ST + b"tampered")
+    locked = dp.require_locked(prereg, run)
     with pytest.raises(CliError):
-        D.deployed_student(run, dp.require_locked(prereg, run))
+        D.deployed_student(run, locked)
 
 
 def test_the_helper_refuses_a_calibration_of_another_candidate(tmp_path):
     run, prereg, _ = make_bf16_run(tmp_path)
     cal = run / "distill/select/calibration.json"
     cal.write_text(json.dumps({**SELECT_CAL, "candidate": "c999"}), encoding="utf-8")
+    locked = dp.require_locked(prereg, run)
     with pytest.raises(CliError, match="c999"):
-        D.deployed_student(run, dp.require_locked(prereg, run))
+        D.deployed_student(run, locked)
 
 
 def test_the_helper_refuses_without_predictions(tmp_path):
     run, prereg, _ = make_bf16_run(tmp_path)
     (run / "distill/train" / WINNER / "predictions.json").unlink()
+    locked = dp.require_locked(prereg, run)
     with pytest.raises(CliError, match="predictions"):
-        D.deployed_student(run, dp.require_locked(prereg, run))
+        D.deployed_student(run, locked)
 
 
 # --------------------------------------------------------------------- quantize and heal
@@ -213,7 +216,8 @@ def test_gate_dry_run_under_bf16_writes_nothing(tmp_path):
     run, prereg, _ = make_bf16_run(tmp_path)
     before = sorted(run.rglob("*"))
     out = G.run_gate(run, prereg_path=prereg, folds=tg.folds())
-    assert out["dry_run"] is True and out["deployed_format"] == "bf16"
+    assert out["dry_run"] is True
+    assert out["deployed_format"] == "bf16"
     assert sorted(run.rglob("*")) == before
 
 
@@ -322,12 +326,15 @@ def test_a_quant_ship_with_no_qualifying_build_still_refuses_with_a_bf16_build_o
         )
     )
     ds = _bundle_inputs(run, tmp_path)
+    out_dir = tmp_path / "out"
     with pytest.raises(CliError, match="no shipped format"):
-        B.build_bundles(run, tmp_path / "out", prereg_path=prereg, dataset_dir=ds)
+        B.build_bundles(run, out_dir, prereg_path=prereg, dataset_dir=ds)
+    folds = tg.folds()
     with pytest.raises(CliError, match="no shipped format"):
-        G.run_gate(run, prereg_path=prereg, folds=tg.folds())
+        G.run_gate(run, prereg_path=prereg, folds=folds)
+    locked = dp.require_locked(prereg, run)
     with pytest.raises(CliError, match="no shipped format"):
-        D.deployed_student(run, dp.require_locked(prereg, run))
+        D.deployed_student(run, locked)
     assert not (tmp_path / "out" / B.MODEL_DIR).exists()
 
 

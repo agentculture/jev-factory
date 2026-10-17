@@ -59,7 +59,7 @@ from jev_factory.distill import gate as dgate
 from jev_factory.distill import prereg as dprereg
 from jev_factory.distill import quant as dquant
 from jev_factory.distill import train as dtrain
-from jev_factory.distill.runspec import GpuLimits, TrainerEnv
+from jev_factory.distill.runspec import GpuLimits, JobRoute, StudentSource, TrainerEnv
 from jev_factory.distill.student import backbone as student_backbone
 from jev_factory.factory import safepath
 from jev_factory.factory.config import RunConfig
@@ -816,14 +816,16 @@ def _train_kwargs(ctx: DistillContext) -> dict[str, Any]:
     return {
         "prereg_path": _prereg_path(ctx),
         "run_dir": ctx.work,
-        "cache_dir": ctx.config.require("distill_pin_cache"),
-        "pins": _pins(ctx),
+        "student_source": StudentSource(
+            cache_dir=ctx.config.require("distill_pin_cache"),
+            pins=_pins(ctx),
+            profile=ctx.profile(),
+        ),
         "folds": _folds(ctx),
         "trainer_env": _trainer_env(ctx),
         "sealed": _sealed(ctx),
         "deviation_id": ctx.deviation_id,
         "limits": _gpu_limits(ctx),
-        "profile": ctx.profile(),
     }
 
 
@@ -853,10 +855,11 @@ class _JobRecorder:
     non-local executor ran, for the stage manifest (deviation d3). A local job is returned by
     ``run_train`` only, so under ``local`` the train and quantize manifests are unchanged."""
 
-    JobLimits = dex.JobLimits
-
     def __init__(self, ctx: DistillContext) -> None:
         self._ctx = ctx
+
+    def job_limits(self, **kwargs: Any) -> Any:
+        return dex.job_limits(**kwargs)
 
     def job_spec_from_plan(self, plan: Mapping[str, Any], **kwargs: Any) -> Any:
         return dex.job_spec_from_plan(plan, **kwargs)
@@ -927,9 +930,11 @@ def stage_train(workdir: Path, knobs: dict[str, Any]) -> None:
         **_train_kwargs(ctx),
         apply=True,
         scorer=scorer,
-        executor=_executor(ctx),
-        expected_outputs=_checkpoint_outputs(ctx),
-        jobs=_JobRecorder(ctx),
+        route=JobRoute(
+            executor=_executor(ctx),
+            expected_outputs=_checkpoint_outputs(ctx),
+            jobs=_JobRecorder(ctx),
+        ),
     )
 
 

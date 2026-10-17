@@ -482,15 +482,14 @@ def test_train_refuses_on_base_mismatch_without_a_deviation(tmp_path, pin_cache,
     """AC1: run_grid itself refuses before planning anything; a deviation id lets it through."""
     from jev_factory.backbones.pointer import train_distill as td
     from jev_factory.distill import train as T
-    from jev_factory.distill.runspec import TrainerEnv
+    from jev_factory.distill.runspec import StudentSource, TrainerEnv
 
     path, run_dir = tt.locked(tmp_path)
     _mismatch_record(run_dir, True)
     kwargs = dict(
         prereg_path=path,
         run_dir=run_dir,
-        cache_dir=pin_cache,
-        pins=tt.student_pins(),
+        student_source=StudentSource(cache_dir=pin_cache, pins=tt.student_pins()),
         folds=tt.folds(),
         trainer_env=TrainerEnv(python="python3", decider_repo=tmp_path),
     )

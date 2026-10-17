@@ -443,6 +443,14 @@ def _row_for(fold: str, rec: Record, result: Any, latency: float) -> dict[str, A
     return row
 
 
+@dataclass(frozen=True)
+class EdgeClocks:
+    """The edge run's clocks: *clock* times each request, *now* dates the manifest."""
+
+    clock: Clock = time.perf_counter
+    now: Callable[[], str] = _now
+
+
 def run_edge(
     *,
     run_dir: Path | str,
@@ -454,19 +462,20 @@ def run_edge(
     label: str,
     apply: bool = False,
     client: Any = None,
-    clock: Clock = time.perf_counter,
-    now: Callable[[], str] = _now,
+    clocks: EdgeClocks = EdgeClocks(),
     expected_cap: int | None = None,
     get: Callable[[str], Mapping[str, Any]] | None = None,
     deployed_format: str = ddeployed.QUANT,
 ) -> dict[str, Any]:
     """Plan (dry-run) or run the edge measurement; write the manifest and predictions.
 
-    *expected_cap* is the cgroup cap (bytes) the board's server must report; *get* answers
-    ``GET /v1/bundle`` and ``/v1/stats`` (default: HTTP on the localhost *base_url*).
+    *clocks* times each request and dates the manifest (default: ``time.perf_counter`` and
+    the UTC date). *expected_cap* is the cgroup cap (bytes) the board's server must report;
+    *get* answers ``GET /v1/bundle`` and ``/v1/stats`` (default: HTTP on the localhost *base_url*).
     *deployed_format* is the pre-registration's (``prereg.deployed_format``): under ``bf16``
     the expected bundle and the reference predictions are the train winner's
     (:mod:`jev_factory.distill.deployed`), and a server that cannot attest it is refused."""
+    clock, now = clocks.clock, clocks.now
     run_dir = Path(run_dir)
     try:
         require_localhost(base_url)

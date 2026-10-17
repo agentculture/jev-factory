@@ -14,7 +14,7 @@ import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill.profile import DEFAULT_2610, StudentProfile
@@ -571,19 +571,23 @@ def _bars(doc: Any, deployed_format: str | None = None) -> dict[str, dict[str, A
     for section, spec in (("test", TEST_BARS), ("quant", QUANT_BARS)):
         if section == "quant" and not needs_quant and section not in doc:
             continue
-        entry = doc.get(section)
-        if not isinstance(entry, dict):
-            raise _err(f"bars.{section} must be an object")
-        missing = [n for n in spec if n not in entry]
-        if missing:
-            raise _err(f"bars.{section} missing: {', '.join(missing)}")
-        extra = sorted(set(entry) - set(spec))
-        if extra:
-            raise _err(f"bars.{section} has unknown bars: {', '.join(extra)}")
-        for name, kind in spec.items():
-            _check_bar(section, name, kind, entry[name])
-        out[section] = dict(entry)
+        out[section] = _bar_section(section, spec, doc.get(section))
     return out
+
+
+def _bar_section(section: str, spec: Mapping[str, Any], entry: Any) -> dict[str, Any]:
+    """Validate one flat ``bars.<section>`` (``test`` or ``quant``) against *spec*."""
+    if not isinstance(entry, dict):
+        raise _err(f"bars.{section} must be an object")
+    missing = [n for n in spec if n not in entry]
+    if missing:
+        raise _err(f"bars.{section} missing: {', '.join(missing)}")
+    extra = sorted(set(entry) - set(spec))
+    if extra:
+        raise _err(f"bars.{section} has unknown bars: {', '.join(extra)}")
+    for name, kind in spec.items():
+        _check_bar(section, name, kind, entry[name])
+    return dict(entry)
 
 
 def _selection_rule(doc: Any) -> dict[str, Any]:

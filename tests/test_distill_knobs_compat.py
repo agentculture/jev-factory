@@ -111,4 +111,5 @@ def test_a_non_default_new_key_makes_exactly_its_stages_stale(completed, key):
 
 def test_agx_url_recording_is_unchanged_when_only_it_is_set(completed):
     final = read_manifest(P.stage_dir(completed.work), "final")["knobs"]["_config"]
-    assert "distill_agx_url" in final and "distill_deployed_url" not in final
+    assert "distill_agx_url" in final
+    assert "distill_deployed_url" not in final

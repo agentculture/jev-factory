@@ -281,7 +281,8 @@ def test_run_train_defaults_to_the_local_executor(tmp_path, monkeypatch):
     monkeypatch.setattr(gpu, "run_gpu_stage", lambda *a, **k: _Done())
     plan = pipeline_plan(tmp_path)
     td.run_train(plan, apply=True, memory_max="100G", jobs=ex)
-    assert len(seen) == 1 and seen[0].stage == "train"
+    assert len(seen) == 1
+    assert seen[0].stage == "train"
 
 
 def test_run_train_accepts_an_injected_executor(tmp_path, monkeypatch):
@@ -367,8 +368,9 @@ def test_seam_refuses_a_protected_id_named_by_the_heal_spec(tmp_path):
         json.dumps({"protected_id_sha256": [td.id_digest("secret-test-id")]}), encoding="utf-8"
     )
     spec = ex.job_spec_from_plan(plan)
+    rec = _Recorder()
     with pytest.raises(CliError, match="protected"):
-        ex.run_job(spec, _Recorder())
+        ex.run_job(spec, rec)
 
 
 def test_run_train_refuses_a_protected_id_before_the_gpu(tmp_path, monkeypatch):
@@ -397,10 +399,12 @@ def test_seam_refuses_a_secret_or_private_host_in_the_staged_inputs(tmp_path, pl
         encoding="utf-8",
     )
     rec = _Recorder()
+    spec = ex.job_spec_from_plan(plan)
     with pytest.raises(CliError) as err:
-        ex.run_job(ex.job_spec_from_plan(plan), rec)
+        ex.run_job(spec, rec)
     assert err.value.code == EXIT_USER_ERROR
-    assert "ghp_" not in err.value.message and "10.20.30.40" not in err.value.message
+    assert "ghp_" not in err.value.message
+    assert "10.20.30.40" not in err.value.message
     assert rec.submitted == []
 
 
@@ -416,8 +420,9 @@ def test_seam_refuses_a_secret_or_private_host_in_the_environment(tmp_path, vari
     plan = pipeline_plan(tmp_path)
     environment = ex.JobEnvironment(python="/opt/trainer/bin/python", variables=variables)
     rec = _Recorder()
+    spec = ex.job_spec_from_plan(plan, environment=environment)
     with pytest.raises(CliError) as err:
-        ex.run_job(ex.job_spec_from_plan(plan, environment=environment), rec)
+        ex.run_job(spec, rec)
     assert err.value.code == EXIT_USER_ERROR
     assert rec.submitted == []
 
@@ -432,8 +437,9 @@ def test_seam_runs_scan_secrets_on_the_staged_inputs(tmp_path, monkeypatch):
     monkeypatch.setattr(ex, "_script_flags", fake_flags)
     plan = pipeline_plan(tmp_path)
     rec = _Recorder()
+    spec = ex.job_spec_from_plan(plan)
     with pytest.raises(CliError, match="scan-secrets"):
-        ex.run_job(ex.job_spec_from_plan(plan), rec)
+        ex.run_job(spec, rec)
     assert str(Path(plan["train_file"])) in seen
     assert rec.submitted == []
 
@@ -516,7 +522,8 @@ def test_fake_remote_job_state_through_job_id_done_and_log_files(tmp_path):
     assert status["rc"] is None
     remote.complete(spec, rc=0)
     status = ex.job_status(jobs, spec.name)
-    assert status["state"] == "done" and status["rc"] == 0
+    assert status["state"] == "done"
+    assert status["rc"] == 0
     assert (jobs / f"{spec.name}.log").read_text().splitlines() == ["submitted job-42", "finished"]
 
 

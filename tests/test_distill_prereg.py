@@ -727,8 +727,9 @@ def test_the_v2_mapping_is_explicit_and_yields_a_valid_v3_doc():
     assert mapped["roles"]["teacher"]["variant"] == "W4A16"
     assert dp.V2_BAR_MAP == {"top1_under_clef_w4a16_max_points": "top1_under_teacher_max_points"}
     assert dp.validate(mapped).schema_version == 3
+    v3_doc = dp.example_doc_v3()
     with pytest.raises(CliError, match="schema_version 2"):
-        dp.v2_to_v3(dp.example_doc_v3())
+        dp.v2_to_v3(v3_doc)
 
 
 def test_a_v2_lock_still_records_schema_version_2(tmp_path):
@@ -784,7 +785,8 @@ def test_example_doc_seeds_from_another_profile():
     )
     for doc in (dp.example_doc(profile=other), dp.example_doc_v3(profile=other)):
         knobs = {k["name"]: k["value"] for k in doc["upstream_knobs"]}
-        assert knobs["lora_r"] == 16 and knobs["lora_alpha"] == 32
+        assert knobs["lora_r"] == 16
+        assert knobs["lora_alpha"] == 32
         assert knobs["lora_dropout"] == 0.1
         assert knobs["lora_targets"] == ["q_proj", "v_proj"]
         assert knobs["temperature_by_kind"]["choice"] == 1.5

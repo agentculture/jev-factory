@@ -62,7 +62,7 @@ from jev_factory.distill import prereg as dp
 from jev_factory.distill.assemble import OUT_REL as TRAIN_SET_REL
 from jev_factory.distill.profile import DEFAULT_2610, StudentProfile
 from jev_factory.distill.records import NOUL_OPTIONS, Record
-from jev_factory.distill.runspec import Bootstrap, GpuLimits, TrainerEnv
+from jev_factory.distill.runspec import Bootstrap, GpuLimits, JobRoute, StudentSource, TrainerEnv
 from jev_factory.distill.student import backbone as student_backbone
 from jev_factory.factory import gpu
 
@@ -507,8 +507,7 @@ def run_grid(
     *,
     prereg_path: Path | str,
     run_dir: Path | str,
-    cache_dir: Path | str | None,
-    pins: dpins.StudentPins | None,
+    student_source: StudentSource,
     folds: Mapping[str, Any],
     trainer_env: TrainerEnv,
     apply: bool = False,
@@ -518,18 +517,22 @@ def run_grid(
     deviation_id: str | None = None,
     limits: GpuLimits = GpuLimits(),
     bootstrap: Bootstrap = Bootstrap(),
-    profile: StudentProfile = DEFAULT_2610,
-    executor: Any = None,
-    expected_outputs: Sequence[str] = (),
-    jobs: Any = None,
+    route: JobRoute = JobRoute(),
 ) -> dict[str, Any]:
     """Plan (dry-run) or run the knob grid, then calibrate and select on apply.
 
-    The trainer is the one *profile*'s backbone registers (``plan_distill_train`` and
-    ``run_distill_train``). *executor* runs each candidate's job (``None``: the local
-    executor), through the *jobs* seam (``None``: :mod:`jev_factory.distill.executor`), and
-    *expected_outputs* (e.g. the trainer's ``CHECKPOINT_OUTPUTS``) are hash-verified on return.
+    *student_source* names the pin cache, the pins and the profile. The trainer is the one
+    profile's backbone registers (``plan_distill_train`` and ``run_distill_train``).
+    *route*'s executor runs each candidate's job (``None``: the local executor), through its
+    jobs seam (``None``: :mod:`jev_factory.distill.executor`), and its expected outputs (e.g.
+    the trainer's ``CHECKPOINT_OUTPUTS``) are hash-verified on return.
     """
+    cache_dir, pins, profile = (
+        student_source.cache_dir,
+        student_source.pins,
+        student_source.profile,
+    )
+    executor, expected_outputs, jobs = route.executor, route.expected_outputs, route.jobs
     trainer_python, decider_repo = trainer_env.python, trainer_env.decider_repo
     memory_max, memory_floor = limits.memory_max, limits.memory_floor
     allow_foreign, timeout = limits.allow_foreign, limits.timeout

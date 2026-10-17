@@ -299,7 +299,8 @@ def test_a_run_with_absent_roles_and_a_bf16_format_completes_through_the_bundle(
     na = [r for r in rows if r["result"] == "not_applicable"]
     assert na, "bf16 with no edge leaves bars not applicable"
     for row in na:
-        assert row.get("absent") and row.get("reason")
+        assert row.get("absent")
+        assert row.get("reason")
     # the quant-only bars are the ones not applicable; nothing was quantized or measured on edge
     assert {r["bar"] for r in na} >= {"quant_vs_bf16_agreement_min", "weight_bytes_max"}
     assert not (env.base / "quant" / "quant_manifest.json").exists()
@@ -380,7 +381,8 @@ def test_a_fake_non_local_executor_fails_on_a_one_byte_output_change(second):
     run_through(env, "benchmark")
     rc, _out, err = env.cli("train", "--apply", "--json")
     assert rc != 0
-    assert "failed verification" in err and "sha256 differs" in err
+    assert "failed verification" in err
+    assert "sha256 differs" in err
     assert env.read("manifests/train.json")["status"] == "failed"
     assert not (env.base / "select" / "summary.json").exists()
 

@@ -214,21 +214,11 @@ def _input_files(rel: str, local: Path, role: str) -> list[StagedFile]:
     return [StagedFile(rel, sha256_path(local), role)]
 
 
-def job_spec_from_plan(
-    plan: Mapping[str, Any],
-    *,
-    expected_outputs: Sequence[str] = (),
-    environment: JobEnvironment | None = None,
-    limits: JobLimits = JobLimits(),
-    name: str | None = None,
-) -> JobSpec:
-    """The :class:`JobSpec` for a ``train_distill.plan_train`` plan; reads, writes nothing.
-
-    *expected_outputs* are file or directory names relative to the plan's output directory;
-    each must come back (and match its reported sha256) after a zero exit."""
-    argv = [str(a) for a in plan["argv"]]
-    run_dir = str(plan.get("run_dir") or _flag_value(argv, "--run-dir"))
-    staged = Path(os.path.abspath(run_dir))
+def _portable_argv(
+    argv: list[str], staged: Path
+) -> tuple[list[str], dict[str, str], dict[str, Path], list[StagedFile]]:
+    """Rewrite each path flag of *argv* to its portable form: the portable argv, the rewritten
+    value per role, every ``external/<role>`` root and the staged input files."""
     portable = ["python", *argv[1:]]
     tokens: dict[str, str] = {}
     external: dict[str, Path] = {}
@@ -244,6 +234,30 @@ def job_spec_from_plan(
             external[rel] = local
         if flag in _INPUT_FLAGS:
             inputs.extend(_input_files(rel, local, role))
+    return portable, tokens, external, inputs
+
+
+def job_limits(**kwargs: Any) -> JobLimits:
+    """A :class:`JobLimits` (the job seam's limits accessor, read by ``train_distill``)."""
+    return JobLimits(**kwargs)
+
+
+def job_spec_from_plan(
+    plan: Mapping[str, Any],
+    *,
+    expected_outputs: Sequence[str] = (),
+    environment: JobEnvironment | None = None,
+    limits: JobLimits = JobLimits(),
+    name: str | None = None,
+) -> JobSpec:
+    """The :class:`JobSpec` for a ``train_distill.plan_train`` plan; reads, writes nothing.
+
+    *expected_outputs* are file or directory names relative to the plan's output directory;
+    each must come back (and match its reported sha256) after a zero exit."""
+    argv = [str(a) for a in plan["argv"]]
+    run_dir = str(plan.get("run_dir") or _flag_value(argv, "--run-dir"))
+    staged = Path(os.path.abspath(run_dir))
+    portable, tokens, external, inputs = _portable_argv(argv, staged)
     lock = staged / dp.LOCK_REL
     if lock.is_file() and not any(i.path == dp.LOCK_REL for i in inputs):
         inputs.append(StagedFile(dp.LOCK_REL, sha256_path(lock), "prereg_lock"))

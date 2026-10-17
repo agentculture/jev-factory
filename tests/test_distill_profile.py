@@ -68,7 +68,8 @@ def test_default_pins_take_a_profile() -> None:
     assert d == pins.default_pins(decider_revision=pins.DECIDER_REVISION, profile=P)
     other = dataclasses.replace(P, base_repo="x/other", adapter_sha256="a" * 64)
     o = pins.default_pins(decider_revision="c0ffee11", profile=other)
-    assert o.base.repo_id == "x/other" and o.adapter_sha256 == "a" * 64
+    assert o.base.repo_id == "x/other"
+    assert o.adapter_sha256 == "a" * 64
 
 
 def test_round_trip_from_table_and_run_toml() -> None:

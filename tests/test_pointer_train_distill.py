@@ -917,13 +917,16 @@ def test_head_to_safetensors_replaces_the_pickled_head(tmp_path):
 class _FakeJobs:
     """A job seam in place of jev_factory.distill.executor: records what it was given."""
 
-    class JobLimits:
+    class _Limits:
         def __init__(self, **kw):
             self.kw = kw
 
     def __init__(self, returncode=0):
         self.returncode = returncode
         self.calls = []
+
+    def job_limits(self, **kw):
+        return self._Limits(**kw)
 
     def job_spec_from_plan(self, plan, *, expected_outputs, environment, limits):
         self.calls.append(("spec", limits.kw, tuple(expected_outputs)))
