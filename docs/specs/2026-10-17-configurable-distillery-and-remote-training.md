@@ -50,6 +50,14 @@
   - honesty: A bf16-format pre-registration skips quantize and heal with a recorded reason, ships a bundle that strands-decider serve loads, and reports the quant-only bars not applicable. A quant-format run whose quantize fails still stops with no bf16 fallback.
 - Clef variants have serving recipes: envs.KINDS (envs.py:21-23,170-171; today clef-transformers and sglang-dev-clef) gains a way to name the engine and quantization a variant needs, and the teacher-label and audit stages record the variant. The existing invariant holds: one run uses one teacher build, and labels from another build mean a new labelling run or a deviation.
   - honesty: Each Clef variant names its engine and quantization in the run config; teacher-label refuses labels whose recorded variant differs from the run's without a deviation id.
+- Existing run folders stay valid after the upgrade. A locked schema-v2 pre-registration (for example ~/jev-runs/jetson-ops-20/work/distill/prereg.json, which carries `top1_under_clef_w4a16_max_points`) still loads: the variant-neutral keys arrive in a new schema version that reads v2 through an explicit mapping (the w4a16 bar becomes the teacher bar with variant W4A16) and never re-writes the locked file. Today prereg.py:539-542 refuses any version other than 2.
+  - honesty: A test loads a copy of a locked schema-v2 pre-registration with the new code, gets the mapped teacher bar with variant W4A16, and leaves the file's sha256 unchanged.
+- Upgrading does not make completed stages stale. New config keys and knobs (student profile, Clef variant, role presence, deployed format, executor) are left out of a stage's recorded knobs while they hold their default, so an existing run's manifests compare equal. stages.py:138-151 marks a stage stale on any knobs-dict difference, pipeline.py:161 records config keys with the knobs, and the staleness cascades down from teacher-label.
+  - honesty: On a copy of the jetson-ops-20 manifests, `stale_stages` reports the same set before and after the upgrade with default config (an empty list for the stages that were complete).
+- A stage skipped by declaration (quantize and heal under a bf16 ship; edge with the edge role absent) writes a manifest whose status counts as satisfied for its dependents and shows as skipped with the reason in jev status. Changing the declaration makes it stale. Today only status complete satisfies a dependent (stages.py:143-144).
+  - honesty: A test with a bf16 pre-registration shows quantize as skipped with its reason, gate, final and bundle run without refusing, and a later switch to quant makes quantize stale.
+- The executor job spec and staged inputs carry no secret values and no host details: the environment lists only non-secret variables (the trainer needs no teacher key), local absolute paths are rewritten relative to the staged folder, and the staged folder passes scripts/scan-secrets.py and the hostname and private-IP scan from the upload stage before any executor receives it.
+  - honesty: A test plants a secret-shaped value and a private IP in the environment and the inputs; the seam refuses before the executor is called, and the spec of a clean job holds no absolute paths.
 
 ## Honesty conditions
 
@@ -65,6 +73,8 @@
 - The second profile is a test fixture with different repo names and digests, so the run cannot pass by reading 2610 constants.
 - The report test enumerates every bar, so a newly added bar cannot silently fall outside the check.
 - The protected-id check runs in the seam itself, not in each executor, so a future SageMaker executor inherits it.
+- git diff main -- docs/distill-bundle-format.md adds only the bf16 bundle-kind section and additive fields, and an issue is filed on lobes-cli.
+- scripts/harness-smoke.py --stage config passes and the harness tests stay green.
 
 ## Success signals
 
@@ -82,6 +92,8 @@
 - Declaring a secondary role absent, or choosing a bf16 ship, never loosens a bar that applies. '+10 over stock' and 'within 5 of the teacher' always apply because stock and Clef are mandatory; the c17 'tighten, never loosen' rule (prereg.py:349-367) holds. Changing role presence or the deployed format after the lock is a recorded deviation, never an edit.
 - quantize builds, benchmark, gate, final and edge stay local: they serve models on localhost and read the 7.6G quant tree. Only the training subprocess (train, and heal) can go remote.
 - Configuration happens through run.toml keys (docs/run-config.example.toml:59-89 already holds the `distill_`\* keys) and flags or knobs on the existing jev distill verb. No new verb is added, so the jev-tool model's candidate set is unchanged (domains/`jev_cli` annotations.py:104-108; a new verb would need an annotation, content and an export-test change).
+- The bundle contract consumed by lobes (docs/distill-bundle-format.md) is unchanged for a quant ship. A bf16 ship is documented there as a distinct bundle kind, identifiable from `distill_provenance.json`; new provenance fields (profile, Clef variant, roles, format) are additive only; and lobes-cli is told through /communicate, never edited.
+- Prompt-file edits keep the live harness-probe wording (docs/harness-invocations.yaml): CLAUDE.md and QWEN.md still describe the project as jev-factory, the lobes-cli attribution stays out of AGENTS.override.md, and no root AGENTS.md is added; scripts/harness-smoke.py --stage config passes.
 
 ## Non-goals
 
@@ -127,12 +139,30 @@
   - seeds: `c15` (rejected), `q3` (question, resolved)
 - `s18` — `docs/training-env.md, pyproject train extra (image architecture)`: The trainer env is pinned for GB10 aarch64 with cu130 torch, so SageMaker x86 GPU instances need their own image and lockfile hash. Spot resume is unverified (parked as v1).
   - seeds: `q4` (question, resolved)
+- `s19` — `challenge pass / migration lens: distill/prereg.py, ~/jev-runs/jetson-ops-20/work/distill/prereg.json`: prereg.py:539-542 refuses any schema version other than 2, and the live proving run's locked v2 file carries `top1_under_clef_w4a16_max_points`, so renaming bar keys without a v2 read path would strand the run's pending fresh final.
+  - seeds: `c37`
+- `s20` — `challenge pass / migration lens: factory/stages.py staleness, distill/pipeline.py effective_knobs`: A stage is stale when its recorded knobs dict differs (stages.py:138-151), and config keys are recorded with the knobs (pipeline.py:161), so new keys would mark every completed stage stale from teacher-label down.
+  - seeds: `c38`
+- `s21` — `challenge pass / lifecycle lens: factory/stages.py status semantics`: Only status complete satisfies a dependent (stages.py:143-144), so a declared skip needs its own satisfied status, or bf16 ships and absent-edge runs would block downstream stages.
+  - seeds: `c39`
+- `s22` — `challenge pass / security lens: train_distill.py plan env (PYTHONPATH), release scans`: The plan env carries local absolute paths (`train_distill.py` ~346), and the upload stage already has scan-secrets plus hostname and private-IP scans that can be reused on the staged folder.
+  - seeds: `c40`
+- `s23` — `challenge pass / adjacent-systems lens: docs/distill-bundle-format.md, lobes-cli consumer`: grep finds no Clef, 2610 or w4a16 text in the bundle contract; lobes consumes it, so a bf16 ship is a new bundle kind it has to learn about.
+  - seeds: `c41`
+- `s24` — `challenge pass / adjacent-systems lens: docs/harness-invocations.yaml, prompt files`: The live probes depend on prompt-file wording (CLAUDE.md and QWEN.md say jev-factory; the lobes-cli attribution only in .pi/SYSTEM.md), and c21 edits those files.
+  - seeds: `c42`
+- `s25` — `challenge pass / counter-evidence lens: c8 and c5 (teacher bar vs variant)`: A relative teacher bar plus a configurable variant means a weaker variant weakens the bar; nobody argued this side during /think. Routed to question q1.
+- `s26` — `challenge pass / adjacent-systems lens: domains/jev_cli/content.py`: Clean: no Clef, 2610 or w4a16 text in the jev.distill descriptions, so the jev-tool domain content needs no change beyond c18.
+- `s27` — `challenge pass / concurrency and hardware lens: factory/gpu.py, capped.sh, factory/lock.py`: Clean for this work: the local executor keeps the GPU guard, the capped.sh floor and the run lock as on main. Lock lifetime for non-local jobs is parked as v5.
+- `s28` — `challenge pass / recovery and observability lens: executor return step, jev status`: c13 fails a stage on a hash mismatch and c14 surfaces job state; there is no retry policy, parked as v6. Rollback stays cheap: the default profile and local executor equal main's behaviour (c3, c10).
+- `s29` — `challenge pass / unexamined surfaces`: Not read in full during scope or challenge: the bodies of bundle.py, edge.py and quant.py's `_finish` beyond the cited lines, and how report.py's c42 and c43 bar helpers handle missing models. The plan should give these a read-first task before editing.
 
 ## Decisions
 
 - Clef (the teacher) and the stock fine-tuning target are mandatory roles in every run; Clef's build variant is configurable (BF16, NVFP4, FP4, W4A16 and so on).
 - A bf16-only ship is allowed when it is decided.
 - This work makes the training code agnostic to where the job runs; SageMaker support and live testing are a later session. Target region: us-east-1.
+- The teacher bar ('within 5 points of Clef') is relative to the Clef variant the run serves; that variant is locked in the pre-registration and reported beside every number, so a weaker teacher is visible but allowed.
 
 ## Hard questions
 
@@ -147,3 +177,5 @@
 - [unknown_nonblocking] Whether the default or culture-nodes AWS profile has SageMaker, ECR and S3 rights is unknown; it was not tested, to avoid making AWS calls during scope.
 - [unknown_nonblocking] Who drafts the contamination manifest and the published-benchmark baseline for a non-2610 student profile, and whether a profile without a card baseline turns the base-mismatch gate (benchmark.py:578-607) off or makes it a recorded deviation.
 - [unknown_nonblocking] Proposed defaults for the later SageMaker session, to discuss then: us-east-1; ml.g6e.xlarge (1x L40S 48 GB) or ml.g5.2xlarge (1x A10G 24 GB) for 2B LoRA training; on-demand first, spot once resume is proven (v1); a private, encrypted S3 bucket with public access blocked; the profile or role named in run config; MaxRuntimeInSeconds as the cost cap; an x86 image built from a new lockfile; and a loopback carve-out only for the AWS control plane and S3.
+- [unknown_nonblocking] How the run lock behaves during a long non-local job (held for the job's whole life, or released after submission and re-taken for the return step) is decided in the SageMaker session; the local executor keeps today's behaviour.
+- [unknown_nonblocking] Recovery when a returned output fails hash verification (no automatic retry today; the operator re-runs with --force) may need a policy once paid remote jobs exist.
