@@ -64,7 +64,12 @@ pre-registration (:func:`jev_factory.distill.prereg.require_locked`).
    ``jev_quant.json``) and falls back to nvsh d18's bf16 continuation when QAT is
    unavailable on the student env; the healed checkpoint records which ran
    (``heal.method``), and the manifest carries it. The healed checkpoint is re-quantized
-   and re-measured; its agreement is against the **original** bf16 student's predictions.
+   and re-measured; its agreement is against the **original** bf16 student's predictions
+   and its accuracy drop against the original bf16 student's selection accuracy (d17), so
+   a heal that lowers the bf16 itself cannot hide that loss. The drop against the bf16
+   rebuilt from the healed checkpoint (``drop_points_vs_heal_bf16``) and the heal's drift
+   (``heal_bf16_drift_points``, original minus healed bf16) are recorded as context and
+   gate nothing.
    A healed build that still loses too much, misses the ECE bar or agrees below the bar is
    not shippable: a ``heal_result`` with ``shippable: false`` is appended, the same failed
    ``no qualifying format`` result is recorded (nothing ships) and the stage raises
@@ -820,6 +825,30 @@ def oov_refusals(measured: Mapping[str, Any]) -> dict[str, Any]:
     return {"by_fold": by_fold, "total": sum(by_fold.values())}
 
 
+def _heal_drift(bf16: dict[str, Any], baseline: Mapping[str, Any] | None) -> float | None:
+    """With a *baseline* (a heal round), set the round's bf16 delta to its drift from it."""
+    if baseline is None:
+        return None
+    drift = _drop_points(baseline, bf16)
+    bf16["delta_points"] = None if drift is None else -drift
+    return drift
+
+
+def _drops(
+    quant: Mapping[str, Any],
+    bf16: Mapping[str, Any],
+    baseline: Mapping[str, Any] | None,
+    drift: float | None,
+) -> dict[str, Any]:
+    """A quant's drop against *baseline* (default *bf16*) and, in a heal round, the context."""
+    drop = _drop_points(baseline or bf16, quant)
+    out: dict[str, Any] = {"drop_points": drop, "delta_points": None if drop is None else -drop}
+    if baseline is not None:
+        out["drop_points_vs_heal_bf16"] = _drop_points(bf16, quant)
+        out["heal_bf16_drift_points"] = drift
+    return out
+
+
 def _measure_all(
     checkpoint: Path,
     builds: Path,
@@ -829,12 +858,17 @@ def _measure_all(
     formats: Sequence[str],
     reference: Mapping[str, Any] | None = None,
     gating: Gating | None = None,
+    baseline: Mapping[str, Any] | None = None,
     **kw: Any,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Mapping[str, Any]]]:
     """Measure bf16 and *formats*; return the measurements and each format's raw predictions.
 
     Each available quant's ``agreement_vs_bf16`` is against *reference* (the bf16
-    student's predictions; default: this round's bf16).
+    student's predictions; default: this round's bf16) and its ``drop_points`` against
+    *baseline* (the bf16 student's measurement; default: this round's bf16). A heal round
+    passes the original student for both (d17); its own bf16 is then context: the bf16's
+    ``delta_points`` is its drift from *baseline*, and each quant also records
+    ``drop_points_vs_heal_bf16`` and ``heal_bf16_drift_points``.
     """
     out, predictions = {}, {}
     for fmt in (BF16, *formats):
@@ -848,14 +882,12 @@ def _measure_all(
     if not bf16["safe"] or bf16["accuracy"] is None:
         raise _refuse(
             f"the bf16 winner left {bf16['problems']} fit/selection question(s) unanswered",
-            "every quant is compared against its own bf16; fix the serve path first",
+            "every quant's measurement needs this bf16; fix the serve path first",
         )
+    drift = _heal_drift(bf16, baseline)
     for fmt in formats:
         if out[fmt]["available"]:
-            out[fmt]["drop_points"] = _drop_points(bf16, out[fmt])
-            out[fmt]["delta_points"] = (
-                None if out[fmt]["drop_points"] is None else -out[fmt]["drop_points"]
-            )
+            out[fmt].update(_drops(out[fmt], bf16, baseline, drift))
             ref, got = reference, predictions[fmt]
             if gating is not None:
                 domain, _guard = gating.split(fold_records)
@@ -1528,7 +1560,7 @@ def _healed_problem(
     if again["drop_points"] is None or again["drop_points"] > HEAL_MARGIN_POINTS + _EPS:
         return (
             f"second heal trigger: the healed {fmt} still loses {again['drop_points']} "
-            f"points against its own bf16 (> {HEAL_MARGIN_POINTS})"
+            f"points against the original bf16 student (> {HEAL_MARGIN_POINTS})"
         )
     if again["ece"] is None or again["ece"] > float(bars["ece_max"]) + _EPS:
         return f"the healed {fmt} has calibrated ECE {again['ece']} > {bars['ece_max']}"
@@ -1590,6 +1622,7 @@ def _heal_round(
         (fmt,),
         reference=bf16_predictions,
         gating=hr.gating,
+        baseline=measured[BF16],
         **hr.kw,
     )
     again = healed[fmt]
@@ -1603,12 +1636,26 @@ def _heal_round(
             "method": method["method"],
             "fallback_reason": method["fallback_reason"],
             "drop_points": again.get("drop_points"),
+            "drop_points_vs_heal_bf16": again.get("drop_points_vs_heal_bf16"),
+            "heal_bf16_drift_points": again.get("heal_bf16_drift_points"),
+            "original_bf16_accuracy": measured[BF16]["accuracy"],
+            "healed_bf16_accuracy": healed[BF16]["accuracy"],
+            "quant_accuracy": again.get("accuracy"),
             "agreement_vs_bf16": _pooled_agreement(again),
             "shippable": problem is None,
             "problem": problem,
         },
     )
-    record = {**trigger, "healed_checkpoint": str(healed_checkpoint), "method": method}
+    # the trigger's drop_points is the pre-heal one; the healed build's are under healed_result
+    record = {
+        **trigger,
+        "healed_checkpoint": str(healed_checkpoint),
+        "method": method,
+        "healed_result": {
+            k: again.get(k)
+            for k in ("drop_points", "drop_points_vs_heal_bf16", "heal_bf16_drift_points")
+        },
+    }
     return _Healed(record, healed, healed_predictions, healed_checkpoint, problem)
 
 
@@ -1971,7 +2018,8 @@ def _finish(
     fmt = choice["format"]
     _refuse_comparison_candidates([fmt])
     final = (healed or measured)[fmt]
-    final_bf16 = (healed or measured)[BF16]
+    # the original bf16 student, healed or not (d17); a healed bf16 is context only
+    final_bf16 = measured[BF16]
     measurements_path = _write_measurements(base, out_dir, measured, healed, comparison)
     predictions_path = out_dir / DEPLOYED_PREDICTIONS_FILE
     _write_json(
@@ -2029,6 +2077,7 @@ def _finish(
         # a quant reaches here only at or above the bar (else it healed or stopped)
         "shippable": True,
         "bf16_selection_accuracy": final_bf16["accuracy"],
+        **({"healed_bf16_selection_accuracy": healed[BF16]["accuracy"]} if healed else {}),
         "deployed_selection_accuracy": final["accuracy"],
         "deployed_selection_ece": final["ece"],
         "pruned_vocabulary_comparison": (

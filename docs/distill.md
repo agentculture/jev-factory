@@ -267,7 +267,12 @@ Details that matter when operating them:
   deviation id. That round may train on another mix
   (`--knob heal_mix='{"bf16_student": 1.0, "clef": 0.0}'`), which also needs
   the deviation id; the heal log records both mixes. A healed build under
-  0.97 is not shippable.
+  0.97 is not shippable. A healed build's accuracy drop is measured against
+  the **original** bf16 student, not the bf16 rebuilt from the healed
+  checkpoint (d17), so a heal that lowers the bf16 itself cannot hide that
+  loss. The drop against the healed bf16 (`drop_points_vs_heal_bf16`) and the
+  heal's drift (`heal_bf16_drift_points`) are in the heal log as context and
+  gate nothing.
 - **Gating on the domain (d12).** By default accuracy, calibration, the heal
   trigger and agreement pool every fit and selection record, the
   typed-decisions guard included. With `--knob gating=clean` and a deviation
