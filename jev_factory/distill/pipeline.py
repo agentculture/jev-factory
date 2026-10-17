@@ -61,6 +61,7 @@ from jev_factory.distill import quant as dquant
 from jev_factory.distill import train as dtrain
 from jev_factory.distill.runspec import GpuLimits, TrainerEnv
 from jev_factory.distill.student import backbone as student_backbone
+from jev_factory.factory import safepath
 from jev_factory.factory.config import RunConfig
 from jev_factory.factory.lock import RunLock
 from jev_factory.factory.stages import (
@@ -872,7 +873,7 @@ def _record_jobs(workdir: Path, name: str, manifest: dict[str, Any], jobs: list)
     the stage manifest in the stage engine's format."""
     for job in jobs:
         manifest = dex.record_job(manifest, job)
-    path = manifest_path(workdir, name)
+    path = safepath.contained(manifest_path(workdir, name), workdir)
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest
 
