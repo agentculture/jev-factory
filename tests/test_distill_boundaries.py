@@ -156,6 +156,8 @@ def _branch_diff() -> list[str]:
             break
     if not base:
         pytest.skip("no main ref to take the merge-base from")
+    if base.strip() == (_git("rev-parse", "HEAD") or "").strip():
+        pytest.skip("HEAD is the merge-base (main itself): there is no branch diff to check")
     out = _git("diff", "--name-only", f"{base.strip()}..HEAD")
     if out is None:
         pytest.skip("git diff unavailable")
