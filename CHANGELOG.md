@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2026-10-17
+
+### Changed
+
+- Delivery records for the configurable distillery (PR #24) adjudicated: the operator approved evidence e1-e17, behavioral deltas b1-b8 and lapses l1-l3; the delivery summary now caps the claims those lapses touch (c5, c27 by l1; c10, c12, c13, c14 by l2) at medium.
+
 ## [0.13.0] - 2026-10-17
 
 ### Added
