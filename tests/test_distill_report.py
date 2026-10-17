@@ -560,3 +560,137 @@ def test_probe_table_and_latency_carry_no_pass_fail():
     assert rep["runtime"]["gated"] is False
     assert all("result" not in row for row in rep["runtime"]["models"].values())
     assert _build(recs, _good(recs))["probe"]["measured"] is False
+
+
+# --------------------------------------------------------------------- roles and formats (t9)
+
+
+def _bar_rows(node):
+    """Every bar row (a dict with a ``bar`` key) anywhere in *node*."""
+    if isinstance(node, dict):
+        if "bar" in node and "result" in node:
+            yield node
+        for value in node.values():
+            yield from _bar_rows(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _bar_rows(value)
+
+
+def _v3(**kw):
+    return dp.validate(dp.example_doc_v3(**kw))
+
+
+def test_every_bar_has_exactly_one_result_from_the_four_and_a_miss_is_fail():
+    """c7: pass, fail, not_applicable or reported; nothing else (a miss is now 'fail')."""
+    assert R.FAILED == "fail"
+    assert R.MISSED == R.FAILED
+    assert R.RESULTS == ("pass", "fail", "not_applicable", "reported")
+    recs = [_rec(i) for i in range(40)]
+    for prereg in (None, _v3(), _v3(deployed_format="bf16")):
+        rep = _build(recs, _good(recs), prereg=prereg)
+        rows = list(_bar_rows(rep))
+        assert rows
+        assert {r["result"] for r in rows} <= set(R.RESULTS)
+
+
+def test_an_uncomputable_bar_for_a_present_role_is_fail():
+    recs = [_rec(i) for i in range(40)]
+    preds = _good(recs)
+    del preds["stock"]  # stock is mandatory: its relative bars cannot be not_applicable
+    rep = _build(recs, preds, prereg=_v3())
+    for build in ("bf16", "quant"):
+        row = _c17(rep, build, "top1_over_stock_min_points")
+        assert row["result"] == R.FAILED
+        assert row["reason"]
+    assert rep["result"] == R.FAILED
+
+
+def test_a_v3_quant_prereg_gives_the_v2_outcomes_under_the_teacher_bar_name():
+    recs = [_rec(i) for i in range(40)]
+    v2 = _build(recs, _good(recs))
+    v3 = _build(recs, _good(recs), prereg=_v3())
+    assert [b["bar"] for b in v3["c17"]["builds"]["quant"]["bars"]] == [
+        *dp.C17_TOP1_BARS_V3,
+        *dp.C17_QUANT_ONLY_BARS,
+    ]
+    for build in ("bf16", "quant"):
+        old = _c17(v2, build, dp.V2_TEACHER_BAR)
+        new = _c17(v3, build, dp.TEACHER_BAR)
+        assert (new["value"], new["threshold"], new["result"]) == (
+            old["value"],
+            old["threshold"],
+            old["result"],
+        )
+    assert v3["result"] == v2["result"] == R.PASSED
+
+
+@pytest.mark.parametrize("variant", ["W4A16", "BF16"])
+def test_the_clef_variant_is_shown_beside_every_teacher_number(variant):
+    """c43: the teacher bar is relative to the Clef variant the run serves."""
+    recs = [_rec(i) for i in range(40)]
+    rep = _build(recs, _good(recs), prereg=_v3(teacher_variant=variant))
+    assert rep["teacher"]["variant"] == variant
+    assert rep["teacher"]["row"] == R.CLEF
+    assert variant in rep["c17"]["clef_reference"]
+    assert rep["c17"]["teacher_variant"] == variant
+    for build in ("bf16", "quant"):
+        assert _c17(rep, build, dp.TEACHER_BAR)["teacher_variant"] == variant
+    gap = next(b for b in rep["c42"]["bars"] if b["bar"] == "gap_closure_min")
+    assert gap["teacher_variant"] == variant
+    assert rep["runtime"]["models"][R.CLEF]["teacher_variant"] == variant
+    v2 = _build(recs, _good(recs))
+    assert v2["teacher"]["variant"] == "W4A16"  # every v2 file registered W4A16
+
+
+def test_a_bf16_ship_reports_the_quant_bars_not_applicable_naming_the_format():
+    """c7/h6: the bf16 student is the deployed build; quant-only bars are not_applicable."""
+    recs = [_rec(i) for i in range(40)]
+    preds = _good(recs)
+    del preds["student"]  # one build, measured once: the deployed row is the bf16 row
+    rep = _build(recs, preds, prereg=_v3(deployed_format="bf16"), quant={}, bundle=None)
+    assert rep["deployed_format"] == "bf16"
+    assert rep["deployed_model"] == R.STUDENT_BF16
+    bf16 = rep["c17"]["builds"]["bf16"]
+    assert bf16["result"] == R.PASSED, bf16["missed"]
+    assert [b["bar"] for b in bf16["bars"]] == list(dp.C17_TOP1_BARS_V3)
+    quant = rep["c17"]["builds"]["quant"]
+    assert quant["result"] == R.NOT_APPLICABLE
+    assert [b["bar"] for b in quant["bars"]] == [*dp.C17_TOP1_BARS_V3, *dp.C17_QUANT_ONLY_BARS]
+    for row in [*quant["bars"], *rep["c43"]["bars"]]:
+        assert row["result"] == R.NOT_APPLICABLE
+        assert "deployed_format bf16" in row["reason"]
+    assert [b["bar"] for b in rep["c43"]["bars"]] == list(dp.QUANT_BARS)
+    assert rep["c43"]["result"] == R.NOT_APPLICABLE
+    assert rep["c17"]["result"] == R.PASSED
+    assert rep["result"] == R.PASSED
+    # c42 (bars.test) reads the deployed student: here the bf16 build's numbers.
+    stats = rep["sides"]["test"]["pools"][R.HEADLINE]["stats"]
+    assert stats["student.accuracy"]["value"] == stats["student_bf16.accuracy"]["value"]
+    assert rep["c42"]["result"] in (R.PASSED, R.FAILED)
+
+
+def test_a_bf16_ship_still_fails_a_relative_bar_it_misses():
+    """c8: a bf16 ship never loosens '+10 over stock' or 'within 5 of the teacher'."""
+    recs = [_rec(i) for i in range(40)]
+    preds = _good(recs)
+    preds["student_bf16"] = _rows(recs, 22, 0.97, 0.45)  # +5 over stock: misses +10
+    del preds["student"]
+    rep = _build(recs, preds, prereg=_v3(deployed_format="bf16"), quant={}, bundle=None)
+    assert "bf16.top1_over_stock_min_points" in rep["c17"]["missed"]
+    assert rep["result"] == R.FAILED
+
+
+def test_absent_optional_roles_are_reported_and_never_relax_a_bar():
+    doc = dp.example_doc_v3()
+    for name in dp.OPTIONAL_ROLES:
+        doc["roles"][name] = {"present": False}
+    recs = [_rec(i) for i in range(40)]
+    rep = _build(recs, _good(recs), prereg=dp.validate(doc))
+    for name in dp.OPTIONAL_ROLES:
+        assert rep["roles"][name]["present"] is False
+        assert rep["roles"][name]["reason"]
+    for name in dp.MANDATORY_ROLES:
+        assert rep["roles"][name]["present"] is True
+    assert not [r for r in _bar_rows(rep) if r["result"] == R.NOT_APPLICABLE]
+    assert rep["result"] == R.PASSED
