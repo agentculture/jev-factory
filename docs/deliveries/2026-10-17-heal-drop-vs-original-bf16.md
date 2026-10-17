@@ -82,7 +82,7 @@ implements, not drift from it.
   `markdownlint-cli2` on every edited doc — clean
 - unchanged: `git diff --stat main -- jev_factory/distill/prereg.py jev_factory/decide jev_factory/distill/report.py` — empty
 - devague: obligations o1–o10 each with approved evidence e1–e10 (6 at
-  sensitivity, 4 at execution); deltas b1–b4 filed (proposed)
+  sensitivity, 4 at execution), plus e11 (o3, sensitivity, after review); deltas b1–b4 operator-approved
 - commits: `7e834cf..b4bd88b` (plus this summary)
 - issues: #22 (follow-up)
 
@@ -113,7 +113,6 @@ Lapse ledger evidence:
 - Issue #22 — the same fix for `jev run`'s heal (`factory/pipeline.py`
   `stage_heal`, `causal_lm/quantize.loss_points` and `new_wrong_mutating_ids`);
   needs its own deviation.
-- Deltas b1–b4 await operator confirmation (`devague delta --confirm bN --plan heal-drop-vs-original-bf16`).
 - Park `v2` — the change is untested on a real heal; the next #20 heal run is
   its first real exercise.
 - The #20 proving run is unaffected: its shipped int4 is un-healed, so its
