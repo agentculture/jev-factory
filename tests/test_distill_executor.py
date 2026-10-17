@@ -68,6 +68,7 @@ def pipeline_plan(tmp_path: Path, train_ids=("t1", "t2"), sides=True, **kw):
         output_dir=run / "distill" / "train" / "c1" / "checkpoint",
         trainer_python="/opt/trainer/bin/python",
         decider_repo=tmp_path / "strands-decider",
+        prereg=dp,
         **kw,
     )
 
@@ -161,7 +162,7 @@ def test_dry_run_prints_the_job_spec_and_touches_nothing(tmp_path, monkeypatch):
     plan = pipeline_plan(tmp_path)
     before = sorted(str(p) for p in tmp_path.rglob("*"))
     monkeypatch.setattr(gpu, "run_gpu_stage", lambda *a, **k: pytest.fail("ran"))
-    out = td.run_train(plan)
+    out = td.run_train(plan, jobs=ex)
     assert out["dry_run"] is True
     assert out["job_spec"]["stage"] == "train"
     assert out["argv"] == plan["argv"]  # the plan is still printed as before
@@ -242,7 +243,7 @@ def test_local_executor_reproduces_mains_capped_call_exactly(monkeypatch):
     main_calls, main_guard = list(calls), list(guard)
     calls.clear()
     guard.clear()
-    out = td.run_train(RECORDED_PLAN, apply=True, memory_max="100G", timeout=5.0)
+    out = td.run_train(RECORDED_PLAN, apply=True, memory_max="100G", timeout=5.0, jobs=ex)
     assert out["returncode"] == 0
     assert calls == main_calls
     assert guard == main_guard == [("train", {"allow_foreign": False})]
@@ -263,7 +264,7 @@ def test_local_executor_reproduces_mains_capped_call_exactly(monkeypatch):
 
 def test_local_executor_passes_the_foreign_gpu_override_through(monkeypatch):
     calls, guard = _capture(monkeypatch)
-    td.run_train(RECORDED_PLAN, apply=True, memory_max="100G", allow_foreign=True)
+    td.run_train(RECORDED_PLAN, apply=True, memory_max="100G", allow_foreign=True, jobs=ex)
     assert guard == [("train", {"allow_foreign": True})]
     assert len(calls) == 1
 
@@ -279,14 +280,16 @@ def test_run_train_defaults_to_the_local_executor(tmp_path, monkeypatch):
     monkeypatch.setattr(ex.LocalExecutor, "submit", spy)
     monkeypatch.setattr(gpu, "run_gpu_stage", lambda *a, **k: _Done())
     plan = pipeline_plan(tmp_path)
-    td.run_train(plan, apply=True, memory_max="100G")
+    td.run_train(plan, apply=True, memory_max="100G", jobs=ex)
     assert len(seen) == 1 and seen[0].stage == "train"
 
 
 def test_run_train_accepts_an_injected_executor(tmp_path, monkeypatch):
     monkeypatch.setattr(gpu, "run_gpu_stage", lambda *a, **k: pytest.fail("ran locally"))
     rec = _Recorder()
-    out = td.run_train(pipeline_plan(tmp_path), apply=True, memory_max="100G", executor=rec)
+    out = td.run_train(
+        pipeline_plan(tmp_path), apply=True, memory_max="100G", executor=rec, jobs=ex
+    )
     assert len(rec.submitted) == 1
     assert out["job"]["executor"] == "recorder"
 
@@ -294,7 +297,9 @@ def test_run_train_accepts_an_injected_executor(tmp_path, monkeypatch):
 def test_run_train_verifies_declared_outputs_and_returns_the_job_manifest(tmp_path, monkeypatch):
     plan = pipeline_plan(tmp_path)
     monkeypatch.setattr(gpu, "run_gpu_stage", lambda *a, **k: _write_checkpoint(plan) or _Done())
-    out = td.run_train(plan, apply=True, memory_max="100G", expected_outputs=td.CHECKPOINT_OUTPUTS)
+    out = td.run_train(
+        plan, apply=True, memory_max="100G", expected_outputs=td.CHECKPOINT_OUTPUTS, jobs=ex
+    )
     job = out["job"]
     assert job["executor"] == "local"
     assert job["verified"] is True
@@ -316,7 +321,9 @@ def test_a_missing_declared_output_fails_non_zero(tmp_path, monkeypatch):
         lambda *a, **k: _write_checkpoint(plan, td.CHECKPOINT_OUTPUTS[:1]) or _Done(),
     )
     with pytest.raises(CliError) as err:
-        td.run_train(plan, apply=True, memory_max="100G", expected_outputs=td.CHECKPOINT_OUTPUTS)
+        td.run_train(
+            plan, apply=True, memory_max="100G", expected_outputs=td.CHECKPOINT_OUTPUTS, jobs=ex
+        )
     assert err.value.code != 0
     assert "missing" in err.value.message
 
@@ -368,7 +375,7 @@ def test_run_train_refuses_a_protected_id_before_the_gpu(tmp_path, monkeypatch):
     plan = pipeline_plan(tmp_path, train_ids=("t1", "h1"))
     monkeypatch.setattr(gpu, "run_gpu_stage", lambda *a, **k: pytest.fail("ran"))
     with pytest.raises(CliError) as err:
-        td.run_train(plan, apply=True, memory_max="100G")
+        td.run_train(plan, apply=True, memory_max="100G", jobs=ex)
     assert err.value.code == EXIT_USER_ERROR
 
 

@@ -96,6 +96,7 @@ def test_trainer_plan_accepts_the_example_doc(tmp_path, init_mode):
         output_dir=tmp_path / "out",
         trainer_python="python3",
         decider_repo=tmp_path / "strands-decider",
+        prereg=dp,
     )
     hp = plan["hyperparameters"]
     assert hp["init_mode"] == init_mode

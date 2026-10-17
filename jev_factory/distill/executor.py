@@ -1,7 +1,8 @@
 """The executor seam: where a distill training job runs, behind one small contract.
 
 ``train_distill.run_train`` (train and heal alike) hands its plan to :func:`run_job` as a
-:class:`JobSpec`; an :class:`Executor` runs it and the seam verifies what comes back.
+:class:`JobSpec`; an :class:`Executor` runs it and the seam verifies what comes back. The
+trainer does not import this module: its callers pass it as the ``jobs`` seam (deviation d1).
 
 * **JobSpec.** Executor-neutral: the staged inputs (each with its sha256), the expected
   outputs, the environment (a python path or an image digest plus a lockfile hash, and
@@ -49,6 +50,7 @@ from jev_factory.distill import dataset as ddataset
 from jev_factory.distill import prereg as dp
 from jev_factory.factory import detach, gpu, stages
 from jev_factory.release import hub, scan
+from jev_factory.runtime.ids import id_digest
 
 #: Where inputs from outside the staged folder go inside it.
 EXTERNAL = "external"
@@ -289,8 +291,6 @@ def protected_digests(spec: JobSpec, extra: Iterable[str] = ()) -> tuple[set[str
     """sha256 of every protected record id the seam knows, and where they came from: the
     dataset stage's held-out, test, fit and selection sides under the staged folder, the heal
     spec's ``protected_id_sha256`` and any digests the caller passes."""
-    from jev_factory.backbones.pointer.train_distill import id_digest  # train_distill imports us
-
     digests = {str(d) for d in extra}
     sources = ["caller"] if digests else []
     for side in PROTECTED_SIDES:
@@ -331,8 +331,6 @@ def staged_record_ids(spec: JobSpec) -> set[str]:
 
 def check_protected(spec: JobSpec, extra: Iterable[str] = ()) -> dict[str, Any]:
     """Refuse (exit 1, ids counted, never printed) a staged record id on a protected side."""
-    from jev_factory.backbones.pointer.train_distill import id_digest
-
     protected, sources = protected_digests(spec, extra)
     ids = staged_record_ids(spec)
     hits = sorted(i for i in ids if id_digest(i) in protected)

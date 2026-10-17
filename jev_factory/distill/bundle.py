@@ -5,8 +5,8 @@ Two private upload folders are written under one output directory:
 ``model/``
     The deployed student exactly as ``distill/quant/format_decision.json`` chose it, verified
     by its own reader before and after: a bf16 ``hobson-hf-export/1`` bundle
-    (:func:`jev_factory.backbones.pointer.layout.read_layout`) or a torchao weight-only
-    artifact (:func:`jev_factory.backbones.pointer.quantized.read_artifact`). Its
+    (the student backbone's ``layout().read_layout``) or a torchao weight-only
+    artifact (its ``quantizer().read_artifact``). Its
     ``strands_decider_config.json`` carries **jev-factory's fitted** ``temperature_by_kind``
     (from ``distill/quant/calibration.json``), never Strands' upstream values; the scalar
     ``temperature`` is the identity ``1.0`` (a kind without a fitted value is left
@@ -51,7 +51,6 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from jev_factory.backbones.pointer import layout, quantized
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill import assemble as dassemble
 from jev_factory.distill import audit as daudit
@@ -60,7 +59,12 @@ from jev_factory.distill import deployed as ddeployed
 from jev_factory.distill import final as dfinal
 from jev_factory.distill import gate as dgate
 from jev_factory.distill import prereg as dprereg
+from jev_factory.distill.student import backbone as student_backbone
 from jev_factory.release import hub, scan
+
+#: The student's bundle layout and deployed-format facets, through the registry (d2).
+layout = student_backbone().layout()
+quantized = student_backbone().quantizer()
 
 MODEL_DIR = "model"
 DATASET_DIR = "dataset"

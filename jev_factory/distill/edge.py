@@ -57,6 +57,7 @@ from jev_factory.distill import deployed as ddeployed
 from jev_factory.distill import prereg as dp
 from jev_factory.distill import quant as dquant
 from jev_factory.distill.records import Record
+from jev_factory.distill.student import backbone as student_backbone
 from jev_factory.distill.systemone import SystemOneClient
 from jev_factory.measure.preflight import _NoRedirect, require_localhost
 
@@ -266,9 +267,7 @@ def expected_bundle(run_dir: Path | str, deployed_format: str = ddeployed.QUANT)
     if not artifact:
         raise _refuse("the quant manifest names no deployed_artifact; cannot know the bundle")
     artifact = Path(artifact) if Path(artifact).is_absolute() else run_dir / artifact
-    from jev_factory.backbones.pointer import quantized
-
-    att = quantized.bundle_attestation(artifact)
+    att = student_backbone().quantizer().bundle_attestation(artifact)
     return {"files": dict(att["files"]), "manifest_sha256": att["manifest_sha256"]}
 
 

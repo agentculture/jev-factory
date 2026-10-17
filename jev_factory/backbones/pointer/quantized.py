@@ -92,9 +92,9 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from jev_factory.backbones.pointer import layout as player
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
-from jev_factory.distill.envs import EnvSpec
 from jev_factory.factory import gpu, safepath
 from jev_factory.factory.detach import start_detached
+from jev_factory.runtime.envs import EnvSpec
 
 MODULE = "jev_factory.backbones.pointer.quantized"
 ARTIFACT_FORMAT = "jev-pointer-torchao-wo/2"

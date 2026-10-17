@@ -3,16 +3,22 @@
 Two halves in one module:
 
 * **Planning, here (stdlib only).** :func:`plan_train` reads every hyperparameter from the
-  locked distill pre-registration (:func:`jev_factory.distill.prereg.require_locked`) and
+  locked distill pre-registration through the *prereg* seam the caller passes (the distillery
+  passes :mod:`jev_factory.distill.prereg`: ``require_locked`` and ``require_knobs``) and
   returns the trainer's subprocess command without running anything. :func:`run_train` is
   dry-run unless ``apply`` (it prints the plan and its executor-neutral job spec); with
-  ``apply`` the job goes through the executor seam (:mod:`jev_factory.distill.executor`:
-  protected-id and secret/host checks, then the executor, then sha256 verification of the
-  declared outputs). The default local executor runs the command through
-  :func:`jev_factory.factory.gpu.run_gpu_stage` (residency guard, memory cap, memory-floor
-  watchdog) exactly as before.
+  ``apply`` the job goes through the *jobs* seam the caller passes (the distillery passes
+  :mod:`jev_factory.distill.executor`: protected-id and secret/host checks, then the
+  executor, then sha256 verification of the declared outputs). The default local executor
+  runs the command through :func:`jev_factory.factory.gpu.run_gpu_stage` (residency guard,
+  memory cap, memory-floor watchdog) exactly as before. This module imports no distill code
+  (deviation d1): both seams are arguments.
 * **Training, in the trainer env.** ``python -m jev_factory.backbones.pointer.train_distill``
-  (:func:`main`) re-checks the lock itself, loads the stock checkpoint with upstream's
+  (:func:`main`) re-checks the lock itself (:mod:`jev_factory.runtime.prereg_lock`: the lock
+  is the run's own file and the registration's sha256 matches it, or a deviation id is given)
+  and that the registration is the one the plan was resolved from (``--prereg-sha256``), then
+  trains with the plan's resolved hyperparameters (``--hyperparameters``, re-validated and
+  checked against ``--knobs``). It loads the stock checkpoint with upstream's
   ``StrandsDeciderModel.load``, renders rows with upstream's ``SystemOneCollator`` (the
   serving prompt and option-position readout) and minimises
   ``alpha * KL(teacher || student at T_kind) + (1 - alpha) * CE(gold)``
@@ -84,13 +90,38 @@ import sys
 import types
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from jev_factory.backbones.pointer import distill_loss as dl
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
-from jev_factory.distill import executor as dex
-from jev_factory.distill import prereg as dp
 from jev_factory.factory import safepath
+from jev_factory.runtime import prereg_lock
+from jev_factory.runtime.ids import id_digest
+
+
+class PreregSeam(Protocol):
+    """What the trainer reads of a pre-registration module (the distillery passes
+    :mod:`jev_factory.distill.prereg`). The registration it returns carries ``knob_grid``
+    and ``upstream_knobs`` (each knob with ``name``, ``value``, ``source_file``,
+    ``source_key``)."""
+
+    def require_locked(
+        self, prereg_path: Path, run_dir: Path, deviation_id: str | None = None
+    ) -> Any: ...
+
+    def require_knobs(self, prereg: Any, run_knobs: dict[str, Any]) -> None: ...
+
+
+class JobSeam(Protocol):
+    """What :func:`run_train` needs of an executor seam (the distillery passes
+    :mod:`jev_factory.distill.executor`)."""
+
+    JobLimits: Any
+
+    def job_spec_from_plan(self, plan: Mapping[str, Any], **kwargs: Any) -> Any: ...
+
+    def run_job(self, spec: Any, executor: Any = None, **kwargs: Any) -> dict[str, Any]: ...
+
 
 MODULE = "jev_factory.backbones.pointer.train_distill"
 STAGE = "train"
@@ -194,7 +225,7 @@ def _is_num(v: Any) -> bool:
 
 
 def _pick(
-    name: str, reg: dp.DistillPrereg, knobs: Mapping[str, Any], upstream: Mapping[str, Any]
+    name: str, reg: Any, knobs: Mapping[str, Any], upstream: Mapping[str, Any]
 ) -> tuple[Any, str]:
     grid = reg.knob_grid
     if name in grid:
@@ -254,14 +285,16 @@ def _check_values(hp: Mapping[str, Any]) -> None:
     _check_lora_targets(hp.get("lora_targets"))
 
 
-def resolve_hyperparameters(reg: dp.DistillPrereg, run_knobs: Mapping[str, Any]) -> dict[str, Any]:
-    """Every trainer hyperparameter, each from the pre-registration, with its source.
+def resolve_hyperparameters(
+    reg: Any, run_knobs: Mapping[str, Any], *, prereg: PreregSeam
+) -> dict[str, Any]:
+    """Every trainer hyperparameter, each from the pre-registration *reg*, with its source.
 
-    Run knobs are checked against the registration first (name and value). A grid knob is
-    the run's choice, or the grid's only value; any other name comes from ``upstream_knobs``.
-    Anything missing is refused, never defaulted.
+    Run knobs are checked against the registration first (name and value, *prereg*'s
+    ``require_knobs``). A grid knob is the run's choice, or the grid's only value; any other
+    name comes from ``upstream_knobs``. Anything missing is refused, never defaulted.
     """
-    dp.require_knobs(reg, dict(run_knobs))
+    prereg.require_knobs(reg, dict(run_knobs))
     upstream = {k.name: k for k in reg.upstream_knobs}
     hp: dict[str, Any] = {}
     sources: dict[str, str] = {}
@@ -280,13 +313,15 @@ def resolve_from_locked(
     run_dir: Path | str,
     run_knobs: Mapping[str, Any],
     deviation_id: str | None = None,
+    *,
+    prereg: PreregSeam,
 ) -> dict[str, Any]:
     """:func:`resolve_hyperparameters` on the locked registration (refused without a lock)."""
-    reg = dp.require_locked(Path(prereg_path), Path(run_dir), deviation_id)
-    return resolve_hyperparameters(reg, run_knobs)
+    reg = prereg.require_locked(Path(prereg_path), Path(run_dir), deviation_id)
+    return resolve_hyperparameters(reg, run_knobs, prereg=prereg)
 
 
-def _not_applied(reg: dp.DistillPrereg) -> dict[str, str]:
+def _not_applied(reg: Any) -> dict[str, str]:
     present = {k.name for k in reg.upstream_knobs} | set(reg.knob_grid)
     return {name: why for name, why in SUPERSEDED.items() if name in present}
 
@@ -310,8 +345,14 @@ def plan_train(
     decider_repo: Path | str,
     deviation_id: str | None = None,
     heal_spec: Path | str | None = None,
+    prereg: PreregSeam,
 ) -> dict[str, Any]:
     """The trainer's subprocess command and resolved hyperparameters; runs nothing.
+
+    *prereg* is the pre-registration seam (the distillery passes
+    :mod:`jev_factory.distill.prereg`): the lock is checked and every hyperparameter resolved
+    through it. The command carries the resolved hyperparameters and the registration's
+    sha256, which the trainer re-checks against the lock and the file before it trains.
 
     With *heal_spec* (a heal spec written by :mod:`jev_factory.distill.quant`) the trainer
     runs in heal mode on *train_file*, the heal set (see the module docstring).
@@ -320,8 +361,9 @@ def plan_train(
     ``strands_decider_config.json``); *decider_repo* is the pinned strands-decider checkout
     whose ``training`` package and ``src`` go on the trainer's ``PYTHONPATH``.
     """
-    reg = dp.require_locked(Path(prereg_path), Path(run_dir), deviation_id)
-    hp = resolve_hyperparameters(reg, run_knobs)
+    reg = prereg.require_locked(Path(prereg_path), Path(run_dir), deviation_id)
+    hp = resolve_hyperparameters(reg, run_knobs, prereg=prereg)
+    prereg_sha256 = prereg_lock.sha256_file(Path(prereg_path))
     knobs_json = json.dumps(dict(run_knobs), sort_keys=True)
     argv = [
         str(trainer_python),
@@ -339,6 +381,10 @@ def plan_train(
         str(init_from),
         "--output-dir",
         str(output_dir),
+        "--hyperparameters",
+        json.dumps(hp, sort_keys=True),
+        "--prereg-sha256",
+        prereg_sha256,
     ]
     if deviation_id:
         argv += ["--deviation", str(deviation_id)]
@@ -356,7 +402,7 @@ def plan_train(
         "output_dir": str(output_dir),
         "init_from": str(init_from),
         "train_file": str(train_file),
-        "prereg_sha256": dp.sha256_file(Path(prereg_path)),
+        "prereg_sha256": prereg_sha256,
         "hyperparameters": hp,
         "not_applied": _not_applied(reg),
         "upstream": {k: UPSTREAM_PROVENANCE[k] for k in ("repo", "commit", "licence")},
@@ -372,27 +418,30 @@ def run_train(
     memory_max: str | None = None,
     memory_floor: str = "8G",
     timeout: float | None = None,
-    executor: dex.Executor | None = None,
+    jobs: JobSeam,
+    executor: Any = None,
     expected_outputs: Sequence[str] = (),
-    environment: dex.JobEnvironment | None = None,
+    environment: Any = None,
     protected: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Dry-run by default (the plan plus its executor-neutral ``job_spec``); with *apply*, run
-    the job through the executor seam (:mod:`jev_factory.distill.executor`).
+    the job through the *jobs* seam the caller passes (the distillery passes
+    :mod:`jev_factory.distill.executor`) on *executor* (``None``: the seam's default).
 
     The seam refuses a protected record id or a scan hit before any executor runs. The default
     :class:`~jev_factory.distill.executor.LocalExecutor` calls ``gpu.run_gpu_stage`` exactly as
     before. *expected_outputs* (names under the output directory, e.g.
     :data:`CHECKPOINT_OUTPUTS`) are verified by sha256 after a zero exit; the job manifest is
-    returned under ``job`` for the stage manifest (``executor.record_job``)."""
-    limits = dex.JobLimits(
+    returned under ``job``. Whether a stage manifest records it is the caller's choice
+    (deviation d3: only a non-local executor's jobs are recorded)."""
+    limits = jobs.JobLimits(
         memory_max=memory_max,
         memory_floor=memory_floor,
         timeout=timeout,
         allow_foreign=allow_foreign,
     )
     if not apply:
-        spec = dex.job_spec_from_plan(
+        spec = jobs.job_spec_from_plan(
             plan, expected_outputs=expected_outputs, environment=environment, limits=limits
         )
         return {**plan, "dry_run": True, "job_spec": spec.to_json()}
@@ -400,10 +449,10 @@ def run_train(
         raise _refuse(
             "a GPU training run needs a memory cap", "pass memory_max (e.g. '100G') with apply"
         )
-    spec = dex.job_spec_from_plan(
+    spec = jobs.job_spec_from_plan(
         plan, expected_outputs=expected_outputs, environment=environment, limits=limits
     )
-    job = dex.run_job(spec, executor, protected=protected)
+    job = jobs.run_job(spec, executor, protected=protected)
     if job["returncode"] != 0:
         raise CliError(
             EXIT_ENV_ERROR,
@@ -560,11 +609,6 @@ class HealRow:
 
     item: TrainItem
     clef: list[float] | None
-
-
-def id_digest(record_id: Any) -> str:
-    """The sha256 of a record id: how a heal spec names its protected ids."""
-    return hashlib.sha256(str(record_id).encode("utf-8")).hexdigest()
 
 
 def check_mix(mix: Any, where: str = "heal.mix") -> dict[str, float]:
@@ -1066,7 +1110,7 @@ def _save(
     stacked = _save_stacked(sess.model, sess.info, out) if merge else None
     record = {
         "hyperparameters": dict(hp),
-        "prereg_sha256": dp.sha256_file(Path(args.prereg)),
+        "prereg_sha256": prereg_lock.sha256_file(Path(args.prereg)),
         "deviation_id": args.deviation,
         "init_from": str(args.init_from),
         "train_file": str(args.train_file),
@@ -1309,6 +1353,10 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--output-dir", required=True)
     p.add_argument("--deviation", default=None)
     p.add_argument("--heal", default=None, help="heal spec (heal mode; see the module docstring)")
+    p.add_argument(
+        "--hyperparameters", default=None, help="the plan's resolved hyperparameters (JSON)"
+    )
+    p.add_argument("--prereg-sha256", default=None, help="the registration the plan resolved")
     return p
 
 
@@ -1330,15 +1378,50 @@ def _contain(args: argparse.Namespace) -> None:
         args.heal = str(safepath.regular_file(args.heal, run_dir))
 
 
+def planned_hyperparameters(args: argparse.Namespace, knobs: Mapping[str, Any]) -> dict[str, Any]:
+    """The plan's resolved hyperparameters, after the trainer's own checks.
+
+    The lock is re-checked here without the distill schema (:mod:`jev_factory.runtime.
+    prereg_lock`): it must be the run's own file and the registration must match it, or a
+    deviation id is given. The registration must also be the very file the plan resolved the
+    hyperparameters from (``--prereg-sha256``); the hyperparameters are re-validated, and
+    every run knob must be what they carry.
+    """
+    digest = prereg_lock.require_locked_file(Path(args.prereg), Path(args.run_dir), args.deviation)
+    if args.hyperparameters is None or args.prereg_sha256 is None:
+        raise _refuse(
+            "the trainer needs the plan's resolved hyperparameters and registration sha256",
+            "run the trainer through plan_train's command (--hyperparameters, --prereg-sha256)",
+        )
+    if digest != args.prereg_sha256:
+        raise _refuse(
+            "the distill pre-registration is not the one the training was planned from",
+            "plan the training again from the current registration",
+        )
+    try:
+        hp = json.loads(args.hyperparameters)
+    except json.JSONDecodeError as exc:
+        raise _refuse(f"--hyperparameters is not valid JSON: {exc}") from None
+    missing = [n for n in SEARCHED + REQUIRED_UPSTREAM if not isinstance(hp, dict) or n not in hp]
+    if missing:
+        raise _refuse(f"--hyperparameters lacks {missing}")
+    if hp["init_mode"] == "merge_fresh" and (gone := [n for n in LORA_UPSTREAM if n not in hp]):
+        raise _refuse(f"--hyperparameters lacks {gone}")
+    _check_values(hp)
+    if differ := sorted(n for n, v in knobs.items() if n in hp and hp[n] != v):
+        raise _refuse(f"--hyperparameters disagree with the run knobs on {differ}")
+    return hp
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """Trainer entry: re-check the lock, resolve hyperparameters, read rows, then train."""
+    """Trainer entry: re-check the lock and the plan's hyperparameters, read rows, train."""
     args = _parser().parse_args(argv)
     try:
         _contain(args)
         knobs = json.loads(args.knobs)
         if not isinstance(knobs, dict):
             raise _refuse("--knobs must be a JSON object")
-        hp = resolve_from_locked(args.prereg, args.run_dir, knobs, args.deviation)
+        hp = planned_hyperparameters(args, knobs)
         train_file = safepath.regular_file(args.train_file, args.run_dir)
         if args.heal is not None:
             spec = load_heal_spec(args.heal, args.run_dir)

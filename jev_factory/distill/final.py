@@ -25,7 +25,7 @@ fallback, risk r10, and bundle refuses it too). In the unverified-gold proving m
 (``FinalInputs.unverified_gold``, deviation d10) the ledger is not read, a deviation id is
 required, and the report carries an ``unverified_c17`` block marked UNVERIFIED. Before any
 request (apply): the shipped student's ``GET /v1/bundle`` (localhost only) differs from the
-deployed artifact's attestation (:func:`jev_factory.backbones.pointer.quantized.bundle_attestation`:
+deployed artifact's attestation (the student backbone's ``quantizer().bundle_attestation``:
 per-file sha256 and manifest sha256), or its ``GET /v1/stats`` reports no cgroup memory cap. The
 bundle is fetched again after the student is scored; a change fails the run. ``final.json``
 records ``deployed.bundle`` (``files``, ``manifest_sha256``, ``weight_bytes``: what the edge
@@ -72,7 +72,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from jev_factory.backbones.pointer import quantized as qz
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill import benchmark as bench
 from jev_factory.distill import dataset
@@ -85,10 +84,14 @@ from jev_factory.distill import report as dreport
 from jev_factory.distill import train as dtrain
 from jev_factory.distill.records import Record
 from jev_factory.distill.runspec import Bootstrap
+from jev_factory.distill.student import backbone as student_backbone
 from jev_factory.measure import once
 from jev_factory.measure.preflight import require_localhost
 from jev_factory.release.hub import digests
 from jev_factory.review import gold
+
+#: The student's deployed-format facet, through the registry (deviation d2).
+qz = student_backbone().quantizer()
 
 STAGE = "distill-final"
 LABEL = "distill-final"
