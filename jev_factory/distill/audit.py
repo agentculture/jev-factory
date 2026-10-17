@@ -147,13 +147,22 @@ def build_table(
         entry["teacher_weak"] = bool(weak) if entry["flaggable"] and entry["n"] else None
         sources.append(entry)
 
-    return {
+    table = {
         "stage": STAGE,
         "floor": floor,
         "teacher_build_id": audited_build_id(label_rows) if label_rows else None,
         "sources": sources,
         "teacher_weak_sources": sorted({s["source"] for s in sources if s["teacher_weak"]}),
     }
+    variants = {str(r["teacher_variant"]) for r in label_rows if r.get("teacher_variant")}
+    if len(variants) > 1:
+        raise _fail(
+            f"the label rows carry several teacher variants {sorted(variants)}",
+            "audit one teacher variant at a time",
+        )
+    if variants:  # stamped only when the labels carry one, so older tables stay byte-identical
+        table["teacher_variant"] = next(iter(variants))
+    return table
 
 
 def run_audit(
