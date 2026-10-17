@@ -2,7 +2,7 @@
   "plan_slug": "orin-nano-jetson-ops-decider",
   "schema_version": 2,
   "created": "2026-10-15T17:16:36Z",
-  "updated": "2026-10-16T13:44:53Z",
+  "updated": "2026-10-17T06:44:47Z",
   "deviations": [
     {
       "id": "d1",
@@ -212,6 +212,19 @@
       "status": "approved",
       "classification": "risky",
       "seq": 16
+    },
+    {
+      "id": "d17",
+      "what": "quantize's heal accuracy gate: a healed quant's drop_points is measured against the original selected bf16 student, not the bf16 rebuilt from the healed checkpoint; drop vs healed bf16 and heal drift are recorded as context only (spec docs/specs/2026-10-17-heal-drop-vs-original-bf16.md)",
+      "task_ref": "t23",
+      "reason": "PR #21 code review: the healed-bf16 reference hides a heal that lowers the bf16 itself; one reference across selection, agreement, heal and final (operator decisions q1, q2)",
+      "affects": [
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 42
     }
   ],
   "evidence": [
@@ -689,6 +702,22 @@
       "status": "approved",
       "superseded": false,
       "seq": 41
+    },
+    {
+      "id": "e26",
+      "obligation_ref": "o5",
+      "test_ref": "tests/test_distill_quant.py::test_a_heal_that_lowers_the_bf16_is_judged_against_the_original",
+      "behavior_text": "agreement_vs_bf16 == 39/40, which is only true against the original predictions (vs the healed bf16 it would be 1.0)",
+      "contract_text": "o5: agreement vs pre-heal predictions",
+      "evidence_type": "automated",
+      "strength": "fidelity",
+      "strength_basis": "the value discriminates the two references",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "rejected",
+      "superseded": false,
+      "seq": 43
     }
   ],
   "deltas": [

@@ -871,8 +871,7 @@ def _bf16_artifact(ctx: DistillContext) -> Path:
     It is the selected (pre-heal) distilled student even after a heal: quantize measures a
     healed build's agreement against these same predictions (``reference=`` in
     ``quant._heal_round``), so final's quant-vs-bf16 bar and quantize's agreement share one
-    reference. (A healed build's *accuracy* drop is measured against the heal round's own
-    bf16; see the delivery summary's follow-up.)"""
+    reference, and a healed build's accuracy drop is measured against it too (d17)."""
     path = stage_dir(ctx.work) / QUANT_MEASUREMENTS
     bf16 = ((_read_json(path).get("formats") or {}).get(dquant.BF16)) or {}
     if not bf16.get("available") or not bf16.get("artifact"):

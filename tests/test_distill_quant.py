@@ -18,6 +18,7 @@ from jev_factory.cli._errors import CliError
 from jev_factory.decide.rules import HEAL_MARGIN_POINTS, HEAL_ROUNDS
 from jev_factory.distill import prereg as dp
 from jev_factory.distill import quant as Q
+from jev_factory.distill import report as R
 from jev_factory.distill import train as T
 from jev_factory.distill.records import Gold, Question, Record
 from jev_factory.distill.runspec import Bootstrap, TrainerEnv
@@ -91,11 +92,15 @@ PROFILE = {
 class FakeMeasurer:
     """Answers each record right on ``accuracy`` of them, at a fixed confidence."""
 
-    def __init__(self, profile=None, healed=None, p_right=0.9, fit_p_right=None, shifts=None):
+    def __init__(
+        self, profile=None, healed=None, p_right=0.9, fit_p_right=None, shifts=None, fold_acc=None
+    ):
         self.profile = dict(profile or PROFILE)
         self.healed = dict(healed or {})
         self.p_right = p_right
         self.fit_p_right = fit_p_right or {}
+        # (format, is_heal, fold) -> that fold's accuracy instead of the profile's
+        self.fold_acc = dict(fold_acc or {})
         # (format, is_heal) -> how far that build's right/wrong pattern is rotated: same
         # accuracy, but it disagrees with bf16 on the records the rotation moves
         self.shifts = dict(shifts or {})
@@ -109,9 +114,10 @@ class FakeMeasurer:
         preds = {}
         for fold, recs in fold_records.items():
             p = self.fit_p_right.get(fmt, self.p_right) if fold == "fit" else self.p_right
+            fold_acc = self.fold_acc.get((fmt, is_heal, fold), acc)
             rows = []
             for k, rec in enumerate(recs):
-                right = ((k + shift) % 20) < round(acc * 20)
+                right = ((k + shift) % 20) < round(fold_acc * 20)
                 rows.append(
                     {
                         "fold": fold,
@@ -589,6 +595,65 @@ def test_a_spent_heal_round_refuses_a_new_trigger_without_training(tmp_path):
         )
     assert trainer.plans == []
     assert not (run_dir / Q.QUANT_REL / Q.MANIFEST_FILE).exists()
+
+
+def _heal_result(run_dir):
+    log = [json.loads(line) for line in (run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE).open()]
+    return next(e for e in log if e["event"] == "heal_result")
+
+
+def test_a_heal_that_lowers_the_bf16_is_judged_against_the_original(tmp_path):
+    """The heal moved the torso down 5 selection points and the quant tracks it: refused.
+
+    Fit agrees exactly, so pooled agreement with the original (39/40) still passes the bar;
+    only the drop against the original bf16 student catches it."""
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    measurer.fold_acc = {
+        ("bf16", True, "selection"): 0.85,
+        ("onnx_int8", True, "selection"): 0.85,
+    }
+    run_dir, err = run_no_qualifying(tmp_path, builders=builders, measurer=measurer)
+    assert "second heal trigger" in err.message
+    assert "original bf16 student" in err.message
+    assert_ships_nothing(run_dir)
+    result = _heal_result(run_dir)
+    assert result["shippable"] is False
+    assert result["agreement_vs_bf16"] == pytest.approx(39 / 40)
+    assert result["drop_points"] == pytest.approx(5.0)
+    assert result["drop_points_vs_heal_bf16"] == pytest.approx(0.0)
+    assert result["heal_bf16_drift_points"] == pytest.approx(5.0)
+    assert result["original_bf16_accuracy"] == pytest.approx(0.9)
+    assert result["healed_bf16_accuracy"] == pytest.approx(0.85)
+    assert result["quant_accuracy"] == pytest.approx(0.85)
+    healed = _read(run_dir, Q.MEASUREMENTS_FILE)["healed"]
+    assert healed["onnx_int8"]["drop_points"] == pytest.approx(result["drop_points"])
+    assert healed["onnx_int8"]["delta_points"] == pytest.approx(-result["drop_points"])
+    assert healed["bf16"]["accuracy"] == pytest.approx(0.85)  # the healed bf16, as context
+
+
+def test_a_heal_that_raises_the_bf16_is_still_judged_against_the_original(tmp_path):
+    """q2: the healed quant matches the original student; that its own bf16 rose does not
+    count against it (10 points vs the healed bf16 is context only)."""
+    builders, measurer = only("onnx_int8", 0.75, healed_acc=0.9)
+    measurer.healed["bf16"] = (1.0, 5000.0, 0.05)
+    out, run_dir, _ = run(tmp_path, builders=builders, measurer=measurer)
+    assert out["shippable"] is True
+    result = _heal_result(run_dir)
+    assert result["shippable"] is True
+    assert result["drop_points"] == pytest.approx(0.0)
+    assert result["drop_points_vs_heal_bf16"] == pytest.approx(10.0)
+    assert result["heal_bf16_drift_points"] == pytest.approx(-10.0)
+    manifest = _read(run_dir, Q.MANIFEST_FILE)
+    assert manifest["quant_vs_bf16_delta_points"] == pytest.approx(0.0)
+    assert manifest["bf16_selection_accuracy"] == pytest.approx(0.9)
+    assert manifest["healed_bf16_selection_accuracy"] == pytest.approx(1.0)
+    formats = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]
+    assert manifest["bf16_selection_accuracy"] == pytest.approx(formats["bf16"]["accuracy"])
+    assert manifest["heal"]["drop_points"] == pytest.approx(15.0)  # the trigger, pre-heal
+    # the report's bars.quant row reads the manifest, so it sees the drop vs the original too
+    bars = dp.example_doc()["bars"]["quant"]
+    drop_row = next(r for r in R.c43_bars(manifest, bars) if r["bar"] == "max_accuracy_drop_points")
+    assert drop_row["value"] == pytest.approx(0.0)
 
 
 # --------------------------------------------------------------------- recalibration
@@ -1835,6 +1900,32 @@ def test_a_guard_below_its_floor_is_healed_and_must_clear_it(tmp_path):
         _gated_run(tmp_path, gating)
     trigger = [e for e in _log(tmp_path / "run") if e.get("event") == "heal_trigger"][-1]
     assert any(r.startswith("guard:") for r in trigger["reasons"])
+
+
+def test_a_gated_heal_drop_is_against_the_original_on_the_domain_sources(tmp_path):
+    """d12 + d17: the healed quant's drop subtracts the original bf16's domain accuracy from
+    its own domain accuracy; the guard answers it gets wrong never enter the drop."""
+    profile = {"bf16": PROFILE["bf16"], "torch_int4_wo": (0.75, 1000.0, 0.02)}
+    measurer = GuardWrongMeasurer(
+        profile, {"bf16": PROFILE["bf16"], "torch_int4_wo": (0.9, 1000.0, 0.02)}
+    )
+    out, run_dir, trainer = run(
+        tmp_path,
+        builders=FakeBuilders(formats=("bf16", "torch_int4_wo")),
+        measurer=measurer,
+        folds=_guarded_folds(),
+        knobs=Q.QuantKnobs(formats=("torch_int4_wo",), gating=Q.Gating(frozenset({"src"}))),
+        deviation_id="d12",
+    )
+    assert len(trainer.plans) == 1 and out["shippable"] is True
+    m = _read(run_dir, Q.MEASUREMENTS_FILE)
+    original, healed = m["formats"]["bf16"], m["healed"]["torch_int4_wo"]
+    assert original["accuracy"] == pytest.approx(0.9)  # domain only (bf16 gets guard right too)
+    assert healed["accuracy"] == pytest.approx(0.9)  # domain only (every guard answer wrong)
+    assert healed["guard"]["selection"]["accuracy"] == 0.0
+    result = next(e for e in _log(run_dir) if e.get("event") == "heal_result")
+    assert result["drop_points"] == pytest.approx(0.0)
+    assert result["original_bf16_accuracy"] == pytest.approx(original["accuracy"])
 
 
 def test_a_heal_repeat_needs_a_deviation_id_gating_and_valid_counts():

@@ -1,0 +1,397 @@
+{
+  "slug": "heal-drop-vs-original-bf16",
+  "title": "heal drop vs original bf16",
+  "frame_slug": "heal-drop-vs-original-bf16",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-17T06:33:04Z",
+  "updated": "2026-10-17T06:44:48Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "A healed quant's accuracy drop is gated against the original selected bf16 student, with the healed-bf16 drop and the heal drift recorded beside it as context",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "One reference: the original selected bf16 student's selection-fold measurement is the only baseline any distill quantize gate subtracts from",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "After a heal round, the healed quant's drop_points (the value _healed_problem gates on, quant.py:1528) is 100*(original bf16 accuracy - healed quant accuracy), where original is measured[BF16] from the pre-heal _measure_all of the selected winner, not the bf16 rebuilt from the healed checkpoint",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "_healed_problem's drop test reads the drop against the original bf16; a healed quant within margin of the healed bf16 but past it vs the original fails",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "The heal_result event in heal_log.jsonl and the healed measurement carry two context fields beside drop_points: drop_points_vs_heal_bf16 (healed bf16 accuracy - healed quant accuracy) and heal_bf16_drift_points (original bf16 accuracy - healed bf16 accuracy); neither is read by any gate",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "drift + drop_vs_heal_bf16 == drop_points to float rounding, and no gate reads the two context fields",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "The original and healed accuracies compared are assessed identically: same fold_records, same selection fold, same d12 gating restriction (domain sources only when gating is set), same assess() threshold, so the drop subtracts like from like",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The original and healed accuracies come from assess() with the same fold_records, gating and kw; with gating=clean both are domain-restricted",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Messages that name the reference say which bf16: heal_reasons (:1382) keeps 'its own bf16' for the pre-heal check (there it is the original); _healed_problem (:1530) says 'against the original bf16 student'; the module docstring step 4 and pipeline._bf16_artifact docstring (:866) drop the follow-up note",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "No post-heal message says 'its own bf16'; pre-heal messages keep it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "The un-healed path is unchanged: pre-heal selection (FORMAT_RULE, :1122), heal_reasons and an un-healed build's drop_points already compare against the original bf16, and keep doing so byte-for-byte",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "Un-healed runs produce byte-identical measurements, format_decision and manifest values to before the change",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "The agreement check is unchanged: it already uses the original student's predictions (reference=bf16_predictions), and final's 0.97 quant-vs-bf16 bar keeps the same reference",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "agreement_vs_bf16 after a heal is still computed against predictions[BF16] of the pre-heal round",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "After a heal, quant_manifest.json's quant_vs_bf16_delta_points and bf16_selection_accuracy describe the ORIGINAL bf16 student (today final_bf16 = (healed or measured)[BF16], quant.py:1974, i.e. the healed bf16); the healed bf16's accuracy is recorded under its own key (healed_bf16_selection_accuracy) as context",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "After a heal, manifest bf16_selection_accuracy equals measurements.json formats.bf16.accuracy and quant_vs_bf16_delta_points equals -(healed drop vs original); healed_bf16_selection_accuracy holds the healed one",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "The distill report's c43 bars.quant row max_accuracy_drop_points (report.py:513-519, reads quant_vs_bf16_delta_points) therefore reports the drop against the original bf16 student after a heal, with no change to report.py's code",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "report.py's c43 code is unchanged and its max_accuracy_drop_points row value equals the manifest's drop vs the original",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "No pre-registration schema change: QUANT_BARS (prereg.py:54) keeps max_accuracy_drop_points as a bare number, quant_bars (quant.py:344) still pins it to HEAL_MARGIN_POINTS; only its reference (documented in quant.py) changes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "prereg.py and its schema version are unchanged; an existing locked pre-registration still loads",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "A test in tests/test_distill_quant.py: FakeMeasurer original bf16 0.90, healed bf16 0.85, original quant below margin -> heal; healed quant 0.85 (within 1 of healed bf16, 5 below original) is shippable:false with a second-heal-trigger problem naming the original bf16, and heal_result records drop_points=5, drop_points_vs_heal_bf16 ~0, heal_bf16_drift_points=5",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The new test fails on main and passes on the branch",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The change is filed as deviation d17 on plan orin-nano-jetson-ops-decider (task t23, affects t12, classification risky) and approved by the operator before the code lands; it is unconditional, not a new knob, so quantize needs no --deviation-id for it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "d17 is approved by the operator (origin user, devague deviate --confirm) before the code change is committed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Docs follow the code: the open 'Heal rule' follow-up in docs/deliveries/2026-10-15-orin-nano-jetson-ops-decider.md (:173) is marked decided with the deviation id, and docs/distill.md's 'Heal, once' section (:261) gains one sentence saying the healed drop is against the original bf16 student, the healed-bf16 drop and drift are context only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "markdownlint-cli2 passes on the edited docs and no other doc line changes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "boundary",
+      "text": "jev decide's rule (decide/rules.py QuantCheck/_quant_verdict, HEAL_MARGIN_POINTS=3.0, HEAL_ROUNDS=1) is unchanged; it reads only the jev run workdir, never distill heal_log",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "git diff shows no change under jev_factory/decide/",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "audience",
+      "text": "The operator running jev distill quantize --apply, and the distill report's c43 bars.quant reader",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "The operator can tell from heal_log.jsonl alone which bf16 each drop is against",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "before_state",
+      "text": "After a heal, quantize gates the healed quant's accuracy drop against the bf16 rebuilt from the healed checkpoint (quant.py _heal_round -> _measure_all), so a heal that lowers the bf16 itself hides that loss; agreement already uses the original student",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "On main, the new test's scenario ships the healed quant (verified red before the fix)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "why_it_matters",
+      "text": "A heal could ship a build several points worse than the student the bars and final were pre-registered against while every quantize check passes; one reference across selection, agreement, heal and final removes that loophole",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "The loophole is real in code, not hypothetical: _measure_all subtracts from out[BF16] of the healed call",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "after_state",
+      "text": "Every accuracy check in distill quantize, before and after a heal, compares against the original selected bf16 student; the healed bf16's own accuracy and the heal drift are recorded as context and gate nothing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "Both heal outcomes (shippable and refused) record the three numbers",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "success_signal",
+      "text": "A healed quant 5 points below the original bf16 but within 1 point of the healed bf16 is refused (shippable:false, stop_escalate) where today it ships; all existing tests in tests/test_distill_quant.py pass unchanged (0 regressions)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "The full suite and CI lint pass on the branch",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "heal_result also records the three accuracies the drops are derived from: original_bf16_accuracy, healed_bf16_accuracy and healed quant accuracy, so every drop in heal_log.jsonl can be re-derived from the log alone",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "each recorded drop equals 100 x the difference of two recorded accuracies, rounded as _drop_points rounds",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "measurements.json's healed block (quant.py _write_measurements :1885, also written by _fail on a refused heal) carries the same vs-original drop_points/delta_points for the healed quant as heal_result and the manifest; its bf16 entry stays the healed bf16's measurement, labelled as such by the context fields",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "No artifact of one quantize run reports two different values under the key drop_points for the same healed build",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "boundary",
+      "text": "Old heal_log.jsonl files without the new fields stay readable: the only reader, _triggers/heal_rounds_spent (quant.py:1171-1189), counts heal_trigger events and never reads drop fields",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "A run dir with a pre-change heal_log.jsonl still refuses a spent round and accepts a fresh deviation as before",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Rebase the healed quant's drop on the original bf16 student in quant.py (_against_original, heal_result fields, _healed_problem message, manifest bf16 fields) with the new tests",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_distill_quant.py: the lowers/raises/gated heal tests pass and the lowers/raises ones were red before the change",
+        "full suite and CI lint pass"
+      ],
+      "deps": [],
+      "covers": [
+        "c1",
+        "h1",
+        "c2",
+        "h2",
+        "c3",
+        "h3",
+        "c4",
+        "h4",
+        "c5",
+        "h5",
+        "c6",
+        "h6",
+        "c7",
+        "h7",
+        "c8",
+        "h8",
+        "c9",
+        "h9",
+        "c10",
+        "h10",
+        "c11",
+        "h11",
+        "c16",
+        "h14",
+        "c17",
+        "h15",
+        "c18",
+        "h16",
+        "c19",
+        "h17",
+        "c20",
+        "h18",
+        "c21",
+        "h19",
+        "c23",
+        "h20",
+        "c24",
+        "h21",
+        "c25",
+        "h22"
+      ],
+      "instruction": "uv run pytest -n auto; uv run black --check jev_factory tests; uv run flake8 jev_factory tests"
+    },
+    {
+      "id": "t2",
+      "summary": "Record d17 on the #20 plan, update docs/distill.md and the #20 delivery follow-up, file the jev run heal follow-up issue, bump the version",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "d17 approved by the operator before the code commit",
+        "markdownlint-cli2 passes on the edited docs"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c12",
+        "h12",
+        "c13",
+        "h13"
+      ],
+      "instruction": ""
+    }
+  ],
+  "risks": [],
+  "obligations": []
+}

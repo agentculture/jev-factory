@@ -64,7 +64,12 @@ pre-registration (:func:`jev_factory.distill.prereg.require_locked`).
    ``jev_quant.json``) and falls back to nvsh d18's bf16 continuation when QAT is
    unavailable on the student env; the healed checkpoint records which ran
    (``heal.method``), and the manifest carries it. The healed checkpoint is re-quantized
-   and re-measured; its agreement is against the **original** bf16 student's predictions.
+   and re-measured; its agreement is against the **original** bf16 student's predictions
+   and its accuracy drop against the original bf16 student's selection accuracy (d17), so
+   a heal that lowers the bf16 itself cannot hide that loss. The drop against the bf16
+   rebuilt from the healed checkpoint (``drop_points_vs_heal_bf16``) and the heal's drift
+   (``heal_bf16_drift_points``, original minus healed bf16) are recorded as context and
+   gate nothing.
    A healed build that still loses too much, misses the ECE bar or agrees below the bar is
    not shippable: a ``heal_result`` with ``shippable: false`` is appended, the same failed
    ``no qualifying format`` result is recorded (nothing ships) and the stage raises
@@ -705,6 +710,26 @@ def _drop_points(bf16: Mapping[str, Any], quant: Mapping[str, Any]) -> float | N
     if bf16.get("accuracy") is None or quant.get("accuracy") is None:
         return None
     return round(100.0 * (bf16["accuracy"] - quant["accuracy"]), 9)
+
+
+def _against_original(
+    healed: dict[str, dict[str, Any]], fmt: str, original: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Rebase the healed *fmt*'s drop on the *original* bf16 student (d17), in place.
+
+    ``drop_points``/``delta_points`` become the drop against the original; the drop against
+    the heal round's own bf16 and that bf16's drift from the original are kept as context.
+    """
+    again, heal_bf16 = healed[fmt], healed[BF16]
+    if again["available"]:
+        drop = _drop_points(original, again)
+        again.update(
+            drop_points=drop,
+            delta_points=None if drop is None else -drop,
+            drop_points_vs_heal_bf16=_drop_points(heal_bf16, again),
+            heal_bf16_drift_points=_drop_points(original, heal_bf16),
+        )
+    return again
 
 
 def _answer(question: Mapping[str, Any]) -> Any:
@@ -1528,7 +1553,7 @@ def _healed_problem(
     if again["drop_points"] is None or again["drop_points"] > HEAL_MARGIN_POINTS + _EPS:
         return (
             f"second heal trigger: the healed {fmt} still loses {again['drop_points']} "
-            f"points against its own bf16 (> {HEAL_MARGIN_POINTS})"
+            f"points against the original bf16 student (> {HEAL_MARGIN_POINTS})"
         )
     if again["ece"] is None or again["ece"] > float(bars["ece_max"]) + _EPS:
         return f"the healed {fmt} has calibrated ECE {again['ece']} > {bars['ece_max']}"
@@ -1592,7 +1617,7 @@ def _heal_round(
         gating=hr.gating,
         **hr.kw,
     )
-    again = healed[fmt]
+    again = _against_original(healed, fmt, measured[BF16])
     problem = _healed_problem(fmt, again, quant_bars(hr.reg), agreement_min(hr.reg))
     _append(
         hr.heal_log,
@@ -1603,6 +1628,11 @@ def _heal_round(
             "method": method["method"],
             "fallback_reason": method["fallback_reason"],
             "drop_points": again.get("drop_points"),
+            "drop_points_vs_heal_bf16": again.get("drop_points_vs_heal_bf16"),
+            "heal_bf16_drift_points": again.get("heal_bf16_drift_points"),
+            "original_bf16_accuracy": measured[BF16]["accuracy"],
+            "healed_bf16_accuracy": healed[BF16]["accuracy"],
+            "quant_accuracy": again.get("accuracy"),
             "agreement_vs_bf16": _pooled_agreement(again),
             "shippable": problem is None,
             "problem": problem,
@@ -1971,7 +2001,8 @@ def _finish(
     fmt = choice["format"]
     _refuse_comparison_candidates([fmt])
     final = (healed or measured)[fmt]
-    final_bf16 = (healed or measured)[BF16]
+    # the original bf16 student, healed or not (d17); a healed bf16 is context only
+    final_bf16 = measured[BF16]
     measurements_path = _write_measurements(base, out_dir, measured, healed, comparison)
     predictions_path = out_dir / DEPLOYED_PREDICTIONS_FILE
     _write_json(
@@ -2029,6 +2060,7 @@ def _finish(
         # a quant reaches here only at or above the bar (else it healed or stopped)
         "shippable": True,
         "bf16_selection_accuracy": final_bf16["accuracy"],
+        "healed_bf16_selection_accuracy": healed[BF16]["accuracy"] if healed else None,
         "deployed_selection_accuracy": final["accuracy"],
         "deployed_selection_ece": final["ece"],
         "pruned_vocabulary_comparison": (

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-10-17
+
+### Added
+
+- heal_result in heal_log.jsonl records drop_points_vs_heal_bf16, heal_bf16_drift_points and the three accuracies (original bf16, healed bf16, healed quant) as context; quant_manifest.json gains healed_bf16_selection_accuracy. None of them gates.
+
+### Changed
+
+- distill quantize: a healed quant's accuracy drop (drop_points, the second heal trigger, quant_manifest.json quant_vs_bf16_delta_points and the report's c43 row) is measured against the original selected bf16 student, not the bf16 rebuilt from the healed checkpoint (deviation d17; spec docs/specs/2026-10-17-heal-drop-vs-original-bf16.md). quant_manifest.json bf16_selection_accuracy is the original bf16's after a heal.
+
 ## [0.12.0] - 2026-10-16
 
 ### Added

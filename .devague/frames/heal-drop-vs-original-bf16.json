@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-17T05:46:54Z",
-  "updated": "2026-10-17T06:29:04Z",
+  "updated": "2026-10-17T06:29:54Z",
   "claims": [
     {
       "id": "c1",
@@ -681,9 +681,29 @@
       "surface": "challenge pass / security, migration, concurrency, reversibility lenses: the whole change",
       "finding": "pure code + docs, single-writer stage, no schema or prereg change, revertable; proving-run artifacts untouched; clean",
       "seeds": []
+    },
+    {
+      "id": "s23",
+      "surface": "implementation probe: tests/test_distill_quant.py folds() (:58, 20 fit + 20 selection) + quant.py agreement_vs_bf16 pooled",
+      "finding": "agreement >= 0.97 pooled over 40 records allows 1 disagreement, so the selection drop vs original can reach 5 points (1/20) while agreement passes; the red test needs a per-fold accuracy in FakeMeasurer (healed quant and healed bf16 0.85 on selection, 0.90 on fit)",
+      "seeds": [
+        "c11"
+      ]
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "assumption-for-measurement",
+      "what": "challenge pass missed that the 0.97 argmax-agreement bar vs the original already bounds a healed quant's accuracy gap (d points of accuracy imply >= d% disagreement), pooled over fit+selection; c19/c21 overstate the loophole, which is real only when the loss concentrates on the selection fold",
+      "skipped_check": "counter-evidence lens: check whether an existing bar already bounds the claimed loophole",
+      "refs": [
+        "challenge pass / counter-evidence lens: quant.py agreement_vs_bf16 (:743) + _healed_problem (:1522)"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": [
     {
       "id": "o1",
