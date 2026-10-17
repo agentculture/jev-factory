@@ -93,6 +93,30 @@ def test_load_from_toml_file(tmp_path: Path) -> None:
     assert got == dataclasses.replace(P, card=None)
 
 
+def test_relative_contamination_manifest_resolves_against_the_profile_file(
+    tmp_path: Path,
+) -> None:
+    t = _table()
+    t.pop("card")
+    t["contamination_manifest"] = "sources.json"
+    lines = [f"{k} = {_toml(v)}" for k, v in t.items() if not isinstance(v, dict)]
+    lines.append("[temperature_by_kind]")
+    lines += [f"{k} = {v!r}" for k, v in t["temperature_by_kind"].items()]
+    sub = tmp_path / "profiles"
+    sub.mkdir()
+    f = sub / "p.toml"
+    f.write_text("\n".join(lines) + "\n")
+    got = profile.load_profile_file(f)
+    assert Path(got.contamination_manifest) == sub / "sources.json"
+    # An absolute path is kept as written.
+    t["contamination_manifest"] = str(tmp_path / "abs.json")
+    lines[[i for i, ln in enumerate(lines) if ln.startswith("contamination_manifest")][0]] = (
+        f"contamination_manifest = {_toml(t['contamination_manifest'])}"
+    )
+    f.write_text("\n".join(lines) + "\n")
+    assert profile.load_profile_file(f).contamination_manifest == str(tmp_path / "abs.json")
+
+
 def _toml(v: object) -> str:
     if isinstance(v, list):
         return "[" + ", ".join(_toml(x) for x in v) + "]"

@@ -1,9 +1,10 @@
 """Student profile: every pin and limit that names one distillation student, in one place.
 
-``DEFAULT_2610`` is the built-in profile (``strands-decider-2B-qwen3.5-v1-2610``). A run may
-carry its own under the ``[student]`` table of ``run.toml`` (:data:`RUN_TOML_KEY`), or in a
-standalone TOML file (:func:`load_profile_file`). Loading fails closed with exit 1 and the
-field named: an unknown key, a missing required field, a malformed sha256 or a wrong type.
+``DEFAULT_2610`` is the built-in profile (``strands-decider-2B-qwen3.5-v1-2610``). A run
+selects another with the run-config key ``distill_student_profile``, a path to a standalone
+TOML file (:func:`load_profile_file`; run.toml itself refuses tables). Loading fails closed with
+exit 1 and the field named: an unknown key, a missing required field, a malformed sha256 or a
+wrong type.
 
 Stdlib only; no heavy imports.
 """
@@ -12,7 +13,7 @@ from __future__ import annotations
 
 import re
 import tomllib
-from dataclasses import MISSING, dataclass, fields
+from dataclasses import MISSING, dataclass, fields, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -143,7 +144,10 @@ def profile_from_table(table: Mapping[str, Any]) -> StudentProfile:
 
 
 def load_profile_file(path: Path | str) -> StudentProfile:
-    """Load a profile from a TOML file: the top-level table, or its ``[student]`` table."""
+    """Load a profile from a TOML file: the top-level table, or its ``[student]`` table.
+
+    A relative ``contamination_manifest`` is resolved against the profile file's directory.
+    """
     p = Path(path)
     try:
         with p.open("rb") as fh:
@@ -154,7 +158,11 @@ def load_profile_file(path: Path | str) -> StudentProfile:
             f"student profile: cannot read {p}: {exc}",
             "point at a valid TOML file",
         ) from exc
-    return profile_from_table(data[RUN_TOML_KEY] if RUN_TOML_KEY in data else data)
+    prof = profile_from_table(data[RUN_TOML_KEY] if RUN_TOML_KEY in data else data)
+    manifest = Path(prof.contamination_manifest)
+    if not manifest.is_absolute():
+        prof = replace(prof, contamination_manifest=str(p.parent / manifest))
+    return prof
 
 
 def profile_from_run_toml(data: Mapping[str, Any]) -> StudentProfile:
