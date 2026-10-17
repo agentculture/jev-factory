@@ -480,7 +480,7 @@ def _check_teacher_row(
         )
     if recorded != run_variant:
         raise _fail(
-            f"{where} is variant {recorded!r} but the run is configured for" f" {run_variant!r}",
+            f"{where} is variant {recorded!r} but the run is configured for {run_variant!r}",
             "label with the run's variant, or record a deviation and pass its id",
         )
 
