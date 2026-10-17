@@ -1,0 +1,30 @@
+# A second student profile for the configurable-distillery e2e (t13): other repos, other
+# revisions, other digests, other limits. The digests are sha256 of the toy bytes
+# b"alt-adapter" and b"alt-head" that the e2e pin cache holds for this profile.
+base_repo = "example-org/alt-base-2B"
+base_revision = "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1"
+backbone = "pointer"
+decider_repo = "example-org/alt-decider-2B-v2"
+decider_revision = "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2"
+adapter_sha256 = "a4c31d884e2e34225ff3643327d35accf2d739104f77fd63812b5180863e4038"
+head_sha256 = "96ddea61b59c83b928e9095277d7033fa3c2e492023216065565c74cd60a6474"
+num_slots = 24
+max_tokens = 4096
+weight_budget_bytes = 900000000
+lora_r = 16
+lora_alpha = 32
+lora_dropout = 0.1
+lora_targets = ["q_proj", "v_proj"]
+contamination_manifest = "@CONTAMINATION_MANIFEST@"
+
+# @CONTAMINATION_MANIFEST@ is filled with an absolute path when the e2e copies this file.
+
+[temperature_by_kind]
+noul = 1.0
+choice = 1.0
+score = 1.0
+
+[card]
+n = 231
+correct = 180
+tasks_sha256 = "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"

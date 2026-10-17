@@ -1,0 +1,27 @@
+{
+ "note": "Toy upstream-sources manifest for the second profile of the configurable e2e (t13).",
+ "sources": [
+  {
+   "name": "example-org/alt-intents",
+   "aliases": [
+    "alt_intents"
+   ],
+   "role": "training",
+   "source_url": "https://huggingface.co/example-org/alt-decider-2B-v2/raw/d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2/README.md",
+   "card": "https://huggingface.co/example-org/alt-decider-2B-v2/raw/d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2/sources.md",
+   "detail": "toy entry for the second-profile e2e",
+   "dataset_url": "https://huggingface.co/datasets/example-org/alt-intents"
+  },
+  {
+   "name": "example-org/alt-probe",
+   "aliases": [
+    "alt_probe"
+   ],
+   "role": "stock-evaluated",
+   "source_url": "https://huggingface.co/example-org/alt-decider-2B-v2/raw/d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2/README.md",
+   "card": "https://huggingface.co/example-org/alt-decider-2B-v2/raw/d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2/sources.md",
+   "detail": "toy entry for the second-profile e2e",
+   "dataset_url": "https://huggingface.co/datasets/example-org/alt-probe"
+  }
+ ]
+}
