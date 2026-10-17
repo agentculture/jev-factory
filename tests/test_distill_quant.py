@@ -602,6 +602,11 @@ def _heal_result(run_dir):
     return next(e for e in log if e["event"] == "heal_result")
 
 
+@pytest.mark.behavioral("o1")
+@pytest.mark.behavioral("o2")
+@pytest.mark.behavioral("o5")
+@pytest.mark.behavioral("o9")
+@pytest.mark.behavioral("o10")
 def test_a_heal_that_lowers_the_bf16_is_judged_against_the_original(tmp_path):
     """The heal moved the torso down 5 selection points and the quant tracks it: refused.
 
@@ -631,6 +636,9 @@ def test_a_heal_that_lowers_the_bf16_is_judged_against_the_original(tmp_path):
     assert healed["bf16"]["accuracy"] == pytest.approx(0.85)  # the healed bf16, as context
 
 
+@pytest.mark.behavioral("o6")
+@pytest.mark.behavioral("o7")
+@pytest.mark.behavioral("o8")
 def test_a_heal_that_raises_the_bf16_is_still_judged_against_the_original(tmp_path):
     """q2: the healed quant matches the original student; that its own bf16 rose does not
     count against it (10 points vs the healed bf16 is context only)."""
@@ -1902,6 +1910,7 @@ def test_a_guard_below_its_floor_is_healed_and_must_clear_it(tmp_path):
     assert any(r.startswith("guard:") for r in trigger["reasons"])
 
 
+@pytest.mark.behavioral("o3")
 def test_a_gated_heal_drop_is_against_the_original_on_the_domain_sources(tmp_path):
     """d12 + d17: the healed quant's drop subtracts the original bf16's domain accuracy from
     its own domain accuracy; the guard answers it gets wrong never enter the drop."""

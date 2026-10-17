@@ -2,7 +2,7 @@
   "plan_slug": "heal-drop-vs-original-bf16",
   "schema_version": 2,
   "created": "2026-10-17T06:45:26Z",
-  "updated": "2026-10-17T06:48:40Z",
+  "updated": "2026-10-17T06:53:56Z",
   "deviations": [],
   "evidence": [
     {
@@ -196,6 +196,67 @@
       "seq": 10
     }
   ],
-  "deltas": [],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "heal_result records drop_points_vs_heal_bf16, heal_bf16_drift_points, original_bf16_accuracy, healed_bf16_accuracy and quant_accuracy as context (no gate reads them)",
+      "caused_by": [
+        "c3"
+      ],
+      "evidence_refs": [
+        "e2",
+        "e8",
+        "e9"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "after a heal, quant_manifest.json bf16_selection_accuracy and quant_vs_bf16_delta_points (read by the report's c43 drop row) describe the original bf16 student; healed_bf16_selection_accuracy is added for the healed one",
+      "caused_by": [
+        "c8"
+      ],
+      "evidence_refs": [
+        "e6",
+        "e7"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "amended",
+      "behavior_text": "measurements.json's healed block carries the vs-original drop_points/delta_points for the healed quant, matching heal_result",
+      "caused_by": [
+        "c24"
+      ],
+      "evidence_refs": [
+        "e10"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "after a heal, the second heal trigger gates the healed quant's drop against the original selected bf16 student (d17 on plan orin-nano-jetson-ops-decider); it was the bf16 rebuilt from the healed checkpoint (a heal lowering the bf16 5 points used to ship, now refused; one raising it 10 points used to be refused, now ships)",
+      "caused_by": [
+        "c2"
+      ],
+      "evidence_refs": [
+        "e1",
+        "e6"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }
