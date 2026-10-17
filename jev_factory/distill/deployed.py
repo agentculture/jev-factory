@@ -16,8 +16,13 @@ student is the train stage's selected candidate (the bf16 deployed contract):
   step wrote for the winner);
 * its fit- and selection-fold predictions are ``distill/train/<winner>/predictions.json``
   (what the served bundle answered when the candidate was scored);
-* its attestation is the per-file sha256 of the bundle folder
-  (:func:`jev_factory.release.hub.digests`), with no manifest sha256.
+* its attestation (:func:`attestation`) is the per-file sha256 of the bundle folder
+  (:func:`jev_factory.release.hub.digests`), the sha256 of its ``MANIFEST.sha256`` file as
+  ``manifest_sha256`` and its weight bytes.
+
+This module is the **one** bf16 resolver and the one attestation shape: the final
+(:func:`jev_factory.distill.final.bf16_deployed_student`, ``bf16_attestation``) delegates
+here, so final, gate, bundle and edge attest the same build the same way.
 
 Both shapes return the keys the stages read (``format``, ``artifact``, ``calibration``,
 ``calibration_sha256``, ``calibration_file``, ``manifest``); the bf16 shape adds
@@ -67,8 +72,20 @@ def predictions_rel(winner: str) -> str:
 
 
 def attestation(bundle: Path | str) -> dict[str, Any]:
-    """The bf16 build's attestation: per-file sha256 of the bundle folder, no manifest sha."""
-    return {"files": hub.digests(Path(bundle)), "manifest_sha256": None}
+    """The bf16 build's attestation: per-file sha256 of the bundle folder, the sha256 of its
+    ``MANIFEST.sha256`` file and its weight bytes; refused for an empty folder."""
+    path = Path(bundle)
+    files = hub.digests(path)
+    if not files:
+        raise _refuse(f"{path}: the bf16 bundle folder is empty; nothing to attest")
+    return {
+        "files": files,
+        "manifest_sha256": files.get(layout.MANIFEST),
+        "weight_bytes": sum(
+            (path / rel).stat().st_size for rel in files if rel.endswith(".safetensors")
+        ),
+        "format": BF16,
+    }
 
 
 def bf16_student(run_dir: Path | str) -> dict[str, Any]:

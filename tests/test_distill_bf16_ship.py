@@ -105,7 +105,27 @@ def test_the_helper_resolves_the_bf16_contract_paths(tmp_path):
     assert student["calibration_sha256"] == _sha(run / "distill/select/calibration.json")
     assert student["calibration"]["temperature_by_kind"] == SELECT_CAL["temperature_by_kind"]
     assert Path(student["predictions_file"]) == run / "distill/train" / WINNER / "predictions.json"
-    assert student["bundle"] == {"files": hub.digests(bundle), "manifest_sha256": None}
+    assert student["bundle"] == D.attestation(bundle)
+    assert student["bundle"]["files"] == hub.digests(bundle)
+    # one attestation shape for final, gate, bundle and edge: the MANIFEST.sha256 file's hash
+    assert student["bundle"]["manifest_sha256"] == _sha(bundle / player.MANIFEST)
+    assert student["bundle"]["weight_bytes"] > 0
+
+
+def test_final_and_the_stages_share_one_bf16_resolver_and_attestation(tmp_path, monkeypatch):
+    """Note 6: final.py's bf16 resolver and attestation are deployed.py's, not a second copy."""
+    from jev_factory.distill import final as F
+
+    run, _, bundle = make_bf16_run(tmp_path)
+    assert F.bf16_attestation(bundle) == D.attestation(bundle)
+    calls = []
+    real = D.bf16_student
+    monkeypatch.setattr(D, "bf16_student", lambda r: calls.append(Path(r)) or real(r))
+    got = F.bf16_deployed_student(run)
+    assert calls == [run]
+    assert Path(got["artifact"]) == bundle
+    assert got["winner"] == WINNER
+    assert Path(got["selection_predictions"]) == run / "distill/train" / WINNER / "predictions.json"
 
 
 def test_the_helper_refuses_a_bundle_that_does_not_verify(tmp_path):
@@ -338,7 +358,7 @@ def _edge_world(tmp_path: Path, final_bundle: bool = True):
     te._jsonl(tmp_path / "probe.jsonl", [te._rec("p1")])
     fdir = run / "distill/final"
     fdir.mkdir(parents=True)
-    attest = {"files": hub.digests(bundle), "manifest_sha256": None}
+    attest = D.attestation(bundle)
     final = {"deployed": {"bundle": attest}} if final_bundle else {"deployed": {}}
     (fdir / "final.json").write_text(json.dumps(final))
     return {

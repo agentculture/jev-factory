@@ -861,13 +861,10 @@ def _bf16_build(run_dir: Path) -> Path:
     select.mkdir(parents=True, exist_ok=True)
     (select / "summary.json").write_text(json.dumps({"winner": BF16_WINNER}), encoding="utf-8")
     (select / "calibration.json").write_text(json.dumps(BF16_CAL), encoding="utf-8")
+    from tests.test_distill_bf16_ship import _hobson  # a verified hobson-hf-export/1 bundle
+
     cand = run_dir / "distill" / "train" / BF16_WINNER
-    bundle = cand / "bundle"
-    (bundle / "lora").mkdir(parents=True)
-    (bundle / player.HEAD).write_bytes(b"bf16-head")
-    (bundle / player.ADAPTER).write_bytes(b"bf16-lora")
-    (bundle / player.CONFIG).write_text("{}", encoding="utf-8")
-    (bundle / player.MANIFEST).write_text("sha lines\n", encoding="utf-8")
+    bundle = _hobson(run_dir.parent, cand / "bundle")
     (cand / "predictions.json").write_text(json.dumps({"selection": []}), encoding="utf-8")
     return bundle
 

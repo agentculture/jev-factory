@@ -72,11 +72,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from jev_factory.backbones.pointer import layout as player
 from jev_factory.backbones.pointer import quantized as qz
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill import benchmark as bench
 from jev_factory.distill import dataset
+from jev_factory.distill import deployed as ddeployed
 from jev_factory.distill import edge as dedge
 from jev_factory.distill import gate as dgate
 from jev_factory.distill import prereg as dp
@@ -262,34 +262,15 @@ def deployed_student(run_dir: Path, deployed_format: str = "quant") -> dict[str,
 def bf16_deployed_student(run_dir: Path) -> dict[str, Any]:
     """The bf16 deployed build: the ``select/summary.json`` winner's ``bundle`` folder.
 
-    Calibrated with ``select/calibration.json``; its selection-fold predictions are
-    ``train/<winner>/predictions.json``. Refused without a winner, bundle or calibration.
+    Resolved and verified by :func:`jev_factory.distill.deployed.bf16_student` (the one bf16
+    resolver gate, bundle and edge use too); this adds the final's key names: ``artifact`` as
+    text, ``selection_predictions`` and an empty quant ``manifest``.
     """
-    summary_path = run_dir / dtrain.SELECT_REL / dtrain.SUMMARY_FILE
-    summary = _read_json(summary_path, "selection summary")
-    winner = summary.get("winner")
-    if not isinstance(winner, str) or not winner:
-        raise _refuse(
-            f"{summary_path} names no winner; there is no bf16 build to deploy",
-            "run the distill train stage; the selection rule picks the deployed bf16 build",
-        )
-    cand = run_dir / dtrain.TRAIN_REL / winner
-    bundle = cand / BF16_BUNDLE_DIR
-    if not bundle.is_dir():
-        raise _refuse(
-            f"{bundle}: the winner {winner} has no exported bf16 bundle",
-            "export the winner's hobson-hf-export/1 bundle before the final",
-        )
-    cal_path = run_dir / BF16_CALIBRATION_REL
-    calibration = _read_json(cal_path, "student calibration")
-    predictions = cand / dtrain.PREDICTIONS_FILE
+    student = ddeployed.bf16_student(run_dir)
     return {
-        "format": "bf16",
-        "artifact": str(bundle),
-        "winner": winner,
-        "selection_predictions": str(predictions) if predictions.is_file() else None,
-        "calibration": calibration,
-        "calibration_sha256": dp.sha256_file(cal_path),
+        **student,
+        "artifact": str(student["artifact"]),
+        "selection_predictions": str(student["predictions_file"]),
         "manifest": {},
     }
 
@@ -321,18 +302,9 @@ def fitted_gate(run_dir: Path, calibration_sha256: str) -> dict[str, Any] | None
 
 
 def bf16_attestation(path: Path) -> dict[str, Any]:
-    """Per-file sha256 of a bf16 bundle folder (``release.hub.digests``) and its weight bytes."""
-    files = digests(path)
-    if not files:
-        raise _refuse(f"{path}: the bf16 bundle folder is empty; nothing to attest")
-    return {
-        "files": files,
-        "manifest_sha256": files.get(player.MANIFEST),
-        "weight_bytes": sum(
-            (path / rel).stat().st_size for rel in files if rel.endswith(".safetensors")
-        ),
-        "format": "bf16",
-    }
+    """Per-file sha256 of a bf16 bundle folder, its manifest sha256 and weight bytes: the one
+    attestation shape, :func:`jev_factory.distill.deployed.attestation`."""
+    return ddeployed.attestation(path)
 
 
 def deployed_bundle(run_dir: Path, artifact: Any, deployed_format: str = "quant") -> dict[str, Any]:
