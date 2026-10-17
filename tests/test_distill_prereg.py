@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 
 import pytest
 
 from jev_factory.cli._errors import CliError
 from jev_factory.distill import prereg as dp
+from jev_factory.distill import profile as dprofile
 
 
 def good_doc() -> dict:
@@ -496,3 +498,381 @@ def test_an_18_shape_prereg_is_refused_with_a_clear_message(tmp_path):
         dp.load(path)
     with pytest.raises(CliError, match="#18-shape"):
         dp.lock(path, tmp_path / "run")
+
+
+# --- schema v3 (t7): roles, deployed format, a variant-neutral teacher bar ------------------
+
+#: A byte-for-byte copy of the locked jetson-ops-20 (#20 proving run) pre-registration and its
+#: lock: the shape a locked v2 file has in the field. Only the pre-registration, no record text.
+V2_FIXTURE = Path(__file__).parent / "fixtures" / "distill_prereg_v2"
+V2_FIXTURE_FILE = V2_FIXTURE / "distill" / "prereg.json"
+V2_FIXTURE_SHA256 = "f8a7954f055be18ca1c4ccd1af3e46a56a12ca9735967274f26a0f7d2dd27f71"
+
+
+def v3_doc(**kw) -> dict:
+    return dp.example_doc_v3(**kw)
+
+
+def test_v3_example_validates_with_roles_and_deployed_format():
+    reg = dp.validate(v3_doc())
+    assert reg.schema_version == 3
+    assert set(dp.roles(reg)) == set(dp.ROLE_NAMES)
+    for name in ("teacher", "stock", "student"):
+        assert dp.role_present(reg, name)
+    assert dp.deployed_format(reg) == "quant"
+    assert dp.teacher_variant(reg) == "W4A16"
+
+
+@pytest.mark.parametrize("role", ["teacher", "stock", "student"])
+def test_v3_refuses_a_mandatory_role_declared_absent(role):
+    doc = v3_doc()
+    doc["roles"][role] = {"present": False}
+    with pytest.raises(CliError, match=role):
+        dp.validate(doc)
+
+
+@pytest.mark.parametrize("role", ["teacher", "stock", "student", "alt_teacher", "edge"])
+def test_v3_refuses_an_undeclared_role(role):
+    doc = v3_doc()
+    del doc["roles"][role]
+    with pytest.raises(CliError, match=role):
+        dp.validate(doc)
+
+
+@pytest.mark.parametrize("role", ["alt_teacher", "deployed_server", "edge"])
+@pytest.mark.parametrize("present", [True, False])
+def test_v3_optional_roles_may_be_present_or_absent(role, present):
+    doc = v3_doc()
+    # the alt teacher's model comes from run config (distill_alt_teacher_model), not here
+    doc["roles"][role] = {"present": present}
+    assert dp.role_present(dp.validate(doc), role) is present
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d["roles"].__setitem__("oracle", {"present": True}),
+        lambda d: d["roles"]["edge"].__setitem__("present", "yes"),
+        lambda d: d["roles"].__setitem__("edge", True),
+        lambda d: d["roles"]["teacher"].pop("variant"),
+        lambda d: d["roles"]["teacher"].__setitem__("variant", " "),
+        lambda d: d["roles"]["teacher"].pop("model"),
+        lambda d: d["roles"]["stock"].pop("model"),
+        lambda d: d["roles"]["student"].__setitem__("present", 1),
+        lambda d: d.pop("roles"),
+        lambda d: d.pop("deployed_format"),
+        lambda d: d.__setitem__("deployed_format", "gguf"),
+        lambda d: d.__setitem__("reference_rows", {}),
+    ],
+)
+def test_v3_roles_and_format_are_checked(mutate):
+    doc = v3_doc()
+    mutate(doc)
+    with pytest.raises(CliError):
+        dp.validate(doc)
+
+
+def test_v3_teacher_bar_is_variant_neutral():
+    doc = v3_doc()
+    for build in ("bf16", "quant"):
+        assert "top1_under_teacher_max_points" in doc["bars"]["c17"][build]
+        assert not any("clef" in n or "w4a16" in n for n in doc["bars"]["c17"][build])
+    reg = dp.validate(doc)
+    assert dp.teacher_bar(reg, "bf16") == 5.0
+    assert dp.teacher_bar(reg, "quant") == 5.0
+
+
+def test_v3_records_the_preregistered_teacher_variant():
+    doc = v3_doc(teacher_variant="BF16")
+    assert doc["roles"]["teacher"]["variant"] == "BF16"
+    assert dp.teacher_variant(dp.validate(doc)) == "BF16"
+
+
+def test_v3_refuses_the_v2_teacher_bar_name():
+    doc = v3_doc()
+    bars = doc["bars"]["c17"]["bf16"]
+    bars["top1_under_clef_w4a16_max_points"] = bars.pop("top1_under_teacher_max_points")
+    with pytest.raises(CliError, match="top1_under_teacher_max_points"):
+        dp.validate(doc)
+
+
+@pytest.mark.parametrize(
+    ("build", "name", "bad"),
+    [
+        ("bf16", "top1_under_teacher_max_points", 5.1),
+        ("quant", "top1_under_teacher_max_points", 20),
+        ("bf16", "top1_over_stock_min_points", 9.9),
+        ("quant", "quant_vs_bf16_agreement_min", 0.96),
+        ("quant", "weight_bytes_max", 10**9 + 1),
+    ],
+)
+def test_v3_floors_hold_tighten_never_loosen(build, name, bad):
+    doc = v3_doc()
+    doc["bars"]["c17"][build][name] = bad
+    with pytest.raises(CliError, match="weaker than the c17 bar") as exc:
+        dp.validate(doc)
+    assert name in exc.value.message
+    assert "never loosened" in exc.value.remediation
+
+
+def test_v3_a_stricter_teacher_bar_is_accepted():
+    doc = v3_doc()
+    doc["bars"]["c17"]["bf16"]["top1_under_teacher_max_points"] = 3.0
+    assert dp.teacher_bar(dp.validate(doc), "bf16") == 3.0
+
+
+@pytest.mark.parametrize("name", ["top1_over_stock_min_points", "top1_under_teacher_max_points"])
+@pytest.mark.parametrize("marker", [None, "not_applicable", "n/a"])
+def test_v3_relative_c17_bars_cannot_be_not_applicable_while_teacher_and_stock_present(
+    name, marker
+):
+    doc = v3_doc()
+    doc["bars"]["c17"]["bf16"][name] = marker
+    with pytest.raises(CliError, match="not applicable"):
+        dp.validate(doc)
+
+
+def test_v3_quant_format_requires_the_quant_only_bars_exactly_as_today():
+    for drop in (
+        lambda d: d["bars"]["c17"].pop("quant"),
+        lambda d: d["bars"]["c17"]["quant"].pop("quant_vs_bf16_agreement_min"),
+        lambda d: d["bars"]["c17"]["quant"].pop("weight_bytes_max"),
+        lambda d: d["bars"].pop("quant"),
+        lambda d: d["bars"]["quant"].pop("heal_rounds_max"),
+    ):
+        doc = v3_doc()
+        drop(doc)
+        with pytest.raises(CliError):
+            dp.validate(doc)
+
+
+def test_v3_bf16_format_does_not_require_the_quant_only_bars():
+    doc = v3_doc(deployed_format="bf16")
+    assert doc["deployed_format"] == "bf16"
+    assert "quant" not in doc["bars"]["c17"]
+    assert "quant" not in doc["bars"]
+    reg = dp.validate(doc)
+    assert dp.deployed_format(reg) == "bf16"
+    assert set(dp.c17_bars(reg)) == {"bf16"}
+
+
+def test_v3_bf16_format_still_checks_quant_bars_when_given():
+    doc = v3_doc(deployed_format="bf16")
+    doc["bars"]["quant"] = {"max_accuracy_drop_points": -1, "ece_max": 0.1, "heal_rounds_max": 1}
+    with pytest.raises(CliError, match="max_accuracy_drop_points"):
+        dp.validate(doc)
+
+
+def test_v1_is_still_refused_by_name():
+    doc = v3_doc()
+    doc["schema_version"] = 1
+    with pytest.raises(CliError, match="#18-shape"):
+        dp.validate(doc)
+
+
+def test_v3_lock_and_require_locked_roundtrip(tmp_path):
+    path = write(tmp_path, v3_doc())
+    run_dir = tmp_path / "run"
+    rec = dp.lock(path, run_dir)
+    assert rec["schema_version"] == 3
+    assert dp.deployed_format(dp.require_locked(path, run_dir)) == "quant"
+
+
+# --- the locked v2 file: read through an explicit mapping, never rewritten ------------------
+
+
+def test_the_v2_fixture_is_the_locked_jetson_ops_20_shape():
+    assert dp.sha256_file(V2_FIXTURE_FILE) == V2_FIXTURE_SHA256
+    lock = json.loads((V2_FIXTURE / dp.LOCK_REL).read_text(encoding="utf-8"))
+    assert lock == {"file": "prereg.json", "schema_version": 2, "sha256": V2_FIXTURE_SHA256}
+
+
+def test_a_locked_v2_file_loads_unchanged_and_is_never_rewritten():
+    before = V2_FIXTURE_FILE.read_bytes()
+    lock_before = (V2_FIXTURE / dp.LOCK_REL).read_bytes()
+    reg = dp.require_locked(V2_FIXTURE_FILE, V2_FIXTURE)
+    assert V2_FIXTURE_FILE.read_bytes() == before
+    assert (V2_FIXTURE / dp.LOCK_REL).read_bytes() == lock_before
+    assert dp.sha256_file(V2_FIXTURE_FILE) == V2_FIXTURE_SHA256
+    assert reg.schema_version == 2
+    # the v2-shaped view is unchanged: today's readers keep working
+    assert reg.bars["c17"]["quant"]["top1_under_clef_w4a16_max_points"] == 5.0
+    assert reg.bars == json.loads(before)["bars"]
+    assert set(reg.reference_rows) == {"clef", "stock"}
+
+
+def test_a_v2_file_maps_its_w4a16_bar_to_the_teacher_bar_with_variant_w4a16():
+    reg = dp.load(V2_FIXTURE_FILE)
+    assert dp.teacher_variant(reg) == "W4A16"
+    assert dp.teacher_bar(reg, "bf16") == 5.0
+    assert dp.teacher_bar(reg, "quant") == 5.0
+    c17 = dp.c17_bars(reg)
+    assert "top1_under_teacher_max_points" in c17["quant"]
+    assert "top1_under_clef_w4a16_max_points" not in c17["quant"]
+    assert c17["quant"]["quant_vs_bf16_agreement_min"] == 0.97
+    assert dp.deployed_format(reg) == "quant"
+    roles = dp.roles(reg)
+    assert all(roles[name]["present"] for name in dp.ROLE_NAMES)
+    assert roles["teacher"]["model"] == "Clef 27B"
+    assert roles["stock"]["model"].startswith("StrandsAgents/strands-decider-2B-qwen3.5-v1-2610@")
+
+
+def test_the_v2_mapping_is_explicit_and_yields_a_valid_v3_doc():
+    raw = json.loads(V2_FIXTURE_FILE.read_text(encoding="utf-8"))
+    snapshot = copy.deepcopy(raw)
+    mapped = dp.v2_to_v3(raw)
+    assert raw == snapshot  # the mapping never mutates its input
+    assert mapped["schema_version"] == 3
+    assert mapped["roles"]["teacher"]["variant"] == "W4A16"
+    assert dp.V2_BAR_MAP == {"top1_under_clef_w4a16_max_points": "top1_under_teacher_max_points"}
+    assert dp.validate(mapped).schema_version == 3
+    with pytest.raises(CliError, match="schema_version 2"):
+        dp.v2_to_v3(dp.example_doc_v3())
+
+
+def test_a_v2_lock_still_records_schema_version_2(tmp_path):
+    path = write(tmp_path, good_doc())
+    assert dp.lock(path, tmp_path / "run")["schema_version"] == 2
+
+
+def test_a_tighter_v2_w4a16_bar_maps_through():
+    doc = good_doc()
+    doc["bars"]["c17"]["bf16"]["top1_under_clef_w4a16_max_points"] = 2.0
+    assert dp.teacher_bar(dp.validate(doc), "bf16") == 2.0
+
+
+# --- example_doc seeds from the active profile --------------------------------------------
+
+
+def test_example_doc_with_default_2610_is_todays_draft():
+    assert dp.example_doc() == dp.example_doc(profile=dprofile.DEFAULT_2610)
+    assert json.dumps(dp.example_doc(), sort_keys=True) == json.dumps(
+        _todays_example_doc(), sort_keys=True
+    )
+
+
+def test_example_doc_v3_keeps_every_v2_field_value_with_default_2610():
+    v2, v3 = dp.example_doc(), dp.example_doc_v3()
+    for key, value in v2.items():
+        if key in ("schema_version", "bars", "reference_rows"):
+            continue
+        assert v3[key] == value, key
+    assert v3["bars"]["test"] == v2["bars"]["test"]
+    assert v3["bars"]["quant"] == v2["bars"]["quant"]
+    for build in ("bf16", "quant"):
+        expect = dict(v2["bars"]["c17"][build])
+        expect["top1_under_teacher_max_points"] = expect.pop("top1_under_clef_w4a16_max_points")
+        assert v3["bars"]["c17"][build] == expect
+    assert v3["roles"]["teacher"]["model"] == v2["reference_rows"]["clef"]["model"]
+    assert v3["roles"]["stock"]["model"] == v2["reference_rows"]["stock"]["model"]
+
+
+def test_example_doc_seeds_from_another_profile():
+    import dataclasses
+
+    other = dataclasses.replace(
+        dprofile.DEFAULT_2610,
+        lora_r=16,
+        lora_alpha=32,
+        lora_dropout=0.1,
+        lora_targets=("q_proj", "v_proj"),
+        temperature_by_kind={"choice": 1.5, "noul": 1.0, "score": 2.0},
+        upstream_model="Org/other-decider",
+        upstream_revision="c0ffee11",
+        weight_budget_bytes=5 * 10**8,
+    )
+    for doc in (dp.example_doc(profile=other), dp.example_doc_v3(profile=other)):
+        knobs = {k["name"]: k["value"] for k in doc["upstream_knobs"]}
+        assert knobs["lora_r"] == 16 and knobs["lora_alpha"] == 32
+        assert knobs["lora_dropout"] == 0.1
+        assert knobs["lora_targets"] == ["q_proj", "v_proj"]
+        assert knobs["temperature_by_kind"]["choice"] == 1.5
+        assert doc["bars"]["c17"]["quant"]["weight_bytes_max"] == 5 * 10**8
+        dp.validate(doc)
+    assert dp.example_doc(profile=other)["reference_rows"]["stock"]["model"] == (
+        "Org/other-decider@c0ffee11"
+    )
+    assert dp.example_doc_v3(profile=other)["roles"]["stock"]["model"] == (
+        "Org/other-decider@c0ffee11"
+    )
+
+
+def _todays_example_doc() -> dict:
+    """example_doc() as it was before t7, rebuilt from the fixture's literal constants."""
+    upstream = [
+        ("lr", 1e-4, "train_config.json", "lr"),
+        ("head_lr", 1e-3, "train_config.json", "head_lr"),
+        ("epochs", 1, "train_config.json", "epochs"),
+        ("kl_frozen_weight", 0.3, "train_config.json", "kl_frozen_weight"),
+        ("teacher_weight", 1.0, "train_config.json", "teacher_weight"),
+        ("ordinal_smoothing", 0.1, "train_config.json", "ordinal_smoothing"),
+        ("micro_batch_size", 8, "train_config.json", "micro_batch_size"),
+        ("grad_accum", 4, "train_config.json", "grad_accum"),
+        ("weight_decay", 0.01, "train_config.json", "weight_decay"),
+        ("warmup_ratio", 0.03, "train_config.json", "warmup_ratio"),
+        ("max_grad_norm", 1.0, "train_config.json", "max_grad_norm"),
+        ("max_length", 4096, "train_config.json", "max_length"),
+        ("seed", 0, "train_config.json", "seed"),
+        ("shuffle_options", True, "train_config.json", "shuffle_options"),
+        ("reverse_score_prob", 0.5, "train_config.json", "reverse_score_prob"),
+        ("lora_r", 48, "lora/adapter_config.json", "r"),
+        ("lora_alpha", 96, "lora/adapter_config.json", "lora_alpha"),
+        ("lora_dropout", 0.05, "lora/adapter_config.json", "lora_dropout"),
+        ("lora_targets", TARGETS_2610, "lora/adapter_config.json", "target_modules"),
+        (
+            "temperature_by_kind",
+            {"noul": 1.0704394404346953, "choice": 0.8629556148274228, "score": 1.834409163182587},
+            "strands_decider_config.json",
+            "temperature_by_kind",
+        ),
+    ]
+    raw = json.loads(V2_FIXTURE_FILE.read_text(encoding="utf-8"))
+    c17_build = {
+        "top1_over_stock_min_points": 10.0,
+        "top1_under_clef_w4a16_max_points": 5.0,
+        "latency_reported": ["median", "p95"],
+    }
+    return {
+        "schema_version": 2,
+        "bars": {
+            "c17": {
+                "bf16": dict(c17_build),
+                "quant": {
+                    **c17_build,
+                    "quant_vs_bf16_agreement_min": 0.97,
+                    "weight_bytes_max": 10**9,
+                },
+            },
+            "test": raw["bars"]["test"],
+            "quant": raw["bars"]["quant"],
+        },
+        "selection_rule": raw["selection_rule"],
+        "knob_grid": {
+            "alpha": [0.5, 0.7, 0.9],
+            "temperature": {"choice": [1.0, 2.0], "score": [1.0, 2.0], "noul": [1.0]},
+            "teacher_filter": ["all", "agrees_with_gold"],
+            "teacher_weak_floor": [0.6, 0.7],
+            "data_mix": ["teacher_only", "teacher_plus_corrections"],
+            "epochs": [1, 2],
+            "lr": [5e-5, 1e-4],
+            "init_mode": ["continue", "merge_fresh"],
+        },
+        "heal": {
+            "epochs": 1,
+            "lr": 5e-5,
+            "init_mode": "continue",
+            "mix": {"bf16_student": 0.5, "clef": 0.5},
+            "mix_source": raw["heal"]["mix_source"],
+            "source": raw["heal"]["source"],
+        },
+        "gate": {
+            "objective": "max_selective_accuracy",
+            "min_coverage": {"choice": 0.8, "noul": 0.8, "score": 0.8},
+            "grid": raw["gate"]["grid"],
+            "status": dp.GATE_PLACEHOLDER,
+        },
+        "reference_rows": raw["reference_rows"],
+        "upstream_knobs": [
+            {"name": n, "value": v, "source_file": f, "source_key": k} for n, v, f, k in upstream
+        ],
+    }

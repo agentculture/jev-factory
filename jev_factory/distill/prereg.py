@@ -9,6 +9,7 @@ the file and key it came from; every knob a run uses must be in the grid.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import math
@@ -18,12 +19,24 @@ from typing import Any
 
 from jev_factory.backbones.pointer.quantized import SIZE_BUDGET_BYTES
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
+from jev_factory.distill.profile import DEFAULT_2610, StudentProfile
 from jev_factory.factory import safepath
 
+#: 3 = roles and a deployed format: ``roles`` declares the teacher (Clef, with its locked
+#: build ``variant``), the stock target and the student (all mandatory) and the alt teacher,
+#: the deployed-quant server and the edge board (each present or absent); ``deployed_format``
+#: is ``quant`` or ``bf16``; the c17 teacher bar is variant-neutral
+#: (``top1_under_teacher_max_points``). v3 carries no ``reference_rows`` (``roles`` replace them).
+#:
 #: 2 = the Jetson-ops (#20) shape: ``bars.c17`` replaces #18's gap-closure / latency bars as the
-#: run's success bars and the upstream seed is strands-decider-2B-qwen3.5-v1-2610. A v1
-#: (#18-shape) file is refused by name, never reinterpreted.
-SCHEMA_VERSION = 2
+#: run's success bars and the upstream seed is strands-decider-2B-qwen3.5-v1-2610. A locked v2
+#: file still loads, unchanged and never rewritten: its v2-shaped view is returned as-is and
+#: the v3 accessors read it through :func:`v2_to_v3`.
+#:
+#: A v1 (#18-shape) file is refused by name, never reinterpreted.
+SCHEMA_VERSION = 3
+V2_SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (V2_SCHEMA_VERSION, SCHEMA_VERSION)
 PREREG_REL = "distill/prereg.json"
 LOCK_REL = "distill/prereg.lock.json"
 
@@ -39,6 +52,24 @@ KNOB_NAMES: tuple[str, ...] = (
 )
 TEACHER_FILTERS = ("all", "agrees_with_gold")
 REFERENCE_ROWS = ("clef", "stock")
+
+#: v3 roles. The first three are mandatory (declaring one absent is refused); the others are
+#: each declared present or absent before the lock.
+MANDATORY_ROLES: tuple[str, ...] = ("teacher", "stock", "student")
+OPTIONAL_ROLES: tuple[str, ...] = ("alt_teacher", "deployed_server", "edge")
+ROLE_NAMES: tuple[str, ...] = MANDATORY_ROLES + OPTIONAL_ROLES
+#: Fields a present role must carry (the alt teacher's model comes from run config,
+#: ``distill_alt_teacher_model``, so it needs none here).
+ROLE_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "teacher": ("model", "variant"),
+    "stock": ("model",),
+}
+#: What a v3 run ships: the quantized student (``quant``) or the bf16 student (``bf16``).
+DEPLOYED_FORMATS: tuple[str, ...] = ("quant", "bf16")
+#: The Clef build every v2 file was registered against (decision c43: the teacher bar is
+#: relative to the Clef variant the run serves, locked here and reported beside every number).
+V2_TEACHER_VARIANT = "W4A16"
+DEFAULT_TEACHER_MODEL = "Clef 27B"
 
 #: bar name -> (kind, bound); kind "rate" in [0, 1], "pos" > 0, "flag" must be bool.
 TEST_BARS: dict[str, str] = {
@@ -59,15 +90,29 @@ QUANT_BARS: dict[str, str] = {
 C17_BUILDS: tuple[str, ...] = ("bf16", "quant")
 #: top-1 must beat stock by at least this many points ...
 C17_STOCK_MARGIN_POINTS = 10.0
-#: ... and may trail Clef W4A16 by at most this many points.
-C17_CLEF_W4A16_ALLOWANCE_POINTS = 5.0
+#: ... and may trail the teacher (the registered Clef variant) by at most this many points.
+C17_TEACHER_ALLOWANCE_POINTS = 5.0
+C17_CLEF_W4A16_ALLOWANCE_POINTS = C17_TEACHER_ALLOWANCE_POINTS  # the v2 name
 C17_AGREEMENT_MIN = 0.97
+#: The teacher bar's name in v3 (variant-neutral) and in v2 (W4A16 in the name).
+TEACHER_BAR = "top1_under_teacher_max_points"
+V2_TEACHER_BAR = "top1_under_clef_w4a16_max_points"
+#: The explicit v2 -> v3 c17 bar mapping (:func:`v2_to_v3`); every other bar keeps its name.
+V2_BAR_MAP: dict[str, str] = {V2_TEACHER_BAR: TEACHER_BAR}
 #: bar name -> (kind, weakest allowed value); ``min`` bars may be stricter (larger), ``max``
 #: bars stricter (smaller), but a registration weaker than this floor is refused.
+#: (v2 names; :data:`C17_TOP1_BARS_V3` holds the v3 ones.)
 C17_TOP1_BARS: dict[str, tuple[str, float]] = {
     "top1_over_stock_min_points": ("min", C17_STOCK_MARGIN_POINTS),
-    "top1_under_clef_w4a16_max_points": ("max", C17_CLEF_W4A16_ALLOWANCE_POINTS),
+    V2_TEACHER_BAR: ("max", C17_TEACHER_ALLOWANCE_POINTS),
 }
+C17_TOP1_BARS_V3: dict[str, tuple[str, float]] = {
+    "top1_over_stock_min_points": ("min", C17_STOCK_MARGIN_POINTS),
+    TEACHER_BAR: ("max", C17_TEACHER_ALLOWANCE_POINTS),
+}
+#: The c17 bars relative to the stock and teacher rows: both roles are mandatory, so these
+#: can never be marked not applicable (h7).
+C17_RELATIVE_BARS: frozenset[str] = frozenset({*C17_TOP1_BARS, *C17_TOP1_BARS_V3})
 C17_QUANT_ONLY_BARS: dict[str, tuple[str, float]] = {
     "quant_vs_bf16_agreement_min": ("min", C17_AGREEMENT_MIN),
     "weight_bytes_max": ("max", float(SIZE_BUDGET_BYTES)),
@@ -80,17 +125,17 @@ V1_REFUSAL = (
 )
 
 
-def example_c17_bars() -> dict[str, Any]:
-    """The c17 bars as pre-registered for the Jetson-ops run (a draft until the lock)."""
+def example_c17_bars(weight_bytes_max: int = SIZE_BUDGET_BYTES) -> dict[str, Any]:
+    """The c17 bars as pre-registered for the Jetson-ops run (a v2 draft until the lock)."""
     out: dict[str, Any] = {}
     for build in C17_BUILDS:
         bars: dict[str, Any] = {
             "top1_over_stock_min_points": C17_STOCK_MARGIN_POINTS,
-            "top1_under_clef_w4a16_max_points": C17_CLEF_W4A16_ALLOWANCE_POINTS,
+            V2_TEACHER_BAR: C17_TEACHER_ALLOWANCE_POINTS,
         }
         if build == "quant":
             bars["quant_vs_bf16_agreement_min"] = C17_AGREEMENT_MIN
-            bars["weight_bytes_max"] = SIZE_BUDGET_BYTES
+            bars["weight_bytes_max"] = weight_bytes_max
         bars["latency_reported"] = list(C17_LATENCY_REPORTED)
         out[build] = bars
     return out
@@ -154,6 +199,13 @@ class DistillPrereg:
     upstream_knobs: tuple[UpstreamKnob, ...]
     gate: dict[str, Any] | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+    #: The file's own schema version. ``bars`` is the file's own shape (v2 names for a v2
+    #: file); read the normalised v3 view through :func:`roles`, :func:`deployed_format`,
+    #: :func:`teacher_variant`, :func:`c17_bars` and :func:`teacher_bar`.
+    schema_version: int = V2_SCHEMA_VERSION
+    v3_roles: dict[str, dict[str, Any]] = field(default_factory=dict)
+    v3_deployed_format: str = "quant"
+    v3_c17: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def _err(message: str, remediation: str = "") -> CliError:
@@ -228,8 +280,20 @@ STOCK_TEMPERATURE_BY_KIND = {
 }
 
 
-def example_doc() -> dict[str, Any]:
-    """A valid pre-registration draft, seeded from strands-decider-2B-qwen3.5-v1-2610 @ 216d1ccb.
+def _stock_model(profile: StudentProfile) -> str:
+    repo = profile.upstream_model or profile.decider_repo
+    rev = profile.upstream_revision or profile.decider_revision
+    return f"{repo}@{rev}"
+
+
+def example_doc(profile: StudentProfile = DEFAULT_2610) -> dict[str, Any]:
+    """A valid v2 pre-registration draft, seeded from the student ``profile``.
+
+    With :data:`~jev_factory.distill.profile.DEFAULT_2610` (strands-decider-2B-qwen3.5-v1-2610
+    @ 216d1ccb) the draft is exactly the pre-t7 one. The profile seeds the LoRA knobs, the
+    stock calibration (``temperature_by_kind``), the source file names, the stock reference
+    model and the quant's ``weight_bytes_max``. The draft stays schema v2 so every current
+    reader of the v2 bar names keeps working; :func:`example_doc_v3` is the v3 draft.
 
     Carries every hyperparameter the pointer distill trainer resolves (``init_mode`` in the
     grid; the fixed upstream values, each citing :data:`UPSTREAM_SOURCE` file and key) and
@@ -237,6 +301,12 @@ def example_doc() -> dict[str, Any]:
     (:data:`HEAL_SOURCE`) that :mod:`jev_factory.distill.quant` reads. All values are drafts
     for the operator to confirm before the lock.
     """
+    p = profile
+    train_cfg, decider_cfg, adapter_cfg = (
+        p.train_config_file,
+        p.decider_config_file,
+        p.adapter_config_file,
+    )
     upstream = [
         ("lr", 1e-4, TRAIN_CONFIG, "lr"),
         ("head_lr", 1e-3, TRAIN_CONFIG, "head_lr"),
@@ -255,21 +325,23 @@ def example_doc() -> dict[str, Any]:
         ("reverse_score_prob", 0.5, TRAIN_CONFIG, "reverse_score_prob"),
         # 2610 trains with r48 / alpha 96: the adapter file and strands_decider_config.json say
         # so (its train_config.json still lists the r16 / alpha 32 of the earlier recipe).
-        ("lora_r", 48, ADAPTER_CONFIG, "r"),
-        ("lora_alpha", 96, ADAPTER_CONFIG, "lora_alpha"),
-        ("lora_dropout", 0.05, ADAPTER_CONFIG, "lora_dropout"),
-        ("lora_targets", list(STOCK_LORA_TARGETS), ADAPTER_CONFIG, "target_modules"),
+        ("lora_r", p.lora_r, adapter_cfg, "r"),
+        ("lora_alpha", p.lora_alpha, adapter_cfg, "lora_alpha"),
+        ("lora_dropout", p.lora_dropout, adapter_cfg, "lora_dropout"),
+        ("lora_targets", list(p.lora_targets), adapter_cfg, "target_modules"),
         (
             "temperature_by_kind",
-            dict(STOCK_TEMPERATURE_BY_KIND),
-            DECIDER_CONFIG,
+            dict(p.temperature_by_kind),
+            decider_cfg,
             "temperature_by_kind",
         ),
     ]
+    # the train_config.json values above cite the profile's own file name
+    upstream = [(n, v, train_cfg if f == TRAIN_CONFIG else f, k) for n, v, f, k in upstream]
     return {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": V2_SCHEMA_VERSION,
         "bars": {
-            "c17": example_c17_bars(),
+            "c17": example_c17_bars(p.weight_budget_bytes),
             "test": {
                 "accuracy_diff_ci_lower_min": 0.0,
                 "gap_closure_min": 0.5,
@@ -328,9 +400,9 @@ def example_doc() -> dict[str, Any]:
             "status": GATE_PLACEHOLDER,
         },
         "reference_rows": {
-            "clef": {"model": "Clef 27B", "role": "teacher"},
+            "clef": {"model": DEFAULT_TEACHER_MODEL, "role": "teacher"},
             "stock": {
-                "model": f"{UPSTREAM_MODEL}@{UPSTREAM_REVISION}",
+                "model": _stock_model(p),
                 "role": "stock baseline",
             },
         },
@@ -338,6 +410,68 @@ def example_doc() -> dict[str, Any]:
             {"name": n, "value": v, "source_file": f, "source_key": k} for n, v, f, k in upstream
         ],
     }
+
+
+def example_doc_v3(
+    profile: StudentProfile = DEFAULT_2610,
+    *,
+    teacher_variant: str = V2_TEACHER_VARIANT,
+    deployed_format: str = "quant",
+    teacher_model: str = DEFAULT_TEACHER_MODEL,
+) -> dict[str, Any]:
+    """A valid v3 pre-registration draft, seeded from ``profile``.
+
+    Every field of :func:`example_doc` keeps its value (the teacher bar under its v3 name;
+    ``reference_rows`` become ``roles``) and v3 adds ``roles`` and ``deployed_format``. With
+    ``deployed_format="bf16"`` the quant-only bars (``bars.c17.quant``, ``bars.quant``) and
+    the quant ``heal`` round are left out. Every optional role is drafted present.
+    """
+    doc = v2_to_v3(example_doc(profile))
+    doc["roles"]["teacher"].update(model=teacher_model, variant=teacher_variant)
+    doc["deployed_format"] = deployed_format
+    if deployed_format == "bf16":
+        doc["bars"]["c17"].pop("quant", None)
+        doc["bars"].pop("quant", None)
+        doc.pop("heal", None)
+    return doc
+
+
+def v2_to_v3(doc: dict[str, Any]) -> dict[str, Any]:
+    """The explicit v2 -> v3 mapping, in memory only (a locked file is never rewritten).
+
+    ``top1_under_clef_w4a16_max_points`` becomes the teacher bar
+    (:data:`TEACHER_BAR`) with the teacher's variant :data:`V2_TEACHER_VARIANT`;
+    ``reference_rows.clef`` / ``.stock`` become the ``teacher`` / ``stock`` roles. A v2 file
+    declared no roles or format, so the mapping takes today's pipeline as the default: the
+    student and every optional role (alt teacher, deployed-quant server, edge) present, and
+    ``deployed_format`` ``quant``. The input is not mutated.
+    """
+    if not isinstance(doc, dict) or doc.get("schema_version") != V2_SCHEMA_VERSION:
+        raise _err("v2_to_v3 maps a schema_version 2 distill pre-registration only")
+    out = copy.deepcopy(doc)
+    out["schema_version"] = SCHEMA_VERSION
+    refs = out.pop("reference_rows", None)
+    refs = refs if isinstance(refs, dict) else {}
+    clef = refs.get("clef") if isinstance(refs.get("clef"), dict) else {}
+    stock = refs.get("stock") if isinstance(refs.get("stock"), dict) else {}
+    roles: dict[str, dict[str, Any]] = {
+        "teacher": {
+            "present": True,
+            "model": clef.get("model"),
+            "variant": V2_TEACHER_VARIANT,
+        },
+        "stock": {"present": True, "model": stock.get("model")},
+        "student": {"present": True},
+    }
+    roles.update({name: {"present": True} for name in OPTIONAL_ROLES})
+    out["roles"] = roles
+    out["deployed_format"] = "quant"
+    c17 = out.get("bars", {}).get("c17") if isinstance(out.get("bars"), dict) else None
+    if isinstance(c17, dict):
+        for build, entry in c17.items():
+            if isinstance(entry, dict):
+                c17[build] = {V2_BAR_MAP.get(k, k): v for k, v in entry.items()}
+    return out
 
 
 def _check_bar(section: str, name: str, kind: str, value: Any) -> None:
@@ -354,6 +488,12 @@ def _check_bar(section: str, name: str, kind: str, value: Any) -> None:
 def _check_c17_bar(build: str, name: str, spec: tuple[str, float], value: Any) -> None:
     sense, limit = spec
     where = f"bars.c17.{build}.{name}"
+    if name in C17_RELATIVE_BARS and (value is None or isinstance(value, str)):
+        raise _err(
+            f"{where} cannot be marked not applicable: it is relative to the stock and teacher "
+            "rows, and those roles are mandatory (present in every run)",
+            "register a number; c17 bars may be tightened, never loosened or dropped",
+        )
     if name == "weight_bytes_max":
         if not _is_int(value):
             raise _err(f"{where} must be an integer number of bytes")
@@ -368,10 +508,12 @@ def _check_c17_bar(build: str, name: str, spec: tuple[str, float], value: Any) -
         )
 
 
-def _c17_build(build: str, entry: Any) -> dict[str, Any]:
+def _c17_build(
+    build: str, entry: Any, top1: dict[str, tuple[str, float]] = C17_TOP1_BARS
+) -> dict[str, Any]:
     if not isinstance(entry, dict):
         raise _err(f"bars.c17.{build} must be an object")
-    spec = dict(C17_TOP1_BARS)
+    spec = dict(top1)
     if build == "quant":
         spec.update(C17_QUANT_ONLY_BARS)
     missing = [n for n in (*spec, "latency_reported") if n not in entry]
@@ -390,20 +532,40 @@ def _c17_build(build: str, entry: Any) -> dict[str, Any]:
     return dict(entry)
 
 
-def _c17(doc: Any) -> dict[str, Any]:
+def _c17(
+    doc: Any,
+    top1: dict[str, tuple[str, float]] = C17_TOP1_BARS,
+    required: tuple[str, ...] = C17_BUILDS,
+) -> dict[str, Any]:
+    """Validate ``bars.c17``: every ``required`` build, plus any other known build given."""
     if not isinstance(doc, dict):
         raise _err("bars.c17 must be an object")
     extra = sorted(set(doc) - set(C17_BUILDS))
     if extra:
         raise _err(f"bars.c17 has unknown builds: {', '.join(extra)}")
-    return {build: _c17_build(build, doc.get(build)) for build in C17_BUILDS}
+    builds = [b for b in C17_BUILDS if b in required or b in doc]
+    return {build: _c17_build(build, doc.get(build), top1) for build in builds}
 
 
-def _bars(doc: Any) -> dict[str, dict[str, Any]]:
+def _bars(doc: Any, deployed_format: str | None = None) -> dict[str, dict[str, Any]]:
+    """Validate ``bars``. ``deployed_format`` ``None`` is the v2 shape (v2 bar names, the
+    quant bars always required); a v3 format uses the v3 names and requires the quant-only
+    bars (``bars.c17.quant``, ``bars.quant``) only for ``quant``, checking them if given."""
     if not isinstance(doc, dict):
         raise _err("bars must be an object")
-    out: dict[str, dict[str, Any]] = {"c17": _c17(doc.get("c17"))}
+    if deployed_format is None:
+        top1, needs_quant = C17_TOP1_BARS, True
+    else:
+        top1, needs_quant = C17_TOP1_BARS_V3, deployed_format == "quant"
+    required = C17_BUILDS if needs_quant else ("bf16",)
+    out: dict[str, dict[str, Any]] = {"c17": _c17(doc.get("c17"), top1, required)}
+    if deployed_format is not None:
+        unknown = sorted(set(doc) - {"c17", "test", "quant"})
+        if unknown:
+            raise _err(f"bars has unknown sections: {', '.join(unknown)}")
     for section, spec in (("test", TEST_BARS), ("quant", QUANT_BARS)):
+        if section == "quant" and not needs_quant and section not in doc:
+            continue
         entry = doc.get(section)
         if not isinstance(entry, dict):
             raise _err(f"bars.{section} must be an object")
@@ -532,23 +694,154 @@ def _upstream(doc: Any) -> tuple[UpstreamKnob, ...]:
     return tuple(out)
 
 
+def _role(name: str, entry: Any) -> dict[str, Any]:
+    where = f"roles.{name}"
+    if not isinstance(entry, dict) or not isinstance(entry.get("present"), bool):
+        raise _err(f"{where} must be an object with a boolean 'present'")
+    if name in MANDATORY_ROLES and not entry["present"]:
+        raise _err(
+            f"{where} is mandatory and cannot be declared absent "
+            "(the teacher, stock and student roles are present in every run)",
+            "declare it present; only alt_teacher, deployed_server and edge may be absent",
+        )
+    if entry["present"]:
+        for key in ROLE_REQUIRED_FIELDS.get(name, ()):
+            if not _nonempty_str(entry.get(key)):
+                raise _err(f"{where}.{key} must be a non-empty string")
+    return dict(entry)
+
+
+def _roles(doc: Any) -> dict[str, dict[str, Any]]:
+    """Validate v3 ``roles``: every role in :data:`ROLE_NAMES` declared, no other."""
+    if not isinstance(doc, dict):
+        raise _err(f"roles must be an object declaring {list(ROLE_NAMES)}")
+    missing = [n for n in ROLE_NAMES if n not in doc]
+    if missing:
+        raise _err(
+            f"roles missing: {', '.join(missing)}",
+            "declare every role, each present or absent, before the lock",
+        )
+    unknown = sorted(set(doc) - set(ROLE_NAMES))
+    if unknown:
+        raise _err(f"roles has unknown roles: {', '.join(unknown)}")
+    return {name: _role(name, doc[name]) for name in ROLE_NAMES}
+
+
+def _deployed_format(value: Any) -> str:
+    if value not in DEPLOYED_FORMATS:
+        raise _err(f"deployed_format must be one of {list(DEPLOYED_FORMATS)}")
+    return str(value)
+
+
+def _references_from_roles(roles: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The v2-shaped ``reference_rows`` view of v3 roles (``clef`` = the teacher role)."""
+    teacher, stock = roles["teacher"], roles["stock"]
+    return {
+        "clef": {"model": teacher["model"], "role": "teacher", "variant": teacher["variant"]},
+        "stock": {"model": stock["model"], "role": "stock baseline"},
+    }
+
+
+def _common(doc: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "selection_rule": _selection_rule(doc.get("selection_rule")),
+        "knob_grid": _grid(doc.get("knob_grid")),
+        "upstream_knobs": _upstream(doc.get("upstream_knobs")),
+        "gate": _gate(doc.get("gate")),
+    }
+
+
+def _validate_v2(doc: dict[str, Any]) -> DistillPrereg:
+    bars = _bars(doc.get("bars"))
+    refs = _references(doc.get("reference_rows"))
+    common = _common(doc)
+    # The normalised v3 view, through the explicit mapping (never written back).
+    mapped = v2_to_v3(doc)
+    return DistillPrereg(
+        bars=bars,
+        reference_rows=refs,
+        raw=doc,
+        schema_version=V2_SCHEMA_VERSION,
+        v3_roles=_roles(mapped["roles"]),
+        v3_deployed_format=mapped["deployed_format"],
+        v3_c17=_c17(mapped["bars"]["c17"], C17_TOP1_BARS_V3),
+        **common,
+    )
+
+
+def _validate_v3(doc: dict[str, Any]) -> DistillPrereg:
+    if "reference_rows" in doc:
+        raise _err(
+            "a schema_version 3 pre-registration declares roles, not reference_rows",
+            "move the teacher and stock models into roles.teacher / roles.stock",
+        )
+    roles = _roles(doc.get("roles"))
+    fmt = _deployed_format(doc.get("deployed_format"))
+    bars = _bars(doc.get("bars"), fmt)
+    return DistillPrereg(
+        bars=bars,
+        reference_rows=_references_from_roles(roles),
+        raw=doc,
+        schema_version=SCHEMA_VERSION,
+        v3_roles=roles,
+        v3_deployed_format=fmt,
+        v3_c17=copy.deepcopy(bars["c17"]),
+        **_common(doc),
+    )
+
+
 def validate(doc: Any) -> DistillPrereg:
-    """Validate a parsed distill pre-registration; raise CliError on the first problem."""
+    """Validate a parsed distill pre-registration; raise CliError on the first problem.
+
+    Accepts schema v3 and v2 (a v2 file keeps its v2-shaped ``bars`` and ``reference_rows``;
+    the v3 accessors read it through :func:`v2_to_v3`). v1 is refused by name.
+    """
     if not isinstance(doc, dict):
         raise _err("distill pre-registration must be a JSON object")
-    if doc.get("schema_version") == 1:
-        raise _err(V1_REFUSAL, "re-seed the file from `example_doc()` (schema_version 2)")
-    if doc.get("schema_version") != SCHEMA_VERSION:
-        raise _err(f"schema_version must be {SCHEMA_VERSION}")
-    return DistillPrereg(
-        bars=_bars(doc.get("bars")),
-        selection_rule=_selection_rule(doc.get("selection_rule")),
-        knob_grid=_grid(doc.get("knob_grid")),
-        reference_rows=_references(doc.get("reference_rows")),
-        upstream_knobs=_upstream(doc.get("upstream_knobs")),
-        gate=_gate(doc.get("gate")),
-        raw=doc,
-    )
+    version = doc.get("schema_version")
+    if version == 1:
+        raise _err(V1_REFUSAL, "re-seed the file from `example_doc_v3()` (schema_version 3)")
+    if version == V2_SCHEMA_VERSION:
+        return _validate_v2(doc)
+    if version == SCHEMA_VERSION:
+        return _validate_v3(doc)
+    raise _err(f"schema_version must be one of {list(SUPPORTED_SCHEMA_VERSIONS)}")
+
+
+# --- the normalised (v3) view: what readers call, for a v2 or a v3 file alike ---------------
+
+
+def roles(reg: DistillPrereg) -> dict[str, dict[str, Any]]:
+    """Every role in :data:`ROLE_NAMES` with its ``present`` flag (a copy)."""
+    return copy.deepcopy(reg.v3_roles)
+
+
+def role_present(reg: DistillPrereg, name: str) -> bool:
+    if name not in ROLE_NAMES:
+        raise _err(f"unknown role {name!r}; roles are {list(ROLE_NAMES)}")
+    return bool(reg.v3_roles[name]["present"])
+
+
+def deployed_format(reg: DistillPrereg) -> str:
+    """``quant`` or ``bf16`` (a v2 file is ``quant``)."""
+    return reg.v3_deployed_format
+
+
+def teacher_variant(reg: DistillPrereg) -> str:
+    """The pre-registered Clef build the teacher bar is relative to (a v2 file: W4A16)."""
+    return str(reg.v3_roles["teacher"]["variant"])
+
+
+def c17_bars(reg: DistillPrereg) -> dict[str, dict[str, Any]]:
+    """The c17 bars per registered build under the v3 names (a copy)."""
+    return copy.deepcopy(reg.v3_c17)
+
+
+def teacher_bar(reg: DistillPrereg, build: str) -> float:
+    """The teacher bar (max points under the registered Clef variant) for ``build``."""
+    if build not in reg.v3_c17:
+        raise _err(f"no c17 bars are registered for build {build!r}")
+    return float(reg.v3_c17[build][TEACHER_BAR])
 
 
 def sha256_file(path: Path) -> str:
@@ -575,9 +868,9 @@ def lock(prereg_path: Path, run_dir: Path) -> dict[str, Any]:
             f"run already has a distill pre-registration lock at {lock_path}",
             "a changed registration is a recorded deviation, never a re-lock",
         )
-    load(prereg_path)
+    reg = load(prereg_path)
     record = {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": reg.schema_version,  # the file's own version (a v2 lock stays 2)
         "file": prereg_path.name,
         "sha256": sha256_file(prereg_path),
     }
