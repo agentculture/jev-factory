@@ -1,0 +1,17 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "dataset/manifest.json": "b75c05106ea42b6daf836b693cfd1754625e3018eadbb284f4d39fbd49b629a8"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {}
+  },
+  "outputs": {
+    "contamination.json": "835f678f76f8917f4d1010c4f4892763a439ea2a31854e144c1953aa67157fef"
+  },
+  "rc": 0,
+  "stage": "contamination",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

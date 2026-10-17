@@ -1,0 +1,32 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "assemble/train_set.jsonl": "7e7f35aefe1730fda6fa41ecf179c4e0db0f16bd7df38296f387d758fd76f8ec",
+    "prereg.json": "e285f0c889c80e55e66c924e81c26fa89475d6308984c02368f4ec2ec48ace5e"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {
+      "distill_base_revision": null,
+      "distill_decider_repo": "<TMP>/strands-decider",
+      "distill_decider_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "distill_pin_cache": "<TMP>/cache",
+      "distill_student_lockfile": null,
+      "distill_student_port": 18070,
+      "distill_student_python": null,
+      "distill_trainer_python": "python3",
+      "train_memory_floor": "8G",
+      "train_memory_max": "100G"
+    },
+    "_external": {
+      "stock_reproduction": "<VARIES>"
+    }
+  },
+  "outputs": {
+    "select/summary.json": "<VARIES>"
+  },
+  "rc": 0,
+  "stage": "train",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

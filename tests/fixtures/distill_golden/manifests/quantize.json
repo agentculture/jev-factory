@@ -1,0 +1,34 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "select/summary.json": "<VARIES>"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {
+      "distill_base_revision": null,
+      "distill_decider_repo": "<TMP>/strands-decider",
+      "distill_probe_set": "<TMP>/probe.jsonl",
+      "distill_student_lockfile": null,
+      "distill_student_port": 18070,
+      "distill_student_python": null,
+      "distill_trainer_python": "python3",
+      "train_memory_floor": "8G",
+      "train_memory_max": "100G"
+    },
+    "formats": null,
+    "gating": null,
+    "heal_mix": null,
+    "heal_repeat": null
+  },
+  "outputs": {
+    "quant/calibration.json": "<VARIES>",
+    "quant/deployed_predictions.json": "<VARIES>",
+    "quant/format_decision.json": "<VARIES>",
+    "quant/quant_manifest.json": "<VARIES>"
+  },
+  "rc": 0,
+  "stage": "quantize",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

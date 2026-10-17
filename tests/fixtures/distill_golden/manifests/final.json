@@ -1,0 +1,34 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "contamination.json": "835f678f76f8917f4d1010c4f4892763a439ea2a31854e144c1953aa67157fef",
+    "gate/gate.json": "<VARIES>",
+    "quant/calibration.json": "<VARIES>"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {
+      "distill_agx_url": "http://127.0.0.1:9",
+      "distill_decider_repo": "<TMP>/strands-decider",
+      "distill_gold_ledger": null,
+      "distill_probe_set": "<TMP>/probe.jsonl",
+      "distill_stock_model": "v21",
+      "distill_stock_url": "http://127.0.0.1:9",
+      "distill_student_lockfile": null,
+      "distill_student_port": 18070,
+      "distill_student_python": null,
+      "distill_teacher_model": "clef",
+      "distill_teacher_url": "http://127.0.0.1:9"
+    },
+    "clef_calibration": null,
+    "unverified_gold": false
+  },
+  "outputs": {
+    "final/final.json": "<VARIES>",
+    "final/report.json": "<VARIES>"
+  },
+  "rc": 0,
+  "stage": "final",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

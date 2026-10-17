@@ -1,0 +1,28 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "dataset/manifest.json": "b75c05106ea42b6daf836b693cfd1754625e3018eadbb284f4d39fbd49b629a8"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {
+      "distill_teacher_build_id": "clef-b1",
+      "distill_teacher_engine": "sglang",
+      "distill_teacher_key_env": null,
+      "distill_teacher_model": "clef",
+      "distill_teacher_model_header": null,
+      "distill_teacher_repo": "example-org/clef-27b",
+      "distill_teacher_revision": "abc123",
+      "distill_teacher_url": "http://127.0.0.1:9"
+    },
+    "joint": true
+  },
+  "outputs": {
+    "teacher/teacher_labels.jsonl": "996025e9c44691c2cd1b9919d5a91e50b0b39426a722c246aa4f1811b6dcfca2",
+    "teacher/teacher_manifest.json": "60ad7c983c5a253664c97dd6b7626b70db036e2a2b249e7a76e527bdaaf2e35f"
+  },
+  "rc": 0,
+  "stage": "teacher-label",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}
