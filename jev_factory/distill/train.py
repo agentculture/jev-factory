@@ -6,9 +6,10 @@ One stage, three steps, all reading the **locked** distill pre-registration
 
 1. **Train.** Every combination of the registered trainer knobs (:func:`grid_candidates`:
    ``alpha``, per-kind ``temperature``, ``epochs``, ``lr``, ``init_mode``) is planned with
-   :func:`jev_factory.backbones.pointer.train_distill.plan_train` on assemble's
-   ``train_set.jsonl``, from the verified stock checkpoint in the pin cache. Dry-run by default;
-   with ``apply`` each plan runs through ``train_distill.run_train`` and so through
+   the profile's backbone (``registry.get(profile.backbone).plan_distill_train``, the pointer
+   trainer for every built-in profile) on assemble's ``train_set.jsonl``, from the verified
+   stock checkpoint in the pin cache. Dry-run by default; with ``apply`` each plan runs through
+   ``run_distill_train`` on the executor seam (:mod:`jev_factory.distill.executor`) and so through
    :func:`jev_factory.factory.gpu.run_gpu_stage` (residency guard, memory cap, floor
    watchdog), one candidate at a time.
 2. **Score and calibrate.** Each trained checkpoint is scored on the fit and selection folds
@@ -50,19 +51,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from jev_factory.backbones.pointer import layout as player
-from jev_factory.backbones.pointer import serve as pserve
-from jev_factory.backbones.pointer import train_distill as td
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.core import calibration as cal
 from jev_factory.core import metrics as core_metrics
 from jev_factory.distill import benchmark as bench
+from jev_factory.distill import executor as dex
 from jev_factory.distill import metrics as dm
 from jev_factory.distill import pins as dpins
 from jev_factory.distill import prereg as dp
 from jev_factory.distill.assemble import OUT_REL as TRAIN_SET_REL
+from jev_factory.distill.profile import DEFAULT_2610, StudentProfile
 from jev_factory.distill.records import NOUL_OPTIONS, Record
-from jev_factory.distill.runspec import Bootstrap, GpuLimits, TrainerEnv
+from jev_factory.distill.runspec import Bootstrap, GpuLimits, JobRoute, StudentSource, TrainerEnv
+from jev_factory.distill.student import backbone as student_backbone
 from jev_factory.factory import gpu
 
 TRAIN_REL = "distill/train"
@@ -71,11 +72,13 @@ SUMMARY_FILE = "summary.json"
 CALIBRATION_FILE = "calibration.json"
 PREDICTIONS_FILE = "predictions.json"
 CHECKPOINT_DIR = "checkpoint"
-SERVED_CONFIG = player.CONFIG
+#: The built-in profile's student backbone (``registry.get(DEFAULT_2610.backbone)``).
+_STUDENT = student_backbone(DEFAULT_2610)
+SERVED_CONFIG = _STUDENT.config_files()["served_config"]
 FOLDS = ("fit", "selection")
 KINDS = ("choice", "noul", "score")
 #: Trainer knobs a candidate sets, in enumeration order (outermost first).
-GRID_KNOBS = td.SEARCHED
+GRID_KNOBS = _STUDENT.trainer().SEARCHED
 VARIANT_VECTOR = cal.VARIANT_TEMPERATURE_VECTOR
 #: Calibration labels are namespaced so no option name can roll up as an escalate label in
 #: ``core.metrics.canonical_label`` (the core fitters are shared with the tool scorer).
@@ -495,12 +498,16 @@ def _score_candidate(
     }
 
 
+def init_from_path(cache_dir: Path | str, profile: StudentProfile = DEFAULT_2610) -> Path:
+    """Where the trainer starts from: the profile's decider repo inside the pin cache."""
+    return Path(cache_dir) / dpins.cache_dirname(profile.decider_repo)
+
+
 def run_grid(
     *,
     prereg_path: Path | str,
     run_dir: Path | str,
-    cache_dir: Path | str | None,
-    pins: dpins.StudentPins | None,
+    student_source: StudentSource,
     folds: Mapping[str, Any],
     trainer_env: TrainerEnv,
     apply: bool = False,
@@ -510,8 +517,22 @@ def run_grid(
     deviation_id: str | None = None,
     limits: GpuLimits = GpuLimits(),
     bootstrap: Bootstrap = Bootstrap(),
+    route: JobRoute = JobRoute(),
 ) -> dict[str, Any]:
-    """Plan (dry-run) or run the knob grid, then calibrate and select on apply."""
+    """Plan (dry-run) or run the knob grid, then calibrate and select on apply.
+
+    *student_source* names the pin cache, the pins and the profile. The trainer is the one
+    profile's backbone registers (``plan_distill_train`` and ``run_distill_train``).
+    *route*'s executor runs each candidate's job (``None``: the local executor), through its
+    jobs seam (``None``: :mod:`jev_factory.distill.executor`), and its expected outputs (e.g.
+    the trainer's ``CHECKPOINT_OUTPUTS``) are hash-verified on return.
+    """
+    cache_dir, pins, profile = (
+        student_source.cache_dir,
+        student_source.pins,
+        student_source.profile,
+    )
+    executor, expected_outputs, jobs = route.executor, route.expected_outputs, route.jobs
     trainer_python, decider_repo = trainer_env.python, trainer_env.decider_repo
     memory_max, memory_floor = limits.memory_max, limits.memory_floor
     allow_foreign, timeout = limits.allow_foreign, limits.timeout
@@ -522,11 +543,12 @@ def run_grid(
     threshold = _threshold(reg)
     pin_report = _verify_pins(cache_dir, pins)
     fold_records = _folds(folds, sealed)
-    init_from = Path(cache_dir) / dpins.cache_dirname(dpins.DECIDER_REPO)  # type: ignore[arg-type]
+    init_from = init_from_path(cache_dir, profile)  # type: ignore[arg-type]
     train_file = Path(train_file) if train_file else run_dir / TRAIN_SET_REL
     candidates = grid_candidates(reg)
+    student = student_backbone(profile)
     plans = {
-        c.cid: td.plan_train(
+        c.cid: student.plan_distill_train(
             prereg_path=prereg_path,
             run_dir=run_dir,
             run_knobs=c.knobs,
@@ -536,6 +558,7 @@ def run_grid(
             trainer_python=trainer_python,
             decider_repo=decider_repo,
             deviation_id=deviation_id,
+            prereg=dp,
         )
         for c in candidates
     }
@@ -567,13 +590,16 @@ def run_grid(
         )
     results = []
     for cand in candidates:
-        td.run_train(
+        student.run_distill_train(
             plans[cand.cid],
             apply=True,
             allow_foreign=allow_foreign,
             memory_max=memory_max,
             memory_floor=memory_floor,
             timeout=timeout,
+            jobs=jobs if jobs is not None else dex,
+            executor=executor,
+            expected_outputs=expected_outputs,
         )
         checkpoint = Path(plans[cand.cid]["output_dir"])
         result = _score_candidate(
@@ -630,7 +656,7 @@ def _stop_job(jobdir: Path, name: str, grace: float = 30.0) -> None:
         return
     deadline = time.monotonic() + grace
     while time.monotonic() < deadline:
-        if pserve.job_status(jobdir, name)["state"] != "running":
+        if _STUDENT.server().job_status(jobdir, name)["state"] != "running":
             return
         time.sleep(0.5)
     try:
@@ -648,6 +674,7 @@ def served_scorer(
     device: str | None = None,
     ready_timeout: float = 600.0,
     allow_foreign: bool = False,
+    profile: StudentProfile = DEFAULT_2610,
 ) -> Scorer:
     """A scorer that serves each checkpoint with ``strands-decider serve`` on 127.0.0.1.
 
@@ -657,6 +684,8 @@ def served_scorer(
     always stopped before the next candidate.
     """
     jobdir = Path(jobdir)
+    student = student_backbone(profile)
+    pserve, player = student.server(), student.layout()
     base_url = f"http://{pserve.LOOPBACK}:{int(port)}"
 
     def score(

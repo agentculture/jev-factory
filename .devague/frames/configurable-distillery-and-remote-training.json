@@ -1,0 +1,1331 @@
+{
+  "slug": "configurable-distillery-and-remote-training",
+  "title": "configurable distillery and remote training",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-10-17T16:49:24Z",
+  "updated": "2026-10-17T18:15:18Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "jev distill runs with the models an operator actually has: a configurable student profile, Clef as the teacher in whichever build variant the operator serves (BF16, NVFP4, FP4, W4A16 and so on), optional secondary roles (alt teacher, the deployment board, edge) and a deployed format declared in the pre-registration (a quant or bf16). The training step runs through an executor seam that is agnostic to where the job runs, so a later session can add SageMaker (us-east-1) without touching the stages.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "Every stage from preregister to bundle runs, in the e2e fakes, for each run.toml combination in c33-c36, with no code edit between combinations.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "jev distill runs with whichever models the operator has: a configurable student profile, a pluggable or absent teacher, optional reference roles declared in the pre-registration, and training (plus heal) that can run as a dry-run-by-default AWS SageMaker job",
+          "kind": "announcement",
+          "reason": "operator answers q1, q4"
+        }
+      ]
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "A declarative student profile replaces the hard-wired 2610 constants: base repo and default revision, decider repo, revision and adapter/head sha256, layout filenames, num_slots and max_tokens, prereg seeds (LoRA r/alpha/dropout/targets, temperature_by_kind, upstream source strings), the published benchmark baseline or none, the contamination manifest path, the weight-byte budget and the backbone registry name. Today these live in distill/pins.py:19-33, prereg.py:182-231, benchmark.py:476-488, dataset.py:48-50, data/upstream_sources.json, quantized.py:130, train.py:525 and pipeline.py:369-371,427-431,706-711.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "No distill module reads BASE_REPO, DECIDER_REPO, CARD_*, STOCK_LORA_TARGETS, the adapter/head digests or the default contamination manifest except through the active student profile.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "The 2610 profile ships as the default and reproduces current behaviour byte-for-byte: the same pins, prereg draft, card gate and contamination manifest, so the existing distill tests (test_distill_pins.py:119-177, test_distill_prereg.py) stay green with the default.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "The default profile's values equal today's constants exactly (repos, revisions, digests, LoRA seeds, card 180/231 and tasks sha256, the 2610 manifest path, the 1e9 budget), checked by a test that compares them field by field.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "The distillery reaches the student through the existing backbone seam (backbones/registry.py:66-77, base.py Backbone protocol) instead of importing backbones.pointer modules directly (train.py:53-55, bundle.py:48, final.py:63, prereg.py:19, envs.py:166); backbones/pointer/__init__.py:33,138 stops importing DECIDER_REPO from distill.pins.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "jev_factory/backbones/pointer imports nothing from jev_factory.distill, and the distill stages obtain the pointer backbone via registry.get(profile.backbone).",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "The teacher stays Clef, but its build variant is configuration, not code: the variant (BF16, NVFP4, FP4, W4A16 and so on), its serving engine and its build id come from the run config and are recorded in provenance. Bar and field names that hard-code W4A16 (prereg.py:63-89 top1_under_clef_w4a16_max_points; report.py:305,617; the 'Clef W4A16' wording in final, report, docs and prompt files) become variant-neutral, with the variant reported beside each number. The transport (systemone.py, teacher.TeacherConfig) is already generic and does not change.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "Changing only the run config's Clef variant (for example W4A16 to NVFP4) changes no code path, and the variant string appears in the teacher-label, audit, final and report manifests.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The teacher is a named, configurable role rather than the literal 'clef': the role keys in audit.py:37, assemble.py:78,218,433,449-450,484, pipeline.py:143,548-561,623,640,663,675,944-948, prereg.py:41,198,331, report.py:62-73, final.py:86,383-387,431-441, quant.py:1244-1302 and train_distill.py:159,569-632 become teacher-neutral, with the teacher's display name taken from config. The transport (systemone.py, teacher.TeacherConfig) is already generic and does not change.",
+          "kind": "requirement",
+          "reason": "q1: the teacher is always Clef; its variant is configurable"
+        }
+      ]
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "A run can have no primary teacher: alt-teacher-only and gold-only (alpha 0) runs pass through the stage graph. Today assemble always passes clef_labels (pipeline.py:623) and refuses without a teacher (assemble.py:454), corrections-draft needs the Clef audit (pipeline.py:561), and the default alpha grid is [0.5,0.7,0.9] (prereg.py:294), although the loss already supports alpha 0 (distill_loss.py:26,137-144) and assemble already emits gold_only rows (assemble.py:225-232).",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "The teacher (Clef, any variant), the stock fine-tuning target and the student are mandatory. The secondary roles (alt teacher, the deployed-quant server and the edge board) can be declared absent in the pre-registration before training. Every bar relative to an absent role or format is reported as not applicable, with the reason, and never as a silent miss. Today report._bar turns an uncomputable stat into passed=False (report.py:405-427), and final._check_models demands exactly four models (final.py:381-389).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "A pre-registration that declares the teacher or stock absent is refused; one that declares the alt teacher, deployed-quant server or edge board absent is accepted, and stages needing an absent role are skipped with a recorded reason instead of require()-refusing.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "Can the stock role be absent? Stock is more than an evaluation row: train refuses without the stock JevBench reproduction (_require_reproduction, pipeline.py:744-748; benchmark.py:624-640), and it anchors '+10 over stock', gap closure and the ECE/confident-wrong regression rule. With no stock, what proves the student beat its starting point?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "No. The teacher (Clef) and the fine-tuning target (the stock student) must always be present. Clef may be any build variant: BF16, NVFP4, FP4 (as NVIDIA did for GLM-5.3-FLASH), W4A16, and so on."
+        },
+        {
+          "id": "q2",
+          "text": "Is a bf16-only ship (quantize skipped or failed) in scope? It overrides risk r10's 'no bf16 fallback' (quant.py:1939-1986 _fail; final.py:154-168, gate.py:319, bundle.py:208, edge.py:250 all refuse) and the mandatory bars.quant / c17.quant bars (prereg.py:52-73).",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Yes, a bf16-only ship can be done if it is decided."
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Each reference role (teacher, stock, alt teacher, edge board) is declared present or absent in the pre-registration before training. Every bar relative to an absent role is reported as not applicable, with the role named, and never as a silent miss. Today report._bar turns an uncomputable stat into passed=False (report.py:405-427), and final._check_models demands exactly four models (final.py:381-389).",
+          "kind": "requirement",
+          "reason": "q1 and q2: teacher and stock are mandatory; bf16 ship allowed"
+        }
+      ]
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "Declaring a secondary role absent, or choosing a bf16 ship, never loosens a bar that applies. '+10 over stock' and 'within 5 of the teacher' always apply because stock and Clef are mandatory; the c17 'tighten, never loosen' rule (prereg.py:349-367) holds. Changing role presence or the deployed format after the lock is a recorded deviation, never an edit.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "With the stock and Clef rows present, the c17 relative bars cannot be loosened or marked not applicable, whatever roles or format are declared; a test tries each and is refused.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Declaring a role absent never loosens a bar that still applies: the c17 'tighten, never loosen' rule (prereg.py:349-367) and the floors (+10 over stock, within 5 of the teacher, 0.97 quant agreement, weight bytes under 1e9) hold whenever their reference role is present. Changing role presence after the lock is a recorded deviation, never an edit.",
+          "kind": "boundary",
+          "reason": "q1: stock and Clef bars always apply"
+        }
+      ]
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "The deployed-student server for final is any loopback-attested server, not specifically an AGX Orin: the code already only requires a localhost URL with matching /v1/bundle and a cgroup cap from /v1/stats (final.py:351-373, pipeline.py:905-933), so the AGX-specific naming (distill_agx_url) becomes role-neutral, with the old key kept as an alias.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "final accepts any loopback URL whose /v1/bundle matches and whose /v1/stats reports a cap; a run config using the old distill_agx_url key still works.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "The training subprocess runs through an executor seam at the single place where run_train calls gpu.run_gpu_stage (train_distill.py ~370-405). The plan dict it already builds (~300-345) becomes an executor-neutral job spec: a staged-inputs folder plus an expected-outputs contract, with no local absolute paths leaking into the job. Local execution, today's behaviour including the GPU guard and capped.sh, is the only executor this work ships, and it is selected by default in the run config.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "With the default local executor, train and heal launch exactly as on main (same argv, env, GPU guard and capped.sh), and the executor interface takes only the job spec, with no stage-specific arguments.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q3",
+          "text": "AWS settings: which region, GPU instance type (and its training-job quota), spot or on-demand, S3 bucket and prefix, SageMaker execution role, which local profile (default or culture-nodes), and what MaxRuntime or cost cap per job?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Region us-east-1 ('us1'). Open to proposals for the other settings (instance, spot, bucket, role, profile, cost cap)."
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "A remote executor plugs in at the single place where run_train calls gpu.run_gpu_stage (train_distill.py ~370-405). The plan dict it already builds (argv, env, run_dir, output_dir, init_from, train_file, prereg_sha256, hyperparameters; ~300-345) becomes the SageMaker job spec, and the executor is chosen in the run config, defaulting to local.",
+          "kind": "requirement",
+          "reason": "q4: executor-agnostic now, SageMaker later"
+        }
+      ]
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Heal goes through the same executor seam as train, because heal is train_distill.run_train with --heal (quant.py:58,118,1332,2096-2103) and the QuantHooks.trainer seam (quant.py:288) already accepts an injected trainer.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "quantize's heal round goes through the same executor as train; a fake executor injected for train also receives the heal job.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Heal can use the same remote executor, because heal is train_distill.run_train with --heal (quant.py:58,118,1332,2096-2103) and the QuantHooks.trainer seam (quant.py:288) already accepts an injected trainer.",
+          "kind": "requirement",
+          "reason": "q4 wording"
+        }
+      ]
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Only train-side rows leave the box: the train file, or for heal the heal set plus protected-id sha256s, together with prereg.json and its lock, the init checkpoint and the pinned code. Held-out, test, fit and selection records are never uploaded. This is enforced in code by checking every shipped row id against the protected sides before any upload. The trainer subprocess reads only train rows: fit and selection predictions and calibration are scored locally afterwards (distill/train.py:479), and heal already refuses protected ids (train_distill.py:18-24,599-606).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "Before any executor runs, every record id in the staged inputs is checked against the protected sides (held-out, test, fit, selection), and one hit refuses the job with exit 1 before anything is staged out.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Executor-neutral round trip: the job spec lists every staged input and every expected output with its sha256; outputs are verified against the manifest when they come back, whatever executor ran the job; a dry run prints the job spec and touches nothing; and the trainer environment is named by a python path or an image digest plus a lockfile hash (envs.EnvSpec, envs.py:42-68,90), so a container executor needs no stage change.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "Every staged input and returned output is listed with its sha256 in the job manifest; a mismatch on return fails the stage, and the job manifest is recorded in the stage manifest.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q4",
+          "text": "Image and how far 'preparation' goes: SageMaker GPU instances are x86, while the trainer env is pinned for GB10 aarch64 with cu130 (docs/training-env.md, the train extra), so a new x86 image and lockfile are needed. Does this work stop at a dry-run-verified executor with a Dockerfile, or does it include building and pushing to ECR and one live --apply job?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Preparation means the code is agnostic to where the job runs. Actual SageMaker support and live testing happen in another session."
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Remote submission is dry-run by default, and --apply submits. The dry run prints the job spec, the instance and the max runtime with no AWS call. Every input and output carries a sha256 that is verified after the fetch-back (reusing release/hub.py digests and compare, :87,:112), and the training image digest and lockfile hash are recorded in provenance through envs.EnvSpec(image_digest=...) (envs.py:42-68,90).",
+          "kind": "requirement",
+          "reason": "q4: the round-trip contract is executor-neutral"
+        }
+      ]
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "A remote job is visible in jev status through the same job files the detach path writes (factory/detach.py:22-100: pid, done with the real return code, log). A job-id file stands in for the pid, and done is written from the job's terminal state.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "A job run by a non-local executor shows in jev status as running, done or died through the same pid-or-job-id, done and log files as a detached local job.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "The AWS SDK sits behind an optional extra (for example jev-factory[remote]) and is imported lazily only by the remote executor, so the base install keeps dependencies = [] and test_distill_envs.py:176-187 holds. Credentials come from the ambient AWS chain, with the profile or role named in config the way hf_token_env is (factory.secrets), never stored.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "assumption",
+      "text": "The loopback-only rule (test_distill_boundaries.py:51-125, measure.preflight.require_localhost, scripts/scan-secrets.py, spec line 100) gets one documented carve-out: the remote executor may call the AWS control plane and S3. Every model server (teacher, stock, student, quant measurer) still binds and is reached only on 127.0.0.1.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "boundary",
+      "text": "quantize builds, benchmark, gate, final and edge stay local: they serve models on localhost and read the 7.6G quant tree. Only the training subprocess (train, and heal) can go remote.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "quantize builds, benchmark, gate, final and edge do not consult the executor setting.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "boundary",
+      "text": "Configuration happens through run.toml keys (docs/run-config.example.toml:59-89 already holds the distill_* keys) and flags or knobs on the existing jev distill verb. No new verb is added, so the jev-tool model's candidate set is unchanged (domains/jev_cli annotations.py:104-108; a new verb would need an annotation, content and an export-test change).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "The jev-CLI domain export (test_jev_cli_domain_export.py) shows the same verb set as main.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "non_goal",
+      "text": "No new student model family: GLiNER2.5-Decide, T5Gemma, LFM d1-omni and CLEF-style backends (issues #6, #13, #14, #16, #17) are out of scope. The student profile covers strands-decider pointer students (another 2610 revision or size, or a Qwen3.5-0.8B base) on the existing hobson-hf-export/1 layout and quantizer, and other families stay possible through the backbone seam later.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "non_goal",
+      "text": "The Layer-3 decider, the jev-tool acceptance path (jev run), lobes-cli and nvsh are not changed.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "docs/distill.md (including the stale State of the work section at :27-32), docs/run-config.example.toml, docs/training-env.md (with a short section on the executor seam), the jev explain distill entry (catalog.py:443-470, which still says hobson-v21) and the four prompt files (CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md; .pi/SYSTEM.md has no distill text) describe the student profile, the Clef variant, the optional roles, the deployed format and the executor seam.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "The four prompt files and docs/distill.md mention the student profile, the Clef variant, the optional roles, the deployed format and the executor seam, and none still claims the W4A16-only, AGX-only or hobson-v21 wording.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "docs/distill.md (including the stale State of the work section at :27-32), docs/run-config.example.toml, docs/training-env.md (with a new remote section), the jev explain distill entry (catalog.py:443-470, which still says hobson-v21) and the four prompt files (CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md; .pi/SYSTEM.md has no distill text) describe the profile, the optional roles and the remote executor.",
+          "kind": "requirement",
+          "reason": "q4 wording"
+        }
+      ]
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "Tests: a second student profile fixture and a non-W4A16 Clef variant go through the e2e fakes (test_distill_e2e.py); a fake non-local executor receives exactly the staged train-side bundle and returns outputs that pass hash verification; a bf16-ship pre-registration runs end to end; and test_distill_boundaries.py stays unchanged, since this work opens no new network connection.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "The listed tests exist and pass in CI, and test_distill_boundaries.py is byte-identical to main.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Tests: a second student profile fixture and a teacherless or alt-only run go through the e2e fakes (test_distill_e2e.py); the remote executor is tested with a fake AWS client that never opens a socket; and test_distill_boundaries.py allows only the named carve-out.",
+          "kind": "requirement",
+          "reason": "q4: no AWS code in this work"
+        }
+      ]
+    },
+    {
+      "id": "c23",
+      "kind": "decision",
+      "text": "Clef (the teacher) and the stock fine-tuning target are mandatory roles in every run; Clef's build variant is configurable (BF16, NVFP4, FP4, W4A16 and so on).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "decision",
+      "text": "A bf16-only ship is allowed when it is decided.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "decision",
+      "text": "This work makes the training code agnostic to where the job runs; SageMaker support and live testing are a later session. Target region: us-east-1.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "A deployed-format choice is pre-registered: quant or bf16. With quant, today's no-bf16-fallback rule holds unchanged (a failed quantize stops the run; quant.py:1939-1986). With bf16, quantize and heal are skipped and recorded as such, the bf16 student is gated, attested and bundled in the hobson-hf-export/1 layout that strands-decider serve loads, and the quant-only bars (0.97 agreement, weight bytes, bars.quant; prereg.py:52-73) are reported not applicable. final (:154-168), gate (:319), bundle (:208) and edge (:250) accept the bf16 artifact.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "A bf16-format pre-registration skips quantize and heal with a recorded reason, ships a bundle that strands-decider serve loads, and reports the quant-only bars not applicable. A quant-format run whose quantize fails still stops with no bf16 fallback.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "Clef variants have serving recipes: envs.KINDS (envs.py:21-23,170-171; today clef-transformers and sglang-dev-clef) gains a way to name the engine and quantization a variant needs, and the teacher-label and audit stages record the variant. The existing invariant holds: one run uses one teacher build, and labels from another build mean a new labelling run or a deviation.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "Each Clef variant names its engine and quantization in the run config; teacher-label refuses labels whose recorded variant differs from the run's without a deviation id.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "non_goal",
+      "text": "This work adds no SageMaker executor, no AWS SDK dependency or extra, no ECR image, no non-loopback connection and no live cloud job. Those come in a later session that builds on the executor seam.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "audience",
+      "text": "Operators running jev distill on their own hardware with a subset of the models: Clef served in whatever variant they have (BF16, NVFP4, FP4, W4A16), possibly no AGX Orin, edge board or alt teacher, and their own strands-decider student. Also the later session that adds a SageMaker executor, and lobes' decider role, which consumes the bundle (format unchanged for quant ships).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "docs/distill.md states the minimum roles (Clef in any variant, the stock target, the student) and which roles are optional.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Check that docs/distill.md opens with who can run the distillery and with which minimum roles: Clef (any variant), the stock target and the student.",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "before_state",
+      "text": "The distillery assumes one fixed stack: 2610 pins and digests as module constants (pins.py:19-33), Clef W4A16 named in bar keys (prereg.py:63-89), exactly four final models including an AGX-served quant (final.py:381-389), every role's config key require()d (pipeline.py:163-226), quant-only shipping (quant.py:1939-1986), and training launched only as a local GPU subprocess (train_distill.py run_train calls gpu.run_gpu_stage).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "Each before-state citation resolves at e3345d1.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Verify against main at e3345d1 with: git grep -n 'DECIDER_REPO\\|top1_under_clef_w4a16\\|_check_models\\|run_gpu_stage' e3345d1 -- jev_factory",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "why_it_matters",
+      "text": "The #20 proving run worked only because the operator had the whole stack (Clef W4A16 on an Orin, an AGX, the 2610 cache). Anyone with a different Clef build, no board, or a different strands-decider revision cannot run it without code edits, and remote training has no seam to attach to.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "The proving-run evidence doc (docs/evidence/2026-10-16-jetson-ops-proving-run.md) shows the run used Clef W4A16 on the Orin, the AGX and the 2610 cache.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "after_state",
+      "text": "An operator writes a run.toml that names a student profile, the Clef variant and its serving recipe, which secondary roles are present, the deployed format (quant or bf16) in the pre-registration, and the executor (local by default). Every stage then runs, and every bar is computed or reported not applicable with a reason. A later session can add a SageMaker executor by implementing the seam alone, with no stage edits.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "A SageMaker-shaped fake executor added in a test file touches no file under jev_factory/distill.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Demonstrate with the e2e fakes: one run.toml per combination in the success signals, all stages from preregister to bundle applied.",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "success_signal",
+      "text": "Default profile unchanged: with the default 2610 profile, all 1086 currently passing distill, pointer and review tests still pass with no assertion changed, and the e2e fixture's pre-registration draft and stage manifests are byte-identical to those written on main e3345d1 (0 differing bytes, apart from version and timestamp fields).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "The byte-identity check is automated, not eyeballed.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Run uv run pytest -n auto tests/test_distill_*.py tests/test_cli_distill.py tests/test_pointer_*.py tests/test_backbone_pointer*.py tests/test_review*.py on the branch and on e3345d1; diff the e2e manifests written by both.",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "success_signal",
+      "text": "Variant and profile coverage: an e2e fake run with a second student profile and a non-W4A16 Clef variant (for example NVFP4) completes all 15 stages, its manifests and report name that variant, and 0 bar keys or report fields contain a hard-coded 'w4a16' or a 2610 constant.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "The second profile is a test fixture with different repo names and digests, so the run cannot pass by reading 2610 constants.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "New e2e test plus: grep -rn 'w4a16' jev_factory/distill/prereg.py jev_factory/distill/report.py returns only variant-registry data, not bar keys.",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "success_signal",
+      "text": "Optional roles and bf16 ship: a run with the AGX, edge and alt-teacher roles absent and a bf16 deployed format completes preregister through bundle, the quantize manifest records status skipped, and 0 bars are a silent fail: each is passed, failed or not applicable with a named reason (at least the 3 quant-only bars are not applicable).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "The report test enumerates every bar, so a newly added bar cannot silently fall outside the check.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "New e2e test asserting every bar in report.json has a result in {pass, fail, not_applicable, reported}, and that not_applicable carries a reason naming the absent role or format.",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "success_signal",
+      "text": "Executor seam: a fake non-local executor receives a staged bundle holding 0 held-out, test, fit or selection record ids; an output with one changed byte fails hash verification with a non-zero exit; and grep -rniE 'boto3|sagemaker' jev_factory returns 0 lines, with dependencies = [] and test_distill_boundaries.py unchanged.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "The protected-id check runs in the seam itself, not in each executor, so a future SageMaker executor inherits it.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "New executor tests; git diff main -- tests/test_distill_boundaries.py is empty.",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "Existing run folders stay valid after the upgrade. A locked schema-v2 pre-registration (for example ~/jev-runs/jetson-ops-20/work/distill/prereg.json, which carries top1_under_clef_w4a16_max_points) still loads: the variant-neutral keys arrive in a new schema version that reads v2 through an explicit mapping (the w4a16 bar becomes the teacher bar with variant W4A16) and never re-writes the locked file. Today prereg.py:539-542 refuses any version other than 2.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "A test loads a copy of a locked schema-v2 pre-registration with the new code, gets the mapped teacher bar with variant W4A16, and leaves the file's sha256 unchanged.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "Upgrading does not make completed stages stale. New config keys and knobs (student profile, Clef variant, role presence, deployed format, executor) are left out of a stage's recorded knobs while they hold their default, so an existing run's manifests compare equal. stages.py:138-151 marks a stage stale on any knobs-dict difference, pipeline.py:161 records config keys with the knobs, and the staleness cascades down from teacher-label.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "On a copy of the jetson-ops-20 manifests, stale_stages reports the same set before and after the upgrade with default config (an empty list for the stages that were complete).",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "A stage skipped by declaration (quantize and heal under a bf16 ship; edge with the edge role absent) writes a manifest whose status counts as satisfied for its dependents and shows as skipped with the reason in jev status. Changing the declaration makes it stale. Today only status complete satisfies a dependent (stages.py:143-144).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "A test with a bf16 pre-registration shows quantize as skipped with its reason, gate, final and bundle run without refusing, and a later switch to quant makes quantize stale.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "The executor job spec and staged inputs carry no secret values and no host details: the environment lists only non-secret variables (the trainer needs no teacher key), local absolute paths are rewritten relative to the staged folder, and the staged folder passes scripts/scan-secrets.py and the hostname and private-IP scan from the upload stage before any executor receives it.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "A test plants a secret-shaped value and a private IP in the environment and the inputs; the seam refuses before the executor is called, and the spec of a clean job holds no absolute paths.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c41",
+      "kind": "boundary",
+      "text": "The bundle contract consumed by lobes (docs/distill-bundle-format.md) is unchanged for a quant ship. A bf16 ship is documented there as a distinct bundle kind, identifiable from distill_provenance.json; new provenance fields (profile, Clef variant, roles, format) are additive only; and lobes-cli is told through /communicate, never edited.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h32",
+          "text": "git diff main -- docs/distill-bundle-format.md adds only the bf16 bundle-kind section and additive fields, and an issue is filed on lobes-cli.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c42",
+      "kind": "boundary",
+      "text": "Prompt-file edits keep the live harness-probe wording (docs/harness-invocations.yaml): CLAUDE.md and QWEN.md still describe the project as jev-factory, the lobes-cli attribution stays out of AGENTS.override.md, and no root AGENTS.md is added; scripts/harness-smoke.py --stage config passes.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h33",
+          "text": "scripts/harness-smoke.py --stage config passes and the harness tests stay green.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c43",
+      "kind": "decision",
+      "text": "The teacher bar ('within 5 points of Clef') is relative to the Clef variant the run serves; that variant is locked in the pre-registration and reported beside every number, so a weaker teacher is visible but allowed.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Whether train_distill.py can checkpoint to S3 and resume mid-run (needed for spot instances) is unverified.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Whether the default or culture-nodes AWS profile has SageMaker, ECR and S3 rights is unknown; it was not tested, to avoid making AWS calls during scope.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Who drafts the contamination manifest and the published-benchmark baseline for a non-2610 student profile, and whether a profile without a card baseline turns the base-mismatch gate (benchmark.py:578-607) off or makes it a recorded deviation.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Proposed defaults for the later SageMaker session, to discuss then: us-east-1; ml.g6e.xlarge (1x L40S 48 GB) or ml.g5.2xlarge (1x A10G 24 GB) for 2B LoRA training; on-demand first, spot once resume is proven (v1); a private, encrypted S3 bucket with public access blocked; the profile or role named in run config; MaxRuntimeInSeconds as the cost cap; an x86 image built from a new lockfile; and a loopback carve-out only for the AWS control plane and S3.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v5",
+      "text": "How the run lock behaves during a long non-local job (held for the job's whole life, or released after submission and re-taken for the return step) is decided in the SageMaker session; the local executor keeps today's behaviour.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v6",
+      "text": "Recovery when a returned output fails hash verification (no automatic retry today; the operator re-runs with --force) may need a policy once paid remote jobs exist.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "jev_factory/distill/pins.py, prereg.py, dataset.py, train.py, pipeline.py (student pins)",
+      "finding": "BASE_REPO, DECIDER_REPO and the adapter/head digests are module constants (pins.py:19-33), and only the revisions are overridable (pipeline.py:371,709). The prereg draft seeds 2610's LoRA, 12 Qwen3.5 targets and temperatures (prereg.py:182-231). max_slots never reaches build_dataset from the pipeline (dataset.py:50,324; pipeline.py:432-440). train.py:525 derives init_from from DECIDER_REPO.",
+      "seeds": [
+        "c2",
+        "c3"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "jev_factory/backbones/registry.py, base.py, pointer/__init__.py",
+      "finding": "PointerBackbone already implements the Backbone protocol and is registered (registry.py:66-69), but no distill module calls registry.get; they import backbones.pointer.* directly. pointer/__init__.py:33,138 imports DECIDER_REPO from distill.pins, so the backbone depends on distill.",
+      "seeds": [
+        "c4",
+        "c19"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "jev_factory/distill/systemone.py, teacher.py, audit.py, assemble.py, corrections.py (teacher)",
+      "finding": "The transport is generic (POST /v1/systemone, key read from the env var named in config, optional X-Lobes-Model header; systemone.py:36,192-230). 'clef' is a functional role key in audit ROLES, the assemble precedence and _require_audits, the pipeline's audit default, _weak_rows and _clef_client, and the prereg reference_rows. An alt-teacher path exists only for assemble and corrections; alt-only fails because stage_assemble always passes clef_labels (pipeline.py:623).",
+      "seeds": [
+        "c5",
+        "c6"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "jev_factory/backbones/pointer/distill_loss.py, train_distill.py (gold-only)",
+      "finding": "alpha 0 is exactly gold CE and rows without a teacher get KL 0 (distill_loss.py:26,137-144); the trainer handles teacher=None rows (train_distill.py:566-573). Only the prereg alpha grid and the stage graph block a teacherless run.",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "jev_factory/distill/report.py, final.py, prereg.py (reference roles and bars)",
+      "finding": "Every role's config key is require()d, so an unset key refuses (pipeline.py:163-226). An uncomputable bar becomes passed=False (report.py:405-427). final._check_models wants exactly clef, stock, student_bf16 and student (final.py:381-389). prereg refuses a c17 bar that is missing or loosened (prereg.py:349-392) and requires reference_rows clef and stock (:506-508). A REPORTED result already exists for latency (report.py:86-87,437) and could carry 'not applicable'.",
+      "seeds": [
+        "c7",
+        "c8",
+        "q1"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "jev_factory/distill/final.py, pipeline.py _agx_final_model, measure/preflight.py",
+      "finding": "final needs only a pre-served loopback URL whose /v1/bundle matches the deployed artifact and whose /v1/stats reports a cgroup cap (final.py:351-373; pipeline.py:905-933; require_localhost in preflight.py:47-55). 'AGX' appears only in names, docstrings and the distill_agx_url key.",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "jev_factory/distill/quant.py, backbones/pointer/quantized.py (quantize and heal)",
+      "finding": "The format registry (quant.py:156-186, injectable QuantHooks at :288) has one real builder (torch_wo, :488). The tensor policy is Qwen3.5/GatedDeltaNet-specific (quantized.py:148-167). When no quant qualifies, _fail writes shipped_format null (quant.py:1939-1986), and final, gate, bundle and edge refuse. Heal calls train_distill.run_train via _default_trainer (quant.py:2096-2103).",
+      "seeds": [
+        "c11",
+        "c19",
+        "q2"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "jev_factory/backbones/pointer/train_distill.py run_train, factory/gpu.py, factory/detach.py (remote seam)",
+      "finding": "plan_train builds the argv, env and paths without running anything; run_train with apply calls gpu.run_gpu_stage, which holds the nvidia-smi foreign-process guard and the capped.sh floor. Detached jobs are pid, done (real rc) and log files, which job_status reads as running, done, died or absent.",
+      "seeds": [
+        "c10",
+        "c14"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "jev_factory/distill/train.py, train_distill.py (data sides)",
+      "finding": "predictions.json and calibration over the fit and selection folds are scored in distill/train.py (:71-72,:479) after training, not in the trainer subprocess. Heal refuses any protected (test, held-out, fit, selection) id before loading a model (train_distill.py:18-24,599-606). On the proving run, train/c000 outputs were checkpoint 224M, bundle 224M and predictions 452K, and dataset/train.jsonl was 1.3M.",
+      "seeds": [
+        "c12"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "jev_factory/distill/envs.py, release/hub.py (provenance and round-trip)",
+      "finding": "EnvSpec already takes an image_digest (sha256:...) xor a python path, plus a lockfile hash, recorded in provenance (envs.py:42-68,90). hub.py's digests and compare functions (:87,:112) and its upload, fetch-back and verify flow (:149-226) are the pattern for an S3 round-trip.",
+      "seeds": [
+        "c13"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "pyproject.toml, tests/test_distill_envs.py, test_distill_boundaries.py",
+      "finding": "dependencies = [] is asserted with heavy modules blocked (test_distill_envs.py:176-187). Every stage dry-runs and applies with socket.connect patched to fail on non-loopback (test_distill_boundaries.py:51-125). No boto3, sagemaker or s3:// code exists anywhere in the repo.",
+      "seeds": [
+        "c15",
+        "c16",
+        "c22"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "quant/benchmark/final/edge serving (localhost model servers)",
+      "finding": "benchmark, final, edge and the quant measurer all serve or reach models through require_localhost (systemone.py:203, final.py:351, pipeline.py:924-933), and the quant tree is 7.6G on the proving run, so these stages stay local.",
+      "seeds": [
+        "c17"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "jev_factory/cli/_commands/distill.py, explain/catalog.py, domains/jev_cli",
+      "finding": "The stage is a positional and knobs go through parse_knobs, which refuses unknown knobs (distill.py:90,133-148). --detach re-spawns locally (:100). jev.distill is one operation (annotations.py:104-108), and its stage list grows automatically from pipeline.stage_names() (generate.py:156-228). catalog.py:446 still says 'fine-tuned from hobson-v21'.",
+      "seeds": [
+        "c18",
+        "c21"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "docs/distill.md, run-config.example.toml, CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md, .pi/SYSTEM.md",
+      "finding": "distill.md:27-32 says no run has happened, which is stale after the #20 proving run, and :395-407 states the localhost invariant. run-config.example.toml:59-89 already holds the teacher, stock, alt, AGX and edge keys, with no remote keys. CLAUDE.md:67-155, QWEN.md:74-114, AGENTS.colleague.md:66-81 and AGENTS.override.md:77-102 hard-code Clef and 2610; .pi/SYSTEM.md has no distill text.",
+      "seeds": [
+        "c21",
+        "c16"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "GitHub issues and earlier devague frames (distillery #18, Orin Nano #20)",
+      "finding": "Issue #6 (a pluggable decision-model contract) is the closest brief; #7, #13, #14, #16 and #17 are other model families. No issue mentions AWS or SageMaker. The earlier frames record no decision on configurability or cloud training; spec 2026-10-14 line 100 pins serving on 127.0.0.1.",
+      "seeds": [
+        "c19",
+        "c20",
+        "c16"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "jev_factory/distill/benchmark.py, contamination.py, data/upstream_sources.json",
+      "finding": "The card baseline (CARD_N 231, CARD_CORRECT 180, the tasks sha256) is module constants, and reproduce_stock refuses any count other than 231 (benchmark.py:476-488,585-607). The contamination manifest is 2610's 48 datasets at 216d1ccb, but load_manifest and check_sources already take a path (contamination.py:66,105); only the default and the pipeline call sites are hard-wired. Who drafts these for another student is parked as v3.",
+      "seeds": [
+        "c2",
+        "c7"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "Sibling repos and local AWS setup (open-bedrock-server, aws-agentcore-chat-bot, reachy_nova, unsloth-cli, ~/.aws)",
+      "finding": "open-bedrock-server uses boto3 with the ambient chain (AWS_PROFILE, roles, assume-role; docs/guides/aws-authentication.md). No sibling uses SageMaker, and unsloth-cli has no remote training. ~/.aws/config names the profiles default and culture-nodes; aws CLI v2 is at /snap/bin/aws, and there is no SageMaker SDK. Rights were not tested (parked as v2).",
+      "seeds": [
+        "c15",
+        "q3"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "docs/training-env.md, pyproject train extra (image architecture)",
+      "finding": "The trainer env is pinned for GB10 aarch64 with cu130 torch, so SageMaker x86 GPU instances need their own image and lockfile hash. Spot resume is unverified (parked as v1).",
+      "seeds": [
+        "q4"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / migration lens: distill/prereg.py, ~/jev-runs/jetson-ops-20/work/distill/prereg.json",
+      "finding": "prereg.py:539-542 refuses any schema version other than 2, and the live proving run's locked v2 file carries top1_under_clef_w4a16_max_points, so renaming bar keys without a v2 read path would strand the run's pending fresh final.",
+      "seeds": [
+        "c37"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / migration lens: factory/stages.py staleness, distill/pipeline.py effective_knobs",
+      "finding": "A stage is stale when its recorded knobs dict differs (stages.py:138-151), and config keys are recorded with the knobs (pipeline.py:161), so new keys would mark every completed stage stale from teacher-label down.",
+      "seeds": [
+        "c38"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / lifecycle lens: factory/stages.py status semantics",
+      "finding": "Only status complete satisfies a dependent (stages.py:143-144), so a declared skip needs its own satisfied status, or bf16 ships and absent-edge runs would block downstream stages.",
+      "seeds": [
+        "c39"
+      ]
+    },
+    {
+      "id": "s22",
+      "surface": "challenge pass / security lens: train_distill.py plan env (PYTHONPATH), release scans",
+      "finding": "The plan env carries local absolute paths (train_distill.py ~346), and the upload stage already has scan-secrets plus hostname and private-IP scans that can be reused on the staged folder.",
+      "seeds": [
+        "c40"
+      ]
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / adjacent-systems lens: docs/distill-bundle-format.md, lobes-cli consumer",
+      "finding": "grep finds no Clef, 2610 or w4a16 text in the bundle contract; lobes consumes it, so a bf16 ship is a new bundle kind it has to learn about.",
+      "seeds": [
+        "c41"
+      ]
+    },
+    {
+      "id": "s24",
+      "surface": "challenge pass / adjacent-systems lens: docs/harness-invocations.yaml, prompt files",
+      "finding": "The live probes depend on prompt-file wording (CLAUDE.md and QWEN.md say jev-factory; the lobes-cli attribution only in .pi/SYSTEM.md), and c21 edits those files.",
+      "seeds": [
+        "c42"
+      ]
+    },
+    {
+      "id": "s25",
+      "surface": "challenge pass / counter-evidence lens: c8 and c5 (teacher bar vs variant)",
+      "finding": "A relative teacher bar plus a configurable variant means a weaker variant weakens the bar; nobody argued this side during /think. Routed to question q1.",
+      "seeds": []
+    },
+    {
+      "id": "s26",
+      "surface": "challenge pass / adjacent-systems lens: domains/jev_cli/content.py",
+      "finding": "Clean: no Clef, 2610 or w4a16 text in the jev.distill descriptions, so the jev-tool domain content needs no change beyond c18.",
+      "seeds": []
+    },
+    {
+      "id": "s27",
+      "surface": "challenge pass / concurrency and hardware lens: factory/gpu.py, capped.sh, factory/lock.py",
+      "finding": "Clean for this work: the local executor keeps the GPU guard, the capped.sh floor and the run lock as on main. Lock lifetime for non-local jobs is parked as v5.",
+      "seeds": []
+    },
+    {
+      "id": "s28",
+      "surface": "challenge pass / recovery and observability lens: executor return step, jev status",
+      "finding": "c13 fails a stage on a hash mismatch and c14 surfaces job state; there is no retry policy, parked as v6. Rollback stays cheap: the default profile and local executor equal main's behaviour (c3, c10).",
+      "seeds": []
+    },
+    {
+      "id": "s29",
+      "surface": "challenge pass / unexamined surfaces",
+      "finding": "Not read in full during scope or challenge: the bodies of bundle.py, edge.py and quant.py's _finish beyond the cited lines, and how report.py's c42 and c43 bar helpers handle missing models. The plan should give these a read-first task before editing.",
+      "seeds": []
+    }
+  ],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "assumption-for-measurement",
+      "what": "t4's VARIANT_RECIPES table (envs.py) maps Clef variants to engine kinds and quantization flags (NVFP4/FP4 -> sglang modelopt_fp4, W4A16 -> vllm compressed-tensors, BF16 -> transformers) from the task agent's guess, not from a verified serving invocation of each Clef build",
+      "skipped_check": "serve each Clef variant with the recipe, or check it against the engines' documented flags and the lobes Clef W4A16 deployment",
+      "refs": [
+        "t4",
+        "jev_factory/distill/envs.py VARIANT_RECIPES"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l2",
+      "code": "control-absent",
+      "what": "t5's executor tests were written before the implementation but never run red before it; they went green on the first run",
+      "skipped_check": "run the new tests against the unchanged code and watch them fail first (TDD)",
+      "refs": [
+        "t5",
+        "tests/test_distill_executor.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "control-absent",
+      "what": "t8's tests for a non-default new config key (stages go stale) were never seen failing against the unchanged pipeline.py; the first red run failed on harness errors instead",
+      "skipped_check": "run the non-default-key tests against the pre-change pipeline.py and confirm they fail",
+      "refs": [
+        "t8",
+        "tests/test_distill_knobs_compat.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c2",
+      "seam": "student profile loader (run config to StudentProfile)",
+      "behavior": "Resolves every student-specific value (pins, digests, layout, slots and tokens, prereg seeds, card baseline, contamination manifest, byte budget, backbone name) from one validated profile; an unknown key, a missing required field or a malformed sha256 refuses with exit 1 and names the field.",
+      "source_text": "A declarative student profile replaces the hard-wired 2610 constants: base repo and default revision, decider repo, revision and adapter/head sha256, layout filenames, num_slots and max_tokens, prereg seeds (LoRA r/alpha/dropout/targets, temperature_by_kind, upstream source strings), the published benchmark baseline or none, the contamination manifest path, the weight-byte budget and the backbone registry name. Today these live in distill/pins.py:19-33, prereg.py:182-231, benchmark.py:476-488, dataset.py:48-50, data/upstream_sources.json, quantized.py:130, train.py:525 and pipeline.py:369-371,427-431,706-711.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c3",
+      "seam": "default 2610 profile",
+      "behavior": "With no profile configured, yields values equal field by field to the constants on main e3345d1, so pre-registration drafts and stage manifests are byte-identical apart from version and timestamp fields.",
+      "source_text": "The 2610 profile ships as the default and reproduces current behaviour byte-for-byte: the same pins, prereg draft, card gate and contamination manifest, so the existing distill tests (test_distill_pins.py:119-177, test_distill_prereg.py) stay green with the default.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c4",
+      "seam": "backbone registry (registry.get)",
+      "behavior": "Distill stages obtain the student only through registry.get(profile.backbone); jev_factory.backbones.pointer imports nothing from jev_factory.distill.",
+      "source_text": "The distillery reaches the student through the existing backbone seam (backbones/registry.py:66-77, base.py Backbone protocol) instead of importing backbones.pointer modules directly (train.py:53-55, bundle.py:48, final.py:63, prereg.py:19, envs.py:166); backbones/pointer/__init__.py:33,138 stops importing DECIDER_REPO from distill.pins.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c5",
+      "seam": "teacher config (Clef variant, engine, build id)",
+      "behavior": "The variant, engine and build id come from the run config and are written into the teacher-label, audit, final and report manifests; no bar key or report field names a specific variant.",
+      "source_text": "The teacher stays Clef, but its build variant is configuration, not code: the variant (BF16, NVFP4, FP4, W4A16 and so on), its serving engine and its build id come from the run config and are recorded in provenance. Bar and field names that hard-code W4A16 (prereg.py:63-89 top1_under_clef_w4a16_max_points; report.py:305,617; the 'Clef W4A16' wording in final, report, docs and prompt files) become variant-neutral, with the variant reported beside each number. The transport (systemone.py, teacher.TeacherConfig) is already generic and does not change.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c27",
+      "seam": "teacher-label and assemble (teacher build identity)",
+      "behavior": "Refuse labels whose recorded Clef variant or build id differs from the run's, unless a deviation id is given; one run uses one teacher build.",
+      "source_text": "Clef variants have serving recipes: envs.KINDS (envs.py:21-23,170-171; today clef-transformers and sglang-dev-clef) gains a way to name the engine and quantization a variant needs, and the teacher-label and audit stages record the variant. The existing invariant holds: one run uses one teacher build, and labels from another build mean a new labelling run or a deviation.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c7",
+      "seam": "pre-registration role declaration",
+      "behavior": "Refuses a pre-registration that declares the teacher, the stock target or the student absent; accepts the alt teacher, deployed-quant server or edge board declared absent; a stage that needs an absent role records skipped with the role named, instead of require()-refusing.",
+      "source_text": "The teacher (Clef, any variant), the stock fine-tuning target and the student are mandatory. The secondary roles (alt teacher, the deployed-quant server and the edge board) can be declared absent in the pre-registration before training. Every bar relative to an absent role or format is reported as not applicable, with the reason, and never as a silent miss. Today report._bar turns an uncomputable stat into passed=False (report.py:405-427), and final._check_models demands exactly four models (final.py:381-389).",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c8",
+      "seam": "pre-registration lock (c17 bars)",
+      "behavior": "With Clef and stock present, a relative c17 bar cannot be marked not applicable or loosened; any change to role presence or deployed format after the lock needs a deviation id.",
+      "source_text": "Declaring a secondary role absent, or choosing a bf16 ship, never loosens a bar that applies. '+10 over stock' and 'within 5 of the teacher' always apply because stock and Clef are mandatory; the c17 'tighten, never loosen' rule (prereg.py:349-367) holds. Changing role presence or the deployed format after the lock is a recorded deviation, never an edit.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c35",
+      "seam": "final report (report.json bar results)",
+      "behavior": "Every bar has exactly one result from {pass, fail, not_applicable, reported}; not_applicable always carries a reason naming the absent role or format; an uncomputable bar for a present role is fail, never not_applicable.",
+      "source_text": "Optional roles and bf16 ship: a run with the AGX, edge and alt-teacher roles absent and a bf16 deployed format completes preregister through bundle, the quantize manifest records status skipped, and 0 bars are a silent fail: each is passed, failed or not applicable with a named reason (at least the 3 quant-only bars are not applicable).",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c26",
+      "seam": "pre-registration deployed format (quant or bf16)",
+      "behavior": "bf16: quantize and heal record skipped, final, gate, bundle and edge accept the attested bf16 artifact, and the quant-only bars are not_applicable. quant: a quantize stage with no qualifying build still fails, and final and bundle refuse, with no bf16 fallback.",
+      "source_text": "A deployed-format choice is pre-registered: quant or bf16. With quant, today's no-bf16-fallback rule holds unchanged (a failed quantize stops the run; quant.py:1939-1986). With bf16, quantize and heal are skipped and recorded as such, the bf16 student is gated, attested and bundled in the hobson-hf-export/1 layout that strands-decider serve loads, and the quant-only bars (0.97 agreement, weight bytes, bars.quant; prereg.py:52-73) are reported not applicable. final (:154-168), gate (:319), bundle (:208) and edge (:250) accept the bf16 artifact.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c9",
+      "seam": "final's deployed-student server",
+      "behavior": "Accepts any loopback URL whose /v1/bundle matches the deployed attestation and whose /v1/stats reports a cgroup cap; the old distill_agx_url key keeps working as an alias.",
+      "source_text": "The deployed-student server for final is any loopback-attested server, not specifically an AGX Orin: the code already only requires a localhost URL with matching /v1/bundle and a cgroup cap from /v1/stats (final.py:351-373, pipeline.py:905-933), so the AGX-specific naming (distill_agx_url) becomes role-neutral, with the old key kept as an alias.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c10",
+      "seam": "executor interface (job spec in, result out)",
+      "behavior": "Executors receive only an executor-neutral job spec (staged inputs, expected outputs, environment by python path or image digest plus lockfile hash, limits); the local executor reproduces main's argv, env, GPU guard and capped.sh exactly; dry run builds and prints the spec and touches nothing.",
+      "source_text": "The training subprocess runs through an executor seam at the single place where run_train calls gpu.run_gpu_stage (train_distill.py ~370-405). The plan dict it already builds (~300-345) becomes an executor-neutral job spec: a staged-inputs folder plus an expected-outputs contract, with no local absolute paths leaking into the job. Local execution, today's behaviour including the GPU guard and capped.sh, is the only executor this work ships, and it is selected by default in the run config.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c11",
+      "seam": "quant heal trainer (QuantHooks.trainer)",
+      "behavior": "The heal round is submitted through the same configured executor as train.",
+      "source_text": "Heal goes through the same executor seam as train, because heal is train_distill.run_train with --heal (quant.py:58,118,1332,2096-2103) and the QuantHooks.trainer seam (quant.py:288) already accepts an injected trainer.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c12",
+      "seam": "executor seam: staging step",
+      "behavior": "Before any executor runs, checks every staged record id against the held-out, test, fit and selection sides; one hit exits 1 before anything is staged; the check lives in the seam, not in individual executors.",
+      "source_text": "Only train-side rows leave the box: the train file, or for heal the heal set plus protected-id sha256s, together with prereg.json and its lock, the init checkpoint and the pinned code. Held-out, test, fit and selection records are never uploaded. This is enforced in code by checking every shipped row id against the protected sides before any upload. The trainer subprocess reads only train rows: fit and selection predictions and calibration are scored locally afterwards (distill/train.py:479), and heal already refuses protected ids (train_distill.py:18-24,599-606).",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c13",
+      "seam": "executor seam: return step",
+      "behavior": "Verifies every returned output against the job manifest's sha256; a mismatch or a missing output fails the stage non-zero, and the job manifest is copied into the stage manifest.",
+      "source_text": "Executor-neutral round trip: the job spec lists every staged input and every expected output with its sha256; outputs are verified against the manifest when they come back, whatever executor ran the job; a dry run prints the job spec and touches nothing; and the trainer environment is named by a python path or an image digest plus a lockfile hash (envs.EnvSpec, envs.py:42-68,90), so a container executor needs no stage change.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c14",
+      "seam": "jev status (job files)",
+      "behavior": "A job from any executor appears as running, done or died through the pid-or-job-id, done (real return code) and log files under <work>/jobs/.",
+      "source_text": "A remote job is visible in jev status through the same job files the detach path writes (factory/detach.py:22-100: pid, done with the real return code, log). A job-id file stands in for the pid, and done is written from the job's terminal state.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c17",
+      "seam": "local-only stages (quantize build, benchmark, gate, final, edge)",
+      "behavior": "Never read the executor setting, and serve or reach models only through require_localhost.",
+      "source_text": "quantize builds, benchmark, gate, final and edge stay local: they serve models on localhost and read the 7.6G quant tree. Only the training subprocess (train, and heal) can go remote.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c18",
+      "seam": "jev-CLI domain export",
+      "behavior": "The exported verb set and the jev.distill operation stay identical to main; configuration is run.toml keys and existing-verb knobs only.",
+      "source_text": "Configuration happens through run.toml keys (docs/run-config.example.toml:59-89 already holds the distill_* keys) and flags or knobs on the existing jev distill verb. No new verb is added, so the jev-tool model's candidate set is unchanged (domains/jev_cli annotations.py:104-108; a new verb would need an annotation, content and an export-test change).",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
+}

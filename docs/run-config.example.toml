@@ -80,9 +80,13 @@ distill_student_port = 18070
 # distill_teacher_model_header = "<model name sent as X-Lobes-Model, if the gateway routes>"
 # distill_gold_ledger = "<path to the human-gold ledger; default beside test.jsonl>"
 # distill_jevbench_tasks = "<path to the 231 JevBench w4096 public tasks, record JSONL>"
-# distill_agx_url = "<localhost tunnel url of the shipped quant on the AGX Orin>"
+# distill_agx_url = "<old name of distill_deployed_url; still accepted as an alias>"
 # distill_edge_url = "<localhost tunnel url of the shipped quant on the edge board>"
 # distill_edge_memory_cap = "4G"
+# distill_student_profile = "<path to a student profile TOML; default: the built-in 2610>"
+# distill_teacher_variant = "<served Clef variant: BF16, NVFP4, FP4 or W4A16 (recipes unverified); stamped on labels>"
+distill_executor = "local"        # where train and heal run; only "local" exists, others are refused
+# distill_deployed_url = "<loopback url of any server that attests /v1/bundle and a cgroup cap; alias distill_agx_url>"
 
 # --- secrets, by the NAME of the environment variable ---
 # aug_key_env = "TEACHER_GATEWAY_KEY"

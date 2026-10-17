@@ -1,0 +1,275 @@
+{
+  "bars": {
+    "c17": {
+      "bf16": {
+        "latency_reported": [
+          "median",
+          "p95"
+        ],
+        "top1_over_stock_min_points": 10.0,
+        "top1_under_clef_w4a16_max_points": 5.0
+      },
+      "quant": {
+        "latency_reported": [
+          "median",
+          "p95"
+        ],
+        "quant_vs_bf16_agreement_min": 0.97,
+        "top1_over_stock_min_points": 10.0,
+        "top1_under_clef_w4a16_max_points": 5.0,
+        "weight_bytes_max": 1000000000
+      }
+    },
+    "quant": {
+      "ece_max": 0.1,
+      "heal_rounds_max": 1,
+      "max_accuracy_drop_points": 3.0
+    },
+    "test": {
+      "accuracy_diff_ci_lower_min": 0.0,
+      "confident_wrong_no_worse_than_stock": true,
+      "ece_max": 0.1,
+      "ece_no_worse_than_stock": true,
+      "gap_closure_min": 0.5,
+      "latency_ratio_max": 0.2
+    }
+  },
+  "gate": {
+    "grid": {
+      "floor": [
+        null,
+        0.5,
+        0.6,
+        0.7,
+        0.8
+      ],
+      "margin": [
+        null,
+        0.1,
+        0.2
+      ],
+      "max_entropy": [
+        null,
+        0.8,
+        0.9
+      ]
+    },
+    "min_coverage": {
+      "choice": 0.8,
+      "noul": 0.8,
+      "score": 0.8
+    },
+    "objective": "max_selective_accuracy",
+    "status": "operator placeholder (deviation d4): confirm the objective, coverage minimums and grid before the lock"
+  },
+  "heal": {
+    "epochs": 1,
+    "init_mode": "continue",
+    "lr": 0.0001,
+    "mix": {
+      "bf16_student": 0.5,
+      "clef": 0.5
+    },
+    "mix_source": "spec 2026-10-15-orin-nano-jetson-ops-decider c10: heal trains the quantized student against the bf16 distilled student's and Clef's soft labels; the equal split is an operator placeholder until the lock",
+    "source": "nvsh#46 decision d18 (docs/deliveries/2026-09-23-qwen3-5-0-8b-tool-jev-fine-tune-issue-46.md): heal = 1 epoch, lr 5e-5, continuing from the model's own checkpoint on the frozen train set (a plain continued fine-tune, not QAT)"
+  },
+  "knob_grid": {
+    "alpha": [
+      0.5,
+      0.9
+    ],
+    "data_mix": [
+      "teacher_plus_corrections"
+    ],
+    "epochs": [
+      1
+    ],
+    "init_mode": [
+      "continue"
+    ],
+    "lr": [
+      0.0001
+    ],
+    "teacher_filter": [
+      "all"
+    ],
+    "teacher_weak_floor": [
+      0.6
+    ],
+    "temperature": {
+      "choice": [
+        1.0
+      ],
+      "noul": [
+        1.0
+      ],
+      "score": [
+        1.0
+      ]
+    }
+  },
+  "reference_rows": {
+    "clef": {
+      "model": "Clef 27B",
+      "role": "teacher"
+    },
+    "stock": {
+      "model": "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610@216d1ccb46a9e9b036eb9187b248db98480f77d4",
+      "role": "stock baseline"
+    }
+  },
+  "schema_version": 2,
+  "selection_rule": {
+    "confident_wrong_threshold": 0.9,
+    "order": [
+      "safety",
+      "accuracy_floor",
+      "calibration",
+      "confident_wrong",
+      "ties"
+    ],
+    "tolerances": {
+      "accuracy_floor_margin": 0.05,
+      "ece": 0.01
+    }
+  },
+  "upstream_knobs": [
+    {
+      "name": "lr",
+      "source_file": "train_config.json",
+      "source_key": "lr",
+      "value": 0.0001
+    },
+    {
+      "name": "head_lr",
+      "source_file": "train_config.json",
+      "source_key": "head_lr",
+      "value": 0.001
+    },
+    {
+      "name": "epochs",
+      "source_file": "train_config.json",
+      "source_key": "epochs",
+      "value": 1
+    },
+    {
+      "name": "kl_frozen_weight",
+      "source_file": "train_config.json",
+      "source_key": "kl_frozen_weight",
+      "value": 0.3
+    },
+    {
+      "name": "teacher_weight",
+      "source_file": "train_config.json",
+      "source_key": "teacher_weight",
+      "value": 1.0
+    },
+    {
+      "name": "ordinal_smoothing",
+      "source_file": "train_config.json",
+      "source_key": "ordinal_smoothing",
+      "value": 0.1
+    },
+    {
+      "name": "micro_batch_size",
+      "source_file": "train_config.json",
+      "source_key": "micro_batch_size",
+      "value": 8
+    },
+    {
+      "name": "grad_accum",
+      "source_file": "train_config.json",
+      "source_key": "grad_accum",
+      "value": 4
+    },
+    {
+      "name": "weight_decay",
+      "source_file": "train_config.json",
+      "source_key": "weight_decay",
+      "value": 0.01
+    },
+    {
+      "name": "warmup_ratio",
+      "source_file": "train_config.json",
+      "source_key": "warmup_ratio",
+      "value": 0.03
+    },
+    {
+      "name": "max_grad_norm",
+      "source_file": "train_config.json",
+      "source_key": "max_grad_norm",
+      "value": 1.0
+    },
+    {
+      "name": "max_length",
+      "source_file": "train_config.json",
+      "source_key": "max_length",
+      "value": 4096
+    },
+    {
+      "name": "seed",
+      "source_file": "train_config.json",
+      "source_key": "seed",
+      "value": 0
+    },
+    {
+      "name": "shuffle_options",
+      "source_file": "train_config.json",
+      "source_key": "shuffle_options",
+      "value": true
+    },
+    {
+      "name": "reverse_score_prob",
+      "source_file": "train_config.json",
+      "source_key": "reverse_score_prob",
+      "value": 0.5
+    },
+    {
+      "name": "lora_r",
+      "source_file": "lora/adapter_config.json",
+      "source_key": "r",
+      "value": 48
+    },
+    {
+      "name": "lora_alpha",
+      "source_file": "lora/adapter_config.json",
+      "source_key": "lora_alpha",
+      "value": 96
+    },
+    {
+      "name": "lora_dropout",
+      "source_file": "lora/adapter_config.json",
+      "source_key": "lora_dropout",
+      "value": 0.05
+    },
+    {
+      "name": "lora_targets",
+      "source_file": "lora/adapter_config.json",
+      "source_key": "target_modules",
+      "value": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "in_proj_qkv",
+        "in_proj_z",
+        "in_proj_a",
+        "in_proj_b",
+        "out_proj"
+      ]
+    },
+    {
+      "name": "temperature_by_kind",
+      "source_file": "strands_decider_config.json",
+      "source_key": "temperature_by_kind",
+      "value": {
+        "choice": 0.8629556148274228,
+        "noul": 1.0704394404346953,
+        "score": 1.834409163182587
+      }
+    }
+  ]
+}

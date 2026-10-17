@@ -441,6 +441,50 @@ def _check_audited_builds(rows: Sequence[Mapping[str, Any]], audits: Mapping[str
             )
 
 
+def _check_run_teacher(
+    labels: Mapping[str, Mapping[tuple[str, str], Mapping[str, Any]]],
+    run_variant: str | None,
+    run_build_id: str | None,
+) -> None:
+    """Labels must carry the run's configured variant and build id (a deviation lifts this).
+
+    A row with no recorded variant (an older run) is read as the run's variant only when its
+    build id equals the run's configured build id.
+    """
+    for role, rows in labels.items():
+        for key, row in rows.items():
+            _check_teacher_row(
+                f"{role} teacher row {key[0]}/{key[1]}", row, run_variant, run_build_id
+            )
+
+
+def _check_teacher_row(
+    where: str, row: Mapping[str, Any], run_variant: str | None, run_build_id: str | None
+) -> None:
+    """One teacher label row against the run's configured build id and variant."""
+    build = str(row.get("teacher_build_id"))
+    if run_build_id and build != run_build_id:
+        raise _fail(
+            f"{where} has build {build!r} but the run is configured for {run_build_id!r}",
+            "label with the run's teacher build, or record a deviation and pass its id",
+        )
+    if not run_variant:
+        return
+    recorded = row.get("teacher_variant")
+    if recorded is None:
+        if run_build_id and build == run_build_id:
+            return
+        raise _fail(
+            f"{where} records no variant and its build cannot be matched to the run's",
+            "set the run's teacher build id, re-label, or pass a deviation id",
+        )
+    if recorded != run_variant:
+        raise _fail(
+            f"{where} is variant {recorded!r} but the run is configured for {run_variant!r}",
+            "label with the run's variant, or record a deviation and pass its id",
+        )
+
+
 def _require_audits(
     run_dir: Path, clef_labels: Path | str | None, alt_labels: Path | str | None
 ) -> dict[str, Any]:
@@ -485,6 +529,8 @@ def assemble(
     alt_labels: Path | str | None = None,
     corrections_path: Path | str | None = None,
     deviation_id: str | None = None,
+    run_variant: str | None = None,
+    run_build_id: str | None = None,
 ) -> dict[str, Any]:
     """Assemble, leakage-check and freeze the training set; return the manifest."""
     run_dir, dataset_dir = Path(run_dir), Path(dataset_dir)
@@ -500,6 +546,8 @@ def assemble(
     alt = _load_labels(alt_path, "alternative")
     corr_path = None if corrections_path is None else Path(corrections_path)
     corrections = _trainable_corrections(corr_path)
+    if deviation is None and (run_variant or run_build_id):
+        _check_run_teacher({"clef": clef, "alternative": alt}, run_variant, run_build_id)
     _refuse_off_train(clef, allowed, "Clef teacher rows")
     _refuse_off_train(alt, allowed, "alternative teacher rows")
     _refuse_off_train(corrections, allowed, "trainable corrections")
@@ -561,6 +609,8 @@ def assemble(
         "leakage": leak,
         "output": {"path": str(out_path), "sha256": digest, "rows": len(rows)},
     }
+    if run_variant:  # only when configured, so default-config manifests are unchanged
+        manifest["run_teacher_variant"] = run_variant
     _write_atomic(out_path, blob)
     _write_atomic(
         manifest_path, (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")

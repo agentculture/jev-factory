@@ -228,3 +228,26 @@ def test_exact_pin_is_linear_on_an_adversarial_input():
     assert not envs._EXACT.match(evil)
     assert not envs._EXACT.match("1" + ".a" * 25_000 + "..")
     assert time.perf_counter() - started < 0.5
+
+
+def test_variant_recipes_name_engine_and_quantization():
+    assert envs.variant_recipe("bf16") == ("clef-transformers", None)
+    kind, quant = envs.variant_recipe("W4A16")
+    assert kind in envs.KINDS
+    assert quant
+    assert envs.variant_recipe("NVFP4")[0] in envs.KINDS
+    with pytest.raises(CliError, match="recipe"):
+        envs.variant_recipe("INT3")
+
+
+def test_unknown_engine_kind_refused_and_quantization_in_argv():
+    with pytest.raises(CliError):
+        envs.check_engine_kind("tensorrt")
+    spec = _server(
+        role="teacher", kind="vllm-clef", env=_env("teacher"), quantization="compressed-tensors"
+    )
+    argv = envs.build_argv(spec)
+    assert "vllm.entrypoints.openai.api_server" in argv
+    assert argv[-2:] == ["--quantization", "compressed-tensors"]
+    plain = envs.build_argv(_server(role="teacher", kind="sglang-dev-clef", env=_env("teacher")))
+    assert "--quantization" not in plain

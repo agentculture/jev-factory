@@ -1,0 +1,21 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "prereg.json": "e285f0c889c80e55e66c924e81c26fa89475d6308984c02368f4ec2ec48ace5e",
+    "teacher/teacher_labels.jsonl": "996025e9c44691c2cd1b9919d5a91e50b0b39426a722c246aa4f1811b6dcfca2"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {},
+    "floor": 0.6,
+    "labels": null,
+    "role": "clef"
+  },
+  "outputs": {
+    "teacher_audit.json": "683c2c4a522a1c5966dd35f0c7937755f8280d61f7fb45a4f3643455c5e824a0"
+  },
+  "rc": 0,
+  "stage": "audit",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

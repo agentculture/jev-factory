@@ -112,20 +112,26 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from jev_factory.backbones.pointer import layout as player
-from jev_factory.backbones.pointer import quantized as qz
-from jev_factory.backbones.pointer import serve as pserve
-from jev_factory.backbones.pointer import train_distill as td
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.decide import records as drecords
 from jev_factory.decide.rules import HEAL_MARGIN_POINTS, HEAL_ROUNDS
 from jev_factory.distill import benchmark as bench
+from jev_factory.distill import executor as dex
 from jev_factory.distill import prereg as dp
 from jev_factory.distill import train as dtrain
 from jev_factory.distill.assemble import OUT_REL as TRAIN_SET_REL
 from jev_factory.distill.records import Record
 from jev_factory.distill.runspec import Bootstrap, GpuLimits, TrainerEnv
+from jev_factory.distill.student import backbone as student_backbone
 from jev_factory.factory import gpu, safepath
+
+#: The student backbone, through the registry (deviation d2): the built-in profile's, which
+#: names ``pointer``; its layout, deployed-format builder, server and trainer facets.
+_STUDENT = student_backbone()
+player = _STUDENT.layout()
+qz = _STUDENT.quantizer()
+pserve = _STUDENT.server()
+td = _STUDENT.trainer()
 
 QUANT_REL = "distill/quant"
 MEASUREMENTS_FILE = "measurements.json"
@@ -143,6 +149,8 @@ HEAL_SPEC_FILE = "heal_spec.json"
 DEPLOYED_PREDICTIONS_FILE = "deployed_predictions.json"
 #: The outcome recorded when no quantized build qualifies; nothing ships (risk r10).
 NO_QUALIFYING = "no qualifying format"
+#: Why quantize (and its heal round) is skipped when the pre-registration ships bf16.
+BF16_SKIP_REASON = "deployed_format bf16"
 PROBE_FOLD = "probe"
 #: The folds agreement with the bf16 student is computed on (never test or held-out).
 AGREEMENT_FOLDS: tuple[str, ...] = dtrain.FOLDS
@@ -401,6 +409,26 @@ def heal_mix(reg: dp.DistillPrereg) -> dict[str, float]:
 def agreement_min(reg: dp.DistillPrereg) -> float:
     """``bars.c17.quant.quant_vs_bf16_agreement_min`` (validated >= 0.97 by the prereg)."""
     return float(reg.bars["c17"]["quant"]["quant_vs_bf16_agreement_min"])
+
+
+def skip_reason(reg: dp.DistillPrereg) -> str | None:
+    """:data:`BF16_SKIP_REASON` when *reg* ships the bf16 student, else None (a quant ship).
+
+    The pipeline records the skip (``factory.stages.write_skipped``) with this reason; under
+    bf16 nothing is quantized, healed or recalibrated here, and gate, bundle and edge take
+    the train stage's build (:mod:`jev_factory.distill.deployed`)."""
+    return BF16_SKIP_REASON if dp.deployed_format(reg) == "bf16" else None
+
+
+def _skipped(prereg_path: Path, reason: str) -> dict[str, Any]:
+    return {
+        "stage": "distill-quant",
+        "prereg_sha256": dp.sha256_file(prereg_path),
+        "status": "skipped",
+        "reason": reason,
+        "heal": "skipped",
+        "deployed_format": "bf16",
+    }
 
 
 def read_winner(run_dir: Path) -> dict[str, Any]:
@@ -1342,7 +1370,7 @@ def plan_heal(
 ) -> dict[str, Any]:
     """One heal-mode training pass from the winner's checkpoint, with the heal knobs."""
     knobs = {**winner["knobs"], **heal_knobs(reg)}
-    return td.plan_train(
+    return _STUDENT.plan_distill_train(
         prereg_path=prereg_path,
         run_dir=run_dir,
         run_knobs=knobs,
@@ -1353,6 +1381,7 @@ def plan_heal(
         decider_repo=decider_repo,
         deviation_id=deviation_id,
         heal_spec=root / HEAL_SPEC_FILE,
+        prereg=dp,
     )
 
 
@@ -1812,6 +1841,9 @@ def run_quant(
     deviation id; both mixes are recorded in the heal log."""
     prereg_path, run_dir = Path(prereg_path), Path(run_dir)
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
+    reason = skip_reason(reg)
+    if reason is not None:  # a bf16 ship: nothing is built, healed or written
+        return _skipped(prereg_path, reason)
     bars = quant_bars(reg)
     minimum = agreement_min(reg)
     heal_mix(reg)  # refused before anything runs when the heal block names no mix
@@ -2094,10 +2126,14 @@ def _finish(
 
 
 def _default_trainer(**kw: Any) -> Trainer:
+    """The heal trainer: the student's ``run_distill_train`` on the executor seam (*jobs*,
+    default :mod:`jev_factory.distill.executor`); the other keywords pass through."""
+    jobs = kw.pop("jobs", None) or dex
+
     def train(plan: Mapping[str, Any]) -> Any:
         if not kw.get("memory_max"):
             raise _refuse("a GPU heal run needs a memory cap", "pass memory_max with apply")
-        return td.run_train(plan, apply=True, **kw)
+        return _STUDENT.run_distill_train(plan, apply=True, jobs=jobs, **kw)
 
     return train
 

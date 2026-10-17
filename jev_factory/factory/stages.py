@@ -22,6 +22,10 @@ from jev_factory import __version__
 MANIFEST_DIR = "manifests"
 COMPLETE = "complete"
 FAILED = "failed"
+#: A stage the run declared it will not do (``write_skipped``). Only the distill
+#: pipeline writes it; no ``jev run`` stage ever does.
+SKIPPED = "skipped"
+SATISFIED = (COMPLETE, SKIPPED)
 
 
 @dataclass(frozen=True)
@@ -140,6 +144,15 @@ def _own_staleness(reg: Registry, workdir: Path, name: str, knobs: dict[str, Any
     man = read_manifest(workdir, name)
     if man is None:
         return "no manifest"
+    if man.get("status") == SKIPPED:
+        # A declared skip has no inputs read and no outputs made: both are recorded
+        # empty and not compared. It stands only while its reason is present and the
+        # recorded declaration (knobs) is unchanged.
+        if not man.get("reason"):
+            return "skipped without a reason"
+        if man.get("knobs") != knobs:
+            return "knobs changed"
+        return None
     if man.get("status") != COMPLETE:
         return f"last run {man.get('status')}"
     if man.get("inputs") != _hashes(workdir, stage.inputs):
@@ -214,9 +227,39 @@ def _failed_ancestor(reg: Registry, workdir: Path, name: str) -> str | None:
     upstream file on purpose.)"""
     for d in _ancestors(reg, name):
         man = read_manifest(workdir, d)
-        if man is not None and man.get("status") != COMPLETE:
+        if man is not None and man.get("status") not in SATISFIED:
             return f"upstream stage {d}'s last run {man.get('status')}"
     return None
+
+
+def write_skipped(
+    workdir: Path, name: str, reason: str, knobs: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Record that stage ``name`` is deliberately skipped, and why.
+
+    The manifest has status ``skipped`` plus ``reason``; ``inputs`` and ``outputs``
+    are empty (nothing was read or made). It satisfies dependents like a complete
+    stage, and goes stale only when ``knobs`` (the declaration) change.
+    """
+    if not reason or not str(reason).strip():
+        raise ValueError("a skipped stage needs a reason")
+    now = time.time()
+    man = {
+        "stage": name,
+        "jev_factory_version": __version__,
+        "inputs": {},
+        "outputs": {},
+        "knobs": dict(knobs or {}),
+        "status": SKIPPED,
+        "reason": reason,
+        "started": now,
+        "finished": now,
+        "rc": 0,
+    }
+    path = manifest_path(workdir, name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(man, indent=2, sort_keys=True) + "\n")
+    return man
 
 
 def run_stage(

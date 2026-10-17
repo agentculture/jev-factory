@@ -567,3 +567,61 @@ def test_weak_flags_come_from_the_audit_of_the_teacher_used(tmp_path):
     m2 = env2.go()
     assert m2["teacher_weak_sources"] == []
     assert _rows(m2)[("w1", "a")]["target_source"] == "clef+gold"
+
+
+# ----------------------------------------------------------------- run variant / build
+
+
+def _go_run(env, **kw):
+    return assemble.assemble(
+        env.run,
+        env.dataset,
+        prereg=_prereg(),
+        teacher_filter="all",
+        clef_labels=env.clef,
+        **kw,
+    )
+
+
+def _variant_rows(rid, variant, build="clef-b1"):
+    rows = _labels(rid, build=build)
+    for r in rows:
+        if variant is not None:
+            r["teacher_variant"] = variant
+    return rows
+
+
+def test_matching_variant_and_build_assembles(tmp_path):
+    env = _Env(tmp_path, [_rec("r1", 1)])
+    env.clef_rows(_variant_rows("r1", "BF16"))
+    m = _go_run(env, run_variant="BF16", run_build_id="clef-b1")
+    assert m["run_teacher_variant"] == "BF16"
+
+
+def test_variant_mismatch_refused_unless_deviation(tmp_path):
+    env = _Env(tmp_path, [_rec("r1", 1)])
+    env.clef_rows(_variant_rows("r1", "FP4"))
+    with pytest.raises(CliError, match="variant"):
+        _go_run(env, run_variant="BF16", run_build_id="clef-b1")
+    assert _go_run(env, run_variant="BF16", run_build_id="clef-b1", deviation_id="d1")
+
+
+def test_build_mismatch_refused(tmp_path):
+    env = _Env(tmp_path, [_rec("r1", 1)])
+    env.clef_rows(_variant_rows("r1", None))
+    with pytest.raises(CliError, match="build"):
+        _go_run(env, run_build_id="other-build")
+
+
+def test_legacy_row_without_variant_read_as_run_variant_only_on_build_match(tmp_path):
+    env = _Env(tmp_path, [_rec("r1", 1)])
+    env.clef_rows(_variant_rows("r1", None))
+    assert _go_run(env, run_variant="BF16", run_build_id="clef-b1")
+    with pytest.raises(CliError, match="no variant"):
+        _go_run(env, run_variant="BF16")
+
+
+def test_no_run_variant_leaves_manifest_unchanged(tmp_path):
+    env = _Env(tmp_path, [_rec("r1", 1)])
+    env.clef_rows(_labels("r1"))
+    assert "run_teacher_variant" not in env.go()

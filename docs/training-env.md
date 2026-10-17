@@ -24,3 +24,19 @@ uv pip install --python <venv python> "jev-factory[train]"
 
 The release gate uses the `evals` dependency group (`deepeval==4.2.6`):
 `uv sync --group evals`.
+
+## Executor seam
+
+Distill training (`train` and `heal`) runs through `jev_factory/distill/executor.py`.
+The run-config key `distill_executor` picks the executor; `local` is the default and
+the only one that exists, and any other name is refused. The local executor runs the
+same capped GPU call as before, in the environment above.
+
+A container or remote executor plugs in through the `JobSpec`: staged inputs with their
+sha256, the expected outputs, the environment as an image digest plus a lockfile hash
+(not a tag), the limits and the argv. The seam stages only train-side rows, refuses
+protected ids, secrets and private addresses, and re-hashes every output on return.
+
+The environment above is aarch64 with CUDA 13.0 (the GB10). A remote x86 image, for
+example on SageMaker, needs its own lockfile and image digest. That is a later session;
+no AWS code exists yet.

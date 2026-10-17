@@ -35,8 +35,11 @@ metrics), so an injected *measurer* (``quant.Measurer``'s shape, e.g.
 :func:`jev_factory.distill.quant.served_measurer`) asks the deployed artifact again, and the
 shipped ``distill/quant/calibration.json`` is applied before fitting. ``distill/gate/gate.json``
 records the thresholds, the objective, the selection coverage and selective accuracy with
-CIs, and the sha256 of the pre-registration and of the calibration it was fitted on. Dry-run
-by default: it writes nothing and asks nothing. Stdlib only.
+CIs, and the sha256 of the pre-registration and of the calibration it was fitted on. Under a
+bf16 ship (``deployed_format bf16``) the deployed build is the train stage's winner
+(:mod:`jev_factory.distill.deployed`): its fit and selection predictions are persisted in
+``distill/train/<winner>/predictions.json`` and ``distill/select/calibration.json`` is applied,
+so no measurer is asked. Dry-run by default: it writes nothing and asks nothing. Stdlib only.
 """
 
 from __future__ import annotations
@@ -321,6 +324,24 @@ def _artifact(run_dir: Path, recorded: Any) -> Path:
     return path if path.is_absolute() else run_dir / path
 
 
+def _measured_predictions(
+    run_dir: Path,
+    student: Mapping[str, Any],
+    measurer: Measurer | None,
+    fold_records: Mapping[str, Sequence[Any]],
+) -> Mapping[str, Any]:
+    if measurer is None:
+        raise _refuse(
+            "apply needs a measurer to ask the deployed build on the fit and selection folds",
+            "pass measurer=quant.served_measurer(...) (or a test double)",
+        )
+    artifact = _artifact(run_dir, student["artifact"])
+    measured = measurer(
+        student["format"], artifact, {f: list(fold_records[f]) for f in dtrain.FOLDS}
+    )
+    return measured.get("predictions") or {}
+
+
 def run_gate(
     run_dir: Path | str,
     *,
@@ -333,8 +354,12 @@ def run_gate(
     seed: int = core_metrics.DEFAULT_BOOTSTRAP_SEED,
     resamples: int = core_metrics.DEFAULT_BOOTSTRAP_RESAMPLES,
 ) -> dict[str, Any]:
-    """Plan (dry-run) or fit the deployed build's per-kind gate into ``distill/gate/gate.json``."""
-    from jev_factory.distill import final as dfinal  # lazy: final -> report -> gate
+    """Plan (dry-run) or fit the deployed build's per-kind gate into ``distill/gate/gate.json``.
+
+    Under ``deployed_format bf16`` the deployed build is the train stage's winner
+    (:mod:`jev_factory.distill.deployed`): its persisted fit and selection predictions are
+    used and *measurer* is not called."""
+    from jev_factory.distill import deployed as ddeployed  # lazy: final -> report -> gate
 
     run_dir, prereg_path = Path(run_dir), Path(prereg_path)
     reg = dp.require_locked(prereg_path, run_dir, deviation_id)
@@ -343,14 +368,15 @@ def run_gate(
             "the locked distill pre-registration registers no gate objective or grid",
             "register a gate block before the lock, or record a deviation",
         )
-    student = dfinal.deployed_student(run_dir)
+    student = ddeployed.deployed_student(run_dir, reg)
+    bf16 = student.get("deployed_format") == ddeployed.BF16
     fold_records = dtrain._folds(folds, sealed)
     out_path = run_dir / GATE_REL / GATE_FILE
     base = {
         "stage": STAGE,
         "prereg_sha256": dp.sha256_file(prereg_path),
         "calibration_sha256": student["calibration_sha256"],
-        "calibration_file": dfinal.STUDENT_CALIBRATION_REL,
+        "calibration_file": student["calibration_file"],
         "deployed_format": student["format"],
         "deployed_artifact": str(student["artifact"]),
         "objective": {k: reg.gate[k] for k in ("objective", "min_coverage")},
@@ -359,16 +385,10 @@ def run_gate(
     }
     if not apply:
         return {**base, "dry_run": True, "grid_points": len(threshold_grid(reg.gate["grid"]))}
-    if measurer is None:
-        raise _refuse(
-            "apply needs a measurer to ask the deployed build on the fit and selection folds",
-            "pass measurer=quant.served_measurer(...) (or a test double)",
-        )
-    artifact = _artifact(run_dir, student["artifact"])
-    measured = measurer(
-        student["format"], artifact, {f: list(fold_records[f]) for f in dtrain.FOLDS}
-    )
-    predictions = measured.get("predictions") or {}
+    if bf16:
+        predictions = ddeployed.read_predictions(student)
+    else:
+        predictions = _measured_predictions(run_dir, student, measurer, fold_records)
     rows: dict[str, list[dm.PredItem]] = {}
     for fold in dtrain.FOLDS:
         items, problems = dtrain.question_items(fold_records[fold], predictions.get(fold) or [])

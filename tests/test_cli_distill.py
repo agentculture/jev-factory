@@ -826,3 +826,264 @@ def test_the_edge_dry_run_writes_nothing_and_plans_through_the_module(assembled,
     assert plan["module_plan"]["label"] == "agx"
     assert plan["module_plan"]["expected_cap"] == 4 * 1024**3
     assert tree(assembled.parent) == before
+
+
+# ----------------------------------------------------------------- t12: pipeline wiring
+
+
+def _v3(work: Path, *, absent=(), deployed_format: str = "quant") -> None:
+    """Rewrite the run's pre-registration as v3 with *absent* optional roles."""
+    doc = dprereg.example_doc_v3(deployed_format=deployed_format)
+    for role in absent:
+        doc["roles"][role] = {"present": False}
+    (work / dprereg.PREREG_REL).write_text(json.dumps(doc), encoding="utf-8")
+
+
+def _profile_toml(path: Path, **over) -> Path:
+    """A student profile file: the built-in 2610 profile with *over* replaced."""
+    import dataclasses
+
+    from jev_factory.distill.profile import DEFAULT_2610
+
+    table = dataclasses.asdict(dataclasses.replace(DEFAULT_2610, **over))
+    table.pop("card")
+    temps = table.pop("temperature_by_kind")
+    lines = [
+        f"{k} = {json.dumps(list(v) if isinstance(v, tuple) else v)}" for k, v in table.items()
+    ]
+    lines += ["[temperature_by_kind]", *(f"{k} = {v!r}" for k, v in temps.items())]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_the_new_run_config_keys_are_declared_and_load(work):
+    """Note 1: the four t8 keys are run-config keys; the executor defaults to local."""
+    cfg = load_config(work / "run.toml", cli={"work": str(work)}, environ={})
+    assert cfg["distill_executor"] == "local"
+    for key in ("distill_student_profile", "distill_teacher_variant", "distill_deployed_url"):
+        assert cfg[key] is None
+    _add_config(
+        work,
+        distill_student_profile="/profiles/nano.toml",
+        distill_teacher_variant="NVFP4",
+        distill_executor="local",
+        distill_deployed_url="http://127.0.0.1:18090",
+    )
+    cfg = load_config(work / "run.toml", cli={"work": str(work)}, environ={})
+    assert cfg["distill_teacher_variant"] == "NVFP4"
+    assert cfg["distill_deployed_url"] == "http://127.0.0.1:18090"
+
+
+def test_an_executor_other_than_local_is_refused(work):
+    """c11: only the local executor exists; any other name is a clear refusal (no cloud)."""
+    _add_config(work, distill_executor="aws-batch")
+    ctx = _ctx(work)
+    with pytest.raises(CliError, match="aws-batch") as exc:
+        P._executor(ctx)
+    assert "local" in exc.value.message
+    from jev_factory.distill.executor import LocalExecutor
+
+    cfg = _ctx(work).config
+    cfg = replace(cfg, values={**cfg.values, "distill_executor": "local"})
+    assert isinstance(P._executor(P.DistillContext(work=work, config=cfg)), LocalExecutor)
+
+
+def test_an_injected_executor_is_the_one_used(work):
+    fake = object()
+    ctx = _ctx(work, executor=fake)
+    assert P._executor(ctx) is fake
+
+
+def test_edge_writes_skipped_naming_the_role_when_the_edge_role_is_absent(work):
+    """c17: an absent secondary role skips its stage (status skipped, the role named)."""
+    _v3(work, absent=("edge",))
+    _apply(work, "preregister")
+    out = P.run(work, "edge", _ctx(work), apply=True)
+    assert out["status"] == "skipped"
+    assert "edge" in out["reason"]
+    assert "absent" in out["reason"]
+    assert read_manifest(work / "distill", "edge")["status"] == "skipped"
+    plan = P.plan(work, "edge", _ctx(work))
+    assert "absent" in plan["skip_reason"]
+
+
+def test_corrections_draft_writes_skipped_naming_the_alt_teacher_when_it_is_absent(work):
+    """c17/h14: the alt drafter is needed (teacher-weak rows) but the role is absent: the stage
+    is skipped, never a require() refusal, and assemble still runs without corrections."""
+    _v3(work, absent=("alt_teacher",))
+    out = _apply(work, *THROUGH_ASSEMBLE[:5])
+    assert out["audit"]["status"] == "complete"
+    ctx = _ctx(work, **_services(drafter=None))
+    man = P.run(work, "corrections-draft", ctx, apply=True)
+    assert man["status"] == "skipped", man.get("error")
+    assert "alt_teacher" in man["reason"]
+    assert not (work / "distill" / P.CORRECTIONS_FILE).exists()
+    done = P.run(work, "assemble", ctx, KNOBS.get("assemble"), apply=True)
+    assert done["status"] == "complete", done.get("error")
+    assert P.CORRECTIONS_FILE not in done["inputs"]
+
+
+def test_quantize_writes_skipped_under_a_bf16_ship(work):
+    """c7: deployed_format bf16 skips quantize (and its heal) with quant's own reason."""
+    from jev_factory.distill import quant as dquant
+
+    _v3(work, deployed_format="bf16")
+    _apply(work, "preregister")
+    out = P.run(work, "quantize", _ctx(work), apply=True)
+    assert out["status"] == "skipped"
+    assert out["reason"] == dquant.BF16_SKIP_REASON
+
+
+def test_a_quant_ship_with_every_role_present_skips_nothing(work):
+    _apply(work, "preregister")
+    reg = dprereg.require_locked(work / dprereg.PREREG_REL, work)
+    for name in STAGES:
+        assert P._skip_reason(name, _ctx(work), reg) is None, name
+
+
+def test_the_profile_reaches_the_dataset_tokenizer_and_builder(work, tmp_path, monkeypatch):
+    """Note 2: the run's profile names the tokenizer's repo and is passed to build_dataset."""
+    from jev_factory.distill import dataset as dds
+    from jev_factory.distill import pins as dpins
+
+    prof = _profile_toml(tmp_path / "nano.toml", base_repo="example-org/nano-base")
+    _add_config(
+        work,
+        distill_student_profile=str(prof),
+        distill_pin_cache=str(tmp_path / "cache"),
+        distill_student_python="python3",
+    )
+    seen = {}
+    monkeypatch.setattr(
+        dds,
+        "subprocess_token_counter",
+        lambda python, path: seen.setdefault("tokenizer", path) and (lambda t: len(t.split())),
+    )
+    real = dds.build_dataset
+    monkeypatch.setattr(
+        dds,
+        "build_dataset",
+        lambda *a, **kw: seen.setdefault("profile", kw["profile"]) and real(*a, **kw),
+    )
+    ctx = _ctx(work, **_services(token_counter=None))
+    out = P.run(work, "dataset", ctx, apply=True)
+    assert out["status"] == "complete", out.get("error")
+    assert seen["tokenizer"] == tmp_path / "cache" / dpins.cache_dirname("example-org/nano-base")
+    assert seen["profile"].base_repo == "example-org/nano-base"
+
+
+def test_the_profile_reaches_the_pins_and_the_default_is_unchanged(work, tmp_path):
+    from jev_factory.distill import pins as dpins
+
+    _add_config(work, distill_decider_revision="c0ffee11")
+    assert P._pins(_ctx(work)) == dpins.default_pins(decider_revision="c0ffee11")
+    prof = _profile_toml(tmp_path / "nano.toml", decider_repo="example-org/nano-decider")
+    _add_config(work, distill_student_profile=str(prof))
+    pins = P._pins(_ctx(work))
+    assert pins.decider.repo_id == "example-org/nano-decider"
+
+
+def test_the_teacher_variant_reaches_the_teacher_config_and_assemble(work, monkeypatch):
+    """Note 3: unset is today's behaviour; set, it is stamped and assemble checks it."""
+    assert P._teacher_config(_ctx(work), {"joint": True}).variant is None
+    _add_config(work, distill_teacher_variant="NVFP4")
+    assert P._teacher_config(_ctx(work), {"joint": True}).variant == "NVFP4"
+    seen = {}
+    monkeypatch.setattr(P.dassemble, "assemble", lambda *a, **kw: seen.update(kw))
+    reset = P._CURRENT.set(_ctx(work))
+    try:
+        _apply(work, "preregister")
+        P.stage_assemble(work / "distill", dict(P.DEFAULT_KNOBS["assemble"]))
+    finally:
+        P._CURRENT.reset(reset)
+    assert seen["run_variant"] == "NVFP4"
+    assert seen["run_build_id"] == "clef-b1"
+
+
+def test_assemble_gets_no_run_teacher_check_without_a_variant(work, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(P.dassemble, "assemble", lambda *a, **kw: seen.update(kw))
+    _apply(work, "preregister")
+    reset = P._CURRENT.set(_ctx(work))
+    try:
+        P.stage_assemble(work / "distill", dict(P.DEFAULT_KNOBS["assemble"]))
+    finally:
+        P._CURRENT.reset(reset)
+    assert seen["run_variant"] is None
+    assert seen["run_build_id"] is None
+
+
+def _bf16_build(work: Path, tmp_path: Path) -> Path:
+    from tests import test_distill_bf16_ship as tbs
+
+    cand = work / "distill" / "train" / tbs.WINNER
+    bundle = tbs._hobson(tmp_path, cand / "bundle")
+    (cand / "predictions.json").write_text(json.dumps({"fit": [], "selection": []}))
+    sel = work / "distill" / "select"
+    sel.mkdir(parents=True, exist_ok=True)
+    (sel / "summary.json").write_text(json.dumps({"winner": tbs.WINNER}))
+    (sel / "calibration.json").write_text(json.dumps(tbs.SELECT_CAL))
+    return bundle
+
+
+def test_a_bf16_final_builds_three_models_served_from_the_deployed_bundle(work, tmp_path):
+    """Note 4 / c7: under bf16 there is no separate student; the bf16 student is served from
+    the deployed bundle and names it as served_from."""
+    from jev_factory.distill import final as dfinal
+
+    _v3(work, deployed_format="bf16")
+    _apply(work, "preregister")
+    bundle = _bf16_build(work, tmp_path)
+    _add_config(
+        work,
+        distill_stock_url="http://127.0.0.1:10",
+        distill_stock_model="v21",
+        distill_student_python="python3",
+        distill_student_lockfile="0" * 64,
+    )
+    models = P._final_models(_ctx(work))
+    assert set(models) == set(dfinal.required_models("bf16"))
+    assert "student" not in models
+    assert Path(models["student_bf16"].served_from) == bundle
+
+
+def test_the_deployed_url_key_names_the_pre_served_student(work, tmp_path):
+    """Note 4: distill_deployed_url (or its alias distill_agx_url) is the student's URL."""
+    _add_config(work, distill_deployed_url="http://127.0.0.1:18095")
+    _apply(work, "preregister")
+    model = P._agx_final_model(_ctx(work))
+    assert model.target.base_url == "http://127.0.0.1:18095"
+    assert model.target.start is None
+
+
+def test_the_edge_stage_passes_the_declared_deployed_format(work, tmp_path, monkeypatch):
+    from jev_factory.distill import edge as dedge
+
+    _v3(work, deployed_format="bf16")
+    _apply(work, "preregister", "dataset")
+    probe = _jsonl(tmp_path / "probe.jsonl", _probe())
+    _add_config(
+        work,
+        distill_edge_url="http://127.0.0.1:18091",
+        distill_edge_memory_cap="4G",
+        distill_probe_set=str(probe),
+    )
+    seen = {}
+    monkeypatch.setattr(dedge, "run_edge", lambda **kw: seen.update(kw) or {})
+    reset = P._CURRENT.set(_ctx(work))
+    try:
+        P.stage_edge(work / "distill", dict(P.DEFAULT_KNOBS["edge"]))
+    finally:
+        P._CURRENT.reset(reset)
+    assert seen["deployed_format"] == "bf16"
+
+
+def test_bf16_stages_read_the_select_calibration_not_the_quant_one(work):
+    _v3(work, deployed_format="bf16")
+    _apply(work, "preregister")
+    reg = dprereg.require_locked(work / dprereg.PREREG_REL, work)
+    for name in ("gate", "final"):
+        inputs = P._stage_for(name, _ctx(work), reg).inputs
+        assert P.QUANT_CALIBRATION not in inputs
+        assert P.SELECT_CALIBRATION in inputs
+    assert P.QUANT_PREDICTIONS not in P._stage_for("edge", _ctx(work), reg).inputs

@@ -30,6 +30,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill import metrics
 from jev_factory.distill.dataset import TEST_SPLIT, SealedSide, read_records
+from jev_factory.distill.profile import DEFAULT_2610, StudentProfile
 from jev_factory.distill.records import Record
 from jev_factory.distill.systemone import CallResult, SystemOneClient
 
@@ -474,12 +475,12 @@ def _normalise(probs: Sequence[float]) -> list[float]:
 # ---------------------------------------------------------------------------
 
 #: The 2610 card's ``eval/jevbench-w4096`` result: 180 right of 231 public tasks (0.7792).
-CARD_N = 231
-CARD_CORRECT = 180
+CARD_N = DEFAULT_2610.card.n  # type: ignore[union-attr]
+CARD_CORRECT = DEFAULT_2610.card.correct  # type: ignore[union-attr]
 CARD_ACCURACY = CARD_CORRECT / CARD_N
 #: ``run_meta.json`` ``tasks_sha256`` of the card's task file (informational: our task file is
 #: the operator's :class:`Record` conversion, so its hash is recorded, not required to match).
-CARD_TASKS_SHA256 = "771ea8ac252af155606eeb09cad920b32b326c5c2b1e9c9af868be00fe8e2fad"
+CARD_TASKS_SHA256 = DEFAULT_2610.card.tasks_sha256  # type: ignore[union-attr]
 #: The card publishes no interval for 180/231; this stage defines it as the two-sided 95%
 #: Wilson score interval of the *measured* correct/n (z = 1.96), a closed form that needs no
 #: resampling and behaves at the edges. Seed-to-seed spread on the card (179.7 +- 3.8 of 231)
@@ -488,6 +489,8 @@ CI_METHOD = "wilson-95"
 WILSON_Z = 1.959964
 #: Both relative to the run dir (``<work>``), beside the benchmark stage's own outputs.
 REPRODUCTION_REL = "distill/benchmark/stock_reproduction.json"
+#: ``reproduction`` value of a record made for a profile with no card baseline.
+NOT_AVAILABLE = "not_available"
 STOCK_SETS_REL = "distill/benchmark/stock_measurements.json"
 PROBE_SET = "probe"
 JEVBENCH_SET = "jevbench"
@@ -574,6 +577,7 @@ def reproduce_stock(
     tasks_path: Path | str | None = None,
     memory_probe: MemoryProbe | None = None,
     client: SystemOneClient | None = None,
+    profile: StudentProfile = DEFAULT_2610,
 ) -> dict[str, Any]:
     """Serve stock 2610 on the pinned base, score JevBench w4096 and compare with the card.
 
@@ -581,14 +585,27 @@ def reproduce_stock(
     card's 0.7792 (180/231): the served base is then not the one the card was measured on, and
     :func:`require_base_match` makes ``train`` refuse until a deviation is recorded. A task set
     whose size differs from the card's 231 is refused outright (it is not the same benchmark).
+
+    The card baseline comes from *profile*. A profile with no card baseline has nothing to
+    reproduce: nothing is served and the record says ``reproduction: "not_available"``, which
+    :func:`require_base_match` treats like a base mismatch (a deviation id is needed).
     """
-    if len(tasks) != CARD_N:
-        raise _refuse(
-            f"JevBench has {len(tasks)} tasks, the card's w4096 run has {CARD_N}",
-            "pass the 231 public tasks; a different set is not a reproduction",
-        )
+    card = profile.card
     if not base_revision:
         raise _refuse("reproduction needs the pinned base revision", "pass base_revision")
+    if card is None:
+        return not_available_record(
+            model=target.name,
+            served_model=target.model,
+            base_revision=base_revision,
+            tasks_sha256=_file_sha256(Path(tasks_path)) if tasks_path else None,
+        )
+    card_accuracy = card.correct / card.n
+    if len(tasks) != card.n:
+        raise _refuse(
+            f"JevBench has {len(tasks)} tasks, the card's w4096 run has {card.n}",
+            "pass the 231 public tasks; a different set is not a reproduction",
+        )
     res = benchmark_model(target, {JEVBENCH_SET: tasks}, memory_probe=memory_probe, client=client)
     summary = top1_summary(tasks, res["predictions"])
     lo, hi = summary["ci_low"], summary["ci_high"]
@@ -598,15 +615,35 @@ def reproduce_stock(
         "served_model": target.model,
         "base_revision": base_revision,
         "tasks_sha256": _file_sha256(Path(tasks_path)) if tasks_path else None,
-        "card_tasks_sha256": CARD_TASKS_SHA256,
-        "card": {"n": CARD_N, "n_correct": CARD_CORRECT, "accuracy": CARD_ACCURACY},
+        "card_tasks_sha256": card.tasks_sha256,
+        "card": {"n": card.n, "n_correct": card.correct, "accuracy": card_accuracy},
         **summary,
         "n_failed": res["n_failed"],
         "latency": res["latency"],
         "memory": res["memory"],
-        "base_mismatch": not (lo <= CARD_ACCURACY <= hi),
+        "base_mismatch": not (lo <= card_accuracy <= hi),
     }
     return out
+
+
+def not_available_record(
+    *,
+    model: str,
+    served_model: str,
+    base_revision: str,
+    tasks_sha256: str | None = None,
+) -> dict[str, Any]:
+    """The reproduction record for a profile with no card baseline: nothing to compare with."""
+    return {
+        "stage": "distill-stock-reproduction",
+        "model": model,
+        "served_model": served_model,
+        "base_revision": base_revision,
+        "tasks_sha256": tasks_sha256,
+        "reproduction": NOT_AVAILABLE,
+        "card": None,
+        "base_mismatch": None,
+    }
 
 
 def write_reproduction(run_dir: Path | str, result: Mapping[str, Any]) -> Path:
@@ -642,19 +679,26 @@ def require_base_match(
         return
     try:
         rec = json.loads(path.read_text(encoding="utf-8"))
-        mismatch = bool(rec["base_mismatch"])
+        unavailable = rec.get("reproduction") == NOT_AVAILABLE
+        mismatch = False if unavailable else bool(rec["base_mismatch"])
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise _refuse(
             f"{path}: unreadable stock reproduction record ({exc})",
             "rerun the benchmark stage",
         ) from exc
+    if unavailable and not (deviation_id or "").strip():
+        raise _refuse(
+            "the reproduction check is not available (the student profile has no card "
+            "baseline), so the served base is unverified and no deviation id was given",
+            "record a deviation and pass its id (--deviation-id <id>)",
+        )
     if mismatch and not (deviation_id or "").strip():
         raise _refuse(
             "stock 2610 did not reproduce the card's JevBench w4096 result (base-mismatch) "
             "and no deviation id was given: "
             f"{rec.get('n_correct')}/{rec.get('n')} with CI "
             f"[{rec.get('ci_low'):.4f}, {rec.get('ci_high'):.4f}] "
-            f"excludes {CARD_ACCURACY:.4f}",
+            f"excludes {(rec.get('card') or {}).get('accuracy', CARD_ACCURACY):.4f}",
             "record a deviation and pass its id (--deviation <id>), or fix the served base",
         )
 

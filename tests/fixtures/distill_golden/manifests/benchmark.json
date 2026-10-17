@@ -1,0 +1,27 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "dataset/manifest.json": "b75c05106ea42b6daf836b693cfd1754625e3018eadbb284f4d39fbd49b629a8"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {
+      "distill_base_revision": null,
+      "distill_jevbench_tasks": "<TMP>/jevbench-w4096.jsonl",
+      "distill_probe_set": "<TMP>/probe.jsonl",
+      "distill_stock_model": "v21",
+      "distill_stock_url": "http://127.0.0.1:9",
+      "distill_teacher_model": "clef",
+      "distill_teacher_url": "http://127.0.0.1:9"
+    }
+  },
+  "outputs": {
+    "benchmark/benchmark.json": "<VARIES>",
+    "benchmark/stock_measurements.json": "<VARIES>",
+    "benchmark/stock_reproduction.json": "<VARIES>"
+  },
+  "rc": 0,
+  "stage": "benchmark",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

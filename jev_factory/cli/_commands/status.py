@@ -29,7 +29,14 @@ from jev_factory.cli._output import emit_result
 from jev_factory.decide import records
 from jev_factory.distill import pipeline as distill
 from jev_factory.factory import detach, pipeline
-from jev_factory.factory.stages import COMPLETE, Registry, read_manifest, staleness
+from jev_factory.factory.stages import (
+    COMPLETE,
+    SATISFIED,
+    SKIPPED,
+    Registry,
+    read_manifest,
+    staleness,
+)
 
 #: Stages whose in-process jobs live under a differently named jobs/ entry.
 _JOB_ALIASES = {"teachers-pilot": "pilot"}
@@ -75,7 +82,7 @@ def collect(workdir: Path) -> dict[str, Any]:
     distill_stages = (
         _stage_entries(
             distill_dir,
-            distill.REGISTRY,
+            distill.effective_registry(workdir),  # the run's own stage inputs (d4)
             lambda n: [j for j in jobs if j["job"] == f"{distill.DISTILL_DIR}/{n}"],
         )
         if distill_dir.is_dir()
@@ -101,20 +108,30 @@ def _stage_entries(
     for name in names:
         man = read_manifest(workdir, name)
         mine = jobs_of(name)
-        entry: dict[str, Any] = {
-            "stage": name,
-            "status": man.get("status") if man else "not-run",
-            "stale": staleness(workdir, name, recorded, registry=registry),
-            "finished": man.get("finished") if man else None,
-            "rc": man.get("rc") if man else None,
-            "jobs": mine,
-        }
-        if man and man.get("error"):
-            entry["error"] = man["error"]
-        if any(j["state"] == "running" for j in mine):
-            entry["status"] = "running"
-        stages.append(entry)
+        stale = staleness(workdir, name, recorded, registry=registry)
+        stages.append(_stage_entry(name, man, mine, stale))
     return stages
+
+
+def _stage_entry(
+    name: str, man: dict[str, Any] | None, mine: list[dict[str, Any]], stale: Any
+) -> dict[str, Any]:
+    """One stage's status row from its manifest *man* (``None``: never run) and its jobs."""
+    entry: dict[str, Any] = {
+        "stage": name,
+        "status": man.get("status") if man else "not-run",
+        "stale": stale,
+        "finished": man.get("finished") if man else None,
+        "rc": man.get("rc") if man else None,
+        "jobs": mine,
+    }
+    if man and man.get("error"):
+        entry["error"] = man["error"]
+    if man and man.get("status") == SKIPPED:
+        entry["reason"] = man.get("reason")
+    if any(j["state"] == "running" for j in mine):
+        entry["status"] = "running"
+    return entry
 
 
 def _all_stages(doc: dict[str, Any]) -> list[dict[str, Any]]:
@@ -268,7 +285,9 @@ def _stage_mark(status: str) -> str:
 
 def _stage_line(s: dict[str, Any]) -> str:
     line = f"  {s['stage']:<16} {_stage_mark(s['status']):<8}"
-    if s["status"] == COMPLETE and s["stale"]:
+    if s["status"] == SKIPPED and s.get("reason"):
+        line += f" reason: {s['reason']}"
+    if s["status"] in SATISFIED and s["stale"]:
         line += f" stale: {s['stale']}"
     if s.get("error"):
         line += f" error: {s['error']}"

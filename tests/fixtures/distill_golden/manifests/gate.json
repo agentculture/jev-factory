@@ -1,0 +1,22 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "quant/calibration.json": "<VARIES>"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {
+      "distill_decider_repo": "<TMP>/strands-decider",
+      "distill_student_lockfile": null,
+      "distill_student_port": 18070,
+      "distill_student_python": null
+    }
+  },
+  "outputs": {
+    "gate/gate.json": "<VARIES>"
+  },
+  "rc": 0,
+  "stage": "gate",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

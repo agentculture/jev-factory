@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-10-17
+
+### Added
+
+- Student profile (jev_factory/distill/profile.py): every student pin and limit in one validated StudentProfile; DEFAULT_2610 is the default, `distill_student_profile` selects another TOML (spec 2026-10-17-configurable-distillery-and-remote-training).
+- Clef in any build variant: `distill_teacher_variant`, stamped on labels and manifests; envs.VARIANT_RECIPES (BF16, NVFP4, FP4, W4A16; recipes unverified until served).
+- Pre-registration schema v3: declared roles (teacher, stock and student mandatory; alt_teacher, deployed_server and edge optional), deployed_format quant or bf16, the variant-neutral teacher bar top1_under_teacher_max_points. Locked v2 files still load through a mapping.
+- bf16 ship: under deployed_format bf16, quantize and heal record `skipped`; gate, final, bundle and edge take the attested bf16 build; a bf16 bundle kind in docs/distill-bundle-format.md.
+- Executor seam (jev_factory/distill/executor.py): train and heal run through an executor-neutral JobSpec with sha256 on inputs and outputs, train-side rows only (protected-id, secret and private-IP checks in the seam); only the local executor exists; job records in the stage manifest for non-local executors.
+- `skipped` stage status: satisfies dependents and shows with its reason in `jev status`.
+- Shared layers jev_factory/wire (the /v1/systemone client) and jev_factory/runtime (EnvSpec, id digests, the pre-registration lock check); the Backbone protocol gains layout, serve and distill-train hooks, and the distill stages reach the student through registry.get.
+- Golden byte-identity fixtures of the default distill e2e manifests, and end-to-end scenarios for a second profile with an NVFP4 Clef, absent roles with a bf16 ship, and a fake non-local executor.
+
+### Changed
+
+- Report bar results are pass, fail, not_applicable or reported; the old `miss` is now `fail`, and a bar relative to an absent role or format reports not_applicable with the reason.
+- `final` measures the models the pre-registration declares; `distill_deployed_url` (alias `distill_agx_url`) is any attested loopback server.
+- New run-config keys are recorded in stage knobs only when set, so existing runs stay fresh after the upgrade.
+- `jev status` computes distill staleness with the same per-run stage inputs as the pipeline.
+- The trainer subprocess re-checks the pre-registration lock and the plan's sha256 instead of re-parsing the schema.
+- docs/distill.md, the jev explain distill entry and the four prompt files describe the configurable distillery; the State of the work matches the #20 proving-run evidence.
+
+### Fixed
+
+- A model missing from final's predictions no longer scores as all-wrong (which let relative bars pass trivially).
+- A relative contamination_manifest in a student profile resolves against the profile file.
+
 ## [0.12.1] - 2026-10-17
 
 ### Added

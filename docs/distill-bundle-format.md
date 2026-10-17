@@ -70,6 +70,30 @@ loads the quantized layout.
 In both layouts `strands_decider_config.json` carries the fitted `temperature_by_kind`
 and a scalar `temperature` of `1.0`. A kind without a fitted value is left uncalibrated.
 
+### The bf16 bundle kind
+
+When the pre-registration's `deployed_format` is `bf16`, the quantize stage (and its heal
+round) is recorded skipped with the reason `deployed_format bf16`, and the bundle ships the
+train stage's selected candidate instead of a quant build. Nothing else falls back to it: a
+`quant` pre-registration whose quantize found no qualifying build still refuses the bundle.
+
+- The student is `distill/select/summary.json`'s `winner`, copied from
+  `distill/train/<winner>/bundle` in the bf16 `hobson-hf-export/1` layout above, so
+  `strands-decider serve` loads it and `layout.read_layout` verifies it.
+- `calibration.json` is `distill/select/calibration.json`, byte for byte; a fitted gate
+  must name its sha256.
+- The `model` and `dataset` file sets are the ones listed above.
+
+Additive fields, written only in a bf16-kind bundle (a quant bundle is unchanged):
+
+| File | Field | Content |
+|---|---|---|
+| `distill_provenance.json` | `bundle_kind` | `bf16` |
+| `distill_provenance.json` | `deployed_student` | `winner`; `checkpoint` and `predictions` (run-relative paths); `calibration` (`distill/select/calibration.json`); `attestation`, the per-file sha256 of the train-stage folder the student was copied from (what the final and edge attest), taken before the fitted temperatures were installed, with `manifest_sha256` null; `quantize`, why it was skipped |
+
+`deployed_format` in `distill_provenance.json` and `bundle.json` is `bf16`, and
+`quant_manifest_prereg_sha256` is null, because no quant manifest exists.
+
 ### The `dataset` folder
 
 `bundle.json` (`kind: dataset`), `calibration.json`, `gate.json`, `scorer-train.json`,

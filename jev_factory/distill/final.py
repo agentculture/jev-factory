@@ -25,12 +25,24 @@ fallback, risk r10, and bundle refuses it too). In the unverified-gold proving m
 (``FinalInputs.unverified_gold``, deviation d10) the ledger is not read, a deviation id is
 required, and the report carries an ``unverified_c17`` block marked UNVERIFIED. Before any
 request (apply): the shipped student's ``GET /v1/bundle`` (localhost only) differs from the
-deployed artifact's attestation (:func:`jev_factory.backbones.pointer.quantized.bundle_attestation`:
+deployed artifact's attestation (the student backbone's ``quantizer().bundle_attestation``:
 per-file sha256 and manifest sha256), or its ``GET /v1/stats`` reports no cgroup memory cap. The
 bundle is fetched again after the student is scored; a change fails the run. ``final.json``
 records ``deployed.bundle`` (``files``, ``manifest_sha256``, ``weight_bytes``: what the edge
 stage checks) and ``student_server`` (the attested bundle, the board, the memory cap that
 ``/v1/stats`` reported).
+
+The model set follows the pre-registration (:func:`required_models`): under
+``deployed_format`` bf16 the deployed student is the selected bf16 build
+(:func:`bf16_deployed_student`: the ``select/summary.json`` winner's ``train/<winner>/bundle``,
+calibrated with ``select/calibration.json``), scored once as ``student_bf16``, and attested by
+the per-file sha256 of the folder its loopback server was started from
+(``FinalModel.served_from``; strands-decider serve has no ``/v1/bundle``), before any request
+and again after it was scored. No quant manifest is read then. The deployed quant may be any
+attested loopback server (c9): with the ``deployed_server`` role absent it is not treated as a
+board (its memory is this box's probe). :func:`deployed_url` reads the role-neutral
+``distill_deployed_url`` run-config key, with ``distill_agx_url`` as its alias. ``final.json``
+shows the Clef variant beside the teacher row (``teacher``, ``models.clef.teacher_variant``).
 
 The sealed files are read as bytes and must hash to what :func:`dataset.load_sealed` reports.
 An optional Clef **probe set** (private) is scored by every model in the same run; its
@@ -60,20 +72,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from jev_factory.backbones.pointer import quantized as qz
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill import benchmark as bench
 from jev_factory.distill import dataset
+from jev_factory.distill import deployed as ddeployed
 from jev_factory.distill import edge as dedge
 from jev_factory.distill import gate as dgate
 from jev_factory.distill import prereg as dp
 from jev_factory.distill import quant as dquant
 from jev_factory.distill import report as dreport
+from jev_factory.distill import train as dtrain
 from jev_factory.distill.records import Record
 from jev_factory.distill.runspec import Bootstrap
+from jev_factory.distill.student import backbone as student_backbone
 from jev_factory.measure import once
 from jev_factory.measure.preflight import require_localhost
+from jev_factory.release.hub import digests
 from jev_factory.review import gold
+
+#: The student's deployed-format facet, through the registry (deviation d2).
+qz = student_backbone().quantizer()
 
 STAGE = "distill-final"
 LABEL = "distill-final"
@@ -84,8 +102,20 @@ PREDICTIONS_DIR = "predictions"
 PROBE_DIR = "probe"
 PROBE_FOLD = "probe"
 MODELS = dreport.MODELS
-#: The model whose served bundle is attested: the shipped quant.
+#: The model whose served bundle is attested: the shipped quant (``deployed_format`` quant).
 ATTESTED = dreport.STUDENT
+#: The run-config key naming the deployed student's loopback URL (any attested server, c9),
+#: and the older, board-specific key still read as an alias.
+DEPLOYED_URL_KEY = "distill_deployed_url"
+DEPLOYED_URL_ALIASES: tuple[str, ...] = ("distill_agx_url",)
+#: The bf16 deployed build (``deployed_format`` bf16): ``<run>/distill/train/<winner>/bundle``
+#: (``hobson-hf-export/1``), calibrated with ``<run>/distill/select/calibration.json``.
+BF16_BUNDLE_DIR = "bundle"
+BF16_CALIBRATION_REL = f"{dtrain.SELECT_REL}/{dtrain.CALIBRATION_FILE}"
+BF16_ATTESTATION = (
+    "file sha256 of the bundle the local server was started from "
+    "(strands-decider serve has no /v1/bundle)"
+)
 #: dataset side file stem -> once-ledger side.
 SIDES = {"test": once.TEST, "held_out": once.HELD_OUT}
 STUDENT_CALIBRATION_REL = f"{dquant.QUANT_REL}/{dquant.CALIBRATION_FILE}"
@@ -106,6 +136,9 @@ class FinalModel:
     #: ``get(path) -> JSON object`` on the served model (``/v1/bundle``, ``/v1/stats``);
     #: by default an HTTP GET on the target's localhost ``base_url``.
     get: Callable[[str], Mapping[str, Any]] | None = None
+    #: The folder a locally started server loads; a bf16 deployed student is attested by the
+    #: per-file sha256 of this folder (it has no ``/v1/bundle``).
+    served_from: Path | str | None = None
 
 
 @dataclass(frozen=True)
@@ -150,8 +183,47 @@ def _write_json(path: Path, payload: Any) -> None:
 # --------------------------------------------------------------------- inputs
 
 
-def deployed_student(run_dir: Path) -> dict[str, Any]:
-    """The deployed format, its calibration and the quant manifest, cross-checked by sha256."""
+def deployed_url(config: Any, *, required: bool = True) -> str | None:
+    """The deployed student's URL from a run config: ``distill_deployed_url``, else an alias.
+
+    *config* is anything with ``get`` (a mapping or a RunConfig). Two keys naming different
+    URLs are refused rather than guessed; with neither set, ``None`` unless *required*.
+    """
+    found = {}
+    for key in (DEPLOYED_URL_KEY, *DEPLOYED_URL_ALIASES):
+        value = config.get(key)
+        if value not in (None, ""):
+            found[key] = str(value)
+    if len(set(found.values())) > 1:
+        raise _refuse(
+            f"the run config names two deployed-student URLs: {found}",
+            f"set only {DEPLOYED_URL_KEY} ({', '.join(DEPLOYED_URL_ALIASES)} is its old name)",
+        )
+    if found:
+        return next(iter(found.values()))
+    if required:
+        raise _refuse(
+            "the run config names no deployed-student URL",
+            f"set {DEPLOYED_URL_KEY} to the attested loopback server, e.g. http://127.0.0.1:<port>",
+        )
+    return None
+
+
+def required_models(deployed_format: str) -> tuple[str, ...]:
+    """The models one final scores: the bf16 student is the deployed build under bf16."""
+    if deployed_format == "bf16":
+        return tuple(m for m in MODELS if m != dreport.STUDENT)
+    return MODELS
+
+
+def deployed_student(run_dir: Path, deployed_format: str = "quant") -> dict[str, Any]:
+    """The deployed format, its calibration and the quant manifest, cross-checked by sha256.
+
+    Under ``deployed_format`` bf16 it is the selected bf16 build instead
+    (:func:`bf16_deployed_student`); there is no quant manifest and no fallback either way.
+    """
+    if deployed_format == "bf16":
+        return bf16_deployed_student(run_dir)
     qdir = run_dir / dquant.QUANT_REL
     manifest = _read_json(qdir / dquant.MANIFEST_FILE, "quant manifest")
     if manifest.get("shippable") is False or manifest.get("status") == "failed":
@@ -190,6 +262,22 @@ def deployed_student(run_dir: Path) -> dict[str, Any]:
     }
 
 
+def bf16_deployed_student(run_dir: Path) -> dict[str, Any]:
+    """The bf16 deployed build: the ``select/summary.json`` winner's ``bundle`` folder.
+
+    Resolved and verified by :func:`jev_factory.distill.deployed.bf16_student` (the one bf16
+    resolver gate, bundle and edge use too); this adds the final's key names: ``artifact`` as
+    text, ``selection_predictions`` and an empty quant ``manifest``.
+    """
+    student = ddeployed.bf16_student(run_dir)
+    return {
+        **student,
+        "artifact": str(student["artifact"]),
+        "selection_predictions": str(student["predictions_file"]),
+        "manifest": {},
+    }
+
+
 def fitted_gate(run_dir: Path, calibration_sha256: str) -> dict[str, Any] | None:
     """The fitted ``distill/gate/gate.json`` the report gates with, or None if none was fitted.
 
@@ -216,13 +304,22 @@ def fitted_gate(run_dir: Path, calibration_sha256: str) -> dict[str, Any] | None
     }
 
 
-def deployed_bundle(run_dir: Path, artifact: Any) -> dict[str, Any]:
-    """The attestation of the deployed artifact on disk: what ``GET /v1/bundle`` must answer."""
+def bf16_attestation(path: Path) -> dict[str, Any]:
+    """Per-file sha256 of a bf16 bundle folder, its manifest sha256 and weight bytes: the one
+    attestation shape, :func:`jev_factory.distill.deployed.attestation`."""
+    return ddeployed.attestation(path)
+
+
+def deployed_bundle(run_dir: Path, artifact: Any, deployed_format: str = "quant") -> dict[str, Any]:
+    """The attestation of the deployed artifact on disk: what ``GET /v1/bundle`` must answer
+    (quant), or the folder hashes a bf16 server's ``served_from`` must match (bf16)."""
     path = Path(str(artifact or ""))
     if not artifact:
         raise _refuse("the quant manifest names no deployed_artifact; cannot attest the bundle")
     if not path.is_absolute():
         path = run_dir / path
+    if deployed_format == "bf16":
+        return bf16_attestation(path)
     try:
         att = qz.bundle_attestation(path)
     except OSError as exc:
@@ -379,12 +476,51 @@ def attest_student(model: FinalModel, expected: Mapping[str, Any]) -> dict[str, 
     }
 
 
-def _check_models(models: Mapping[str, FinalModel]) -> None:
-    missing = [m for m in MODELS if m not in models]
-    extra = sorted(set(models) - set(MODELS))
+def attest_bf16_student(model: FinalModel, expected: Mapping[str, Any]) -> dict[str, Any]:
+    """A bf16 deployed student: a loopback server started from a folder hashing to *expected*.
+
+    Called before any request is sent to any model, and again after it was scored.
+    """
+    try:
+        require_localhost(model.target.base_url)
+    except ValueError as exc:
+        raise _refuse(str(exc), "serve the bf16 student on http://127.0.0.1:<port>") from None
+    if model.served_from is None:
+        raise _refuse(
+            "the bf16 student names no served_from folder; its server cannot be attested",
+            "start the server from the deployed bundle and pass that folder as served_from",
+        )
+    folder = Path(model.served_from)
+    served = digests(folder) if folder.is_dir() else {}
+    if served != dict(expected["files"]):
+        changed = sorted(
+            k
+            for k in set(served) | set(expected["files"])
+            if served.get(k) != expected["files"].get(k)
+        )
+        raise _refuse(
+            f"{folder}: the served bf16 bundle differs from the deployed bundle ({changed})",
+            "start the server from distill/train/<winner>/bundle, unchanged",
+        )
+    return {
+        "base_url": model.target.base_url,
+        "attestation": BF16_ATTESTATION,
+        "served_from": str(folder),
+        "bundle": {
+            "files": served,
+            "manifest_sha256": expected.get("manifest_sha256"),
+            "weight_bytes": expected.get("weight_bytes"),
+        },
+        "memory_cap": None,
+    }
+
+
+def _check_models(models: Mapping[str, FinalModel], required: Sequence[str] = MODELS) -> None:
+    missing = [m for m in required if m not in models]
+    extra = sorted(set(models) - set(required))
     if missing or extra:
         raise _refuse(
-            f"the final scores exactly {list(MODELS)} in one invocation;"
+            f"the final scores exactly {list(required)} in one invocation;"
             f" missing {missing}, unexpected {extra}",
             "test and held-out are measured once: pass every model together",
         )
@@ -425,22 +561,41 @@ class _Counted:
 
 
 def _calibrations(
-    student: Mapping[str, Any], clef_calibration: Path | str | None, inputs: FinalInputs
+    student: Mapping[str, Any],
+    clef_calibration: Path | str | None,
+    inputs: FinalInputs,
+    deployed_format: str = "quant",
 ) -> dict[str, dict[str, Any]]:
+    bf16 = deployed_format == "bf16"
+    deployed = {
+        "source": BF16_CALIBRATION_REL if bf16 else STUDENT_CALIBRATION_REL,
+        "sha256": student["calibration_sha256"],
+        "calibration": student["calibration"],
+    }
     out: dict[str, dict[str, Any]] = {
         dreport.CLEF: {"source": CAL_RAW, "sha256": None, "calibration": None},
         dreport.STOCK: {"source": CAL_SERVED, "sha256": None, "calibration": None},
         dreport.STUDENT_BF16: {"source": CAL_RAW, "sha256": None, "calibration": None},
-        dreport.STUDENT: {
-            "source": STUDENT_CALIBRATION_REL,
-            "sha256": student["calibration_sha256"],
-            "calibration": student["calibration"],
-        },
+        dreport.STUDENT: deployed,
     }
-    for name, path, what in (
-        (dreport.CLEF_CALIBRATED, clef_calibration, "Clef calibration"),
-        (dreport.STUDENT_BF16, inputs.bf16_calibration, "bf16 student calibration"),
-    ):
+    if bf16:  # one build: the bf16 student is the deployed student, with its one calibration
+        given = inputs.bf16_calibration
+        if given is not None and (
+            not Path(given).is_file() or dp.sha256_file(Path(given)) != deployed["sha256"]
+        ):
+            raise _refuse(
+                f"{given}: a bf16 calibration other than the deployed {BF16_CALIBRATION_REL}",
+                "under deployed_format bf16 the bf16 student is the deployed build; it is "
+                "measured with the calibration it ships with",
+            )
+        out[dreport.STUDENT_BF16] = dict(deployed)
+        clef_only = ((dreport.CLEF_CALIBRATED, clef_calibration, "Clef calibration"),)
+    else:
+        clef_only = (
+            (dreport.CLEF_CALIBRATED, clef_calibration, "Clef calibration"),
+            (dreport.STUDENT_BF16, inputs.bf16_calibration, "bf16 student calibration"),
+        )
+    for name, path, what in clef_only:
         if path is not None:
             cpath = Path(path)
             out[name] = {
@@ -487,7 +642,15 @@ def run_final(
         deviation = once.check_deviation_id(deviation_id)
     except ValueError as exc:
         raise _refuse(str(exc)) from None
-    _check_models(models)
+    view = dreport.prereg_view(reg)
+    fmt = view.deployed_format
+    plan = _Plan(
+        names=required_models(fmt),
+        attested=view.deployed_model,
+        deployed_format=fmt,
+        on_board=fmt == "quant" and dp.role_present(reg, "deployed_server"),
+    )
+    _check_models(models, plan.names)
     sealed = _sealed_sides(dataset_dir)
     records = {stem: _read_side(side) for stem, side in sealed.items()}
     if inputs.unverified_gold:
@@ -497,8 +660,8 @@ def run_final(
             _ledger_file(dataset_dir, inputs), records["test"], records["held_out"]
         )
     probe = load_probe(inputs.probe, sealed)
-    student = deployed_student(run_dir)
-    bundle = deployed_bundle(run_dir, student["artifact"])
+    student = deployed_student(run_dir, fmt)
+    bundle = deployed_bundle(run_dir, student["artifact"], fmt)
     gate = fitted_gate(run_dir, student["calibration_sha256"])
     ledger = once.OnceLedger(run_dir)
     earlier = _check_ledger(ledger, deviation)
@@ -512,8 +675,14 @@ def run_final(
                 "served_model": models[n].target.model,
                 "base_url": models[n].target.base_url,
                 "pre_served": models[n].target.start is None,
+                **({"teacher_variant": view.teacher_variant} if n == dreport.CLEF else {}),
             }
-            for n in MODELS
+            for n in plan.names
+        },
+        "teacher": {
+            "row": dreport.CLEF,
+            "variant": view.teacher_variant,
+            "model": view.teacher_model,
         },
         "sides": {s: {"count": v.count, "sha256": v.sha256} for s, v in sealed.items()},
         "gold_ledger": {k: v for k, v in approval.items() if k != "approved"},
@@ -530,16 +699,26 @@ def run_final(
             "format": student["format"],
             "artifact": student["artifact"],
             "bundle": bundle,
+            "model": plan.attested,
+            **(
+                {
+                    "winner": student["winner"],
+                    "selection_predictions": student["selection_predictions"],
+                }
+                if fmt == "bf16"
+                else {}
+            ),
         },
-        "calibrations": _calibrations(student, clef_calibration, inputs),
+        "calibrations": _calibrations(student, clef_calibration, inputs, fmt),
         "gate": None if gate is None else {k: gate[k] for k in ("file", "sha256")},
     }
     if not apply:
         return {**base, "dry_run": True}
     with ledger:
         _check_ledger(ledger, deviation)  # again, under the lock
-        base["student_server"] = attest_student(models[ATTESTED], bundle)  # before any request
+        base["student_server"] = plan.attest(models[plan.attested], bundle)  # before any request
         return _measure(
+            plan=plan,
             base=base,
             ledger=ledger,
             sealed=sealed,
@@ -570,6 +749,24 @@ def run_final(
 
 
 @dataclass(frozen=True)
+class _Plan:
+    """Which models this final scores and how the deployed student is attested."""
+
+    names: tuple[str, ...]
+    #: The deployed student's row: the quant, or the bf16 student under bf16.
+    attested: str
+    deployed_format: str
+    #: The deployed quant is pre-served on a board (role deployed_server present): its memory
+    #: is read from its own ``/v1/stats``, never this box's GPU.
+    on_board: bool
+
+    def attest(self, model: FinalModel, expected: Mapping[str, Any]) -> dict[str, Any]:
+        if self.deployed_format == "bf16":
+            return attest_bf16_student(model, expected)
+        return attest_student(model, expected)
+
+
+@dataclass(frozen=True)
 class _ReportInputs:
     """The records the final reads and what the report cites beyond the measurement."""
 
@@ -595,8 +792,43 @@ def _write_predictions(out_dir: Path, results: Mapping[str, Mapping[str, Any]]) 
             _write_json(out_dir / PREDICTIONS_DIR / PROBE_DIR / f"{name}.json", probe)
 
 
+def _measure_model(
+    name: str,
+    model: FinalModel,
+    *,
+    plan: _Plan,
+    folds: Mapping[str, Sequence[Record]],
+    counted: list[_Counted],
+    memory_probe: bench.MemoryProbe | None,
+    proc_root: Path | str,
+    bundle: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Score one model; the client joins *counted* before any request is sent."""
+    client = _Counted(
+        model.client or bench.SystemOneClient(model.target.base_url, model=model.target.model)
+    )
+    counted.append(client)
+    remote = model.target.start is None and name == plan.attested and plan.on_board
+    result = bench.benchmark_model(
+        model.target,
+        folds,
+        memory_probe=None if remote else memory_probe,
+        client=client,
+        proc_root=proc_root,
+    )
+    if remote:  # this box's GPU says nothing about the board's memory
+        result["memory"] = _served_memory(_getter(model))
+    if name == plan.attested:  # the bundle that answered is still the one attested
+        if plan.deployed_format == "bf16":
+            attest_bf16_student(model, bundle)
+        else:
+            dedge.check_bundle(_getter(model)(dedge.BUNDLE_PATH), bundle)
+    return result
+
+
 def _measure(
     *,
+    plan: _Plan,
     base: dict[str, Any],
     ledger: once.OnceLedger,
     sealed: Mapping[str, dataset.SealedSide],
@@ -632,25 +864,17 @@ def _measure(
         return written
 
     try:
-        for name in MODELS:  # sequential: one served model at a time
-            model = models[name]
-            client = _Counted(
-                model.client
-                or bench.SystemOneClient(model.target.base_url, model=model.target.model)
-            )
-            counted.append(client)
-            remote = model.target.start is None and name == ATTESTED  # served on the board
-            results[name] = bench.benchmark_model(
-                model.target,
-                folds,
-                memory_probe=None if remote else memory_probe,
-                client=client,
+        for name in plan.names:  # sequential: one served model at a time
+            results[name] = _measure_model(
+                name,
+                models[name],
+                plan=plan,
+                folds=folds,
+                counted=counted,
+                memory_probe=memory_probe,
                 proc_root=proc_root,
+                bundle=base["deployed"]["bundle"],
             )
-            if remote:  # this box's GPU says nothing about the board's memory
-                results[name]["memory"] = _served_memory(_getter(model))
-            if name == ATTESTED:  # the bundle that answered is still the one attested
-                dedge.check_bundle(_getter(model)(dedge.BUNDLE_PATH), base["deployed"]["bundle"])
     except BaseException:
         if any(c.asked for c in counted):
             record(once.FAILED_MID_RUN)

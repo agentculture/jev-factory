@@ -42,12 +42,13 @@ from typing import Any
 
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from jev_factory.core.split import make_folds
+from jev_factory.distill.profile import DEFAULT_2610, StudentProfile
 from jev_factory.distill.records import ATTRIBUTION_LICENCES, Record
 
 STAGE = "distill-dataset"
-MAX_TOKENS = 4096
+MAX_TOKENS = DEFAULT_2610.max_tokens
 #: The student's ``num_slots`` (2610 strands_decider_config.json): most options per question.
-DEFAULT_MAX_SLOTS = 24
+DEFAULT_MAX_SLOTS = DEFAULT_2610.num_slots
 DEFAULT_SEED = 27
 DEFAULT_HELD_OUT_FRACTION = 0.10
 #: Fractions of the pool left after the held-out carve; selection is the remainder.
@@ -320,13 +321,19 @@ def build_dataset(
     *,
     token_counter: TokenCounter,
     seed: int = DEFAULT_SEED,
-    max_tokens: int = MAX_TOKENS,
-    max_slots: int = DEFAULT_MAX_SLOTS,
+    max_tokens: int | None = None,
+    max_slots: int | None = None,
+    profile: StudentProfile = DEFAULT_2610,
     held_out_fraction: float = DEFAULT_HELD_OUT_FRACTION,
     train_fraction: float = DEFAULT_TRAIN_FRACTION,
     fit_fraction: float = DEFAULT_FIT_FRACTION,
 ) -> Dataset:
-    """Build the run dataset from *records*; see the module docstring."""
+    """Build the run dataset from *records*; see the module docstring.
+
+    ``max_tokens`` and ``max_slots`` default to the *profile*'s limits; an explicit value wins.
+    """
+    max_tokens = profile.max_tokens if max_tokens is None else max_tokens
+    max_slots = profile.num_slots if max_slots is None else max_slots
     _check_fractions(held_out_fraction, train_fraction, fit_fraction)
     recs = sorted(records, key=lambda r: r.id)
     ids = [r.id for r in recs]

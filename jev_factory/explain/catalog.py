@@ -443,9 +443,10 @@ argparse tree.
 _DISTILL = """\
 # jev-factory distill <stage>
 
-The distillery: turns a large teacher (Clef 27B, served on 127.0.0.1 over /v1/systemone) into
-a small calibrated student (Strands Decider 2B, fine-tuned from hobson-v21) on public
-typed-decision data. Each stage is registered in the distillery's own stage registry,
+The distillery: turns a large teacher (Clef 27B, in any build variant, served on 127.0.0.1
+over /v1/systemone) into a small calibrated student on public typed-decision data. The student
+comes from a profile (`distill_student_profile`; the default is Strands Decider 2B, the 2610
+build on Qwen3.5-2B-Base). Each stage is registered in the distillery's own stage registry,
 separate from `jev run`'s, and writes a manifest under `<work>/distill/manifests/`; its
 outputs live under `<work>/distill/`. A fresh stage is a no-op and a stale one says why.
 `jev-factory distill` alone lists the stages in order.
@@ -460,9 +461,11 @@ follow it with `jev-factory status <work>`. `--force` re-runs a fresh stage.
 Run context: `--work` and `--config` (default `<work>/run.toml`; the `distill_*` keys name
 the records file, the pinned environments, the pin cache, the localhost endpoints, the
 teacher's key by env-var NAME (`distill_teacher_key_env`) and its `X-Lobes-Model` header, the
-JevBench w4096 task file, the gold ledger, the probe set, the AGX Orin tunnel the final asks
-the shipped quant through (`distill_agx_url`), and the edge board's tunnel and expected
-cgroup cap (`distill_edge_url`, `distill_edge_memory_cap`));
+JevBench w4096 task file, the gold ledger, the probe set, the Clef variant served
+(`distill_teacher_variant`), the executor (`distill_executor`, only `local`), the loopback tunnel
+the final asks the deployed student through (`distill_deployed_url`, alias `distill_agx_url`),
+and the edge board's tunnel and expected cgroup cap (`distill_edge_url`,
+`distill_edge_memory_cap`));
 `--knob KEY=VALUE` sets a stage knob (unknown knobs are refused); `--deviation-id` names a
 recorded deviation where a module allows one.
 
@@ -472,12 +475,13 @@ it runs, and final and edge refuse while it is held); corrections are drafted `p
 only operator-approved ones train (`jev-factory review --corrections`); benchmark reproduces
 the stock model's JevBench w4096 result and train refuses without that record (or on a base
 mismatch) unless a deviation id is given; quantize ships nothing when no quantized build
-qualifies (no bf16 fallback), and final and bundle refuse then; the gate is fitted on the fit
-fold only; test and held-out are measured once, for all four models together (Clef, stock,
-the bf16 student and the shipped quant pre-served on the AGX Orin); edge measures the shipped
-quant on a board on the selection fold and the probe set only, against quant's own
-selection-fold predictions of the same bundle; bundles are uploaded private-first and fetched
-back to verify.
+qualifies (no bf16 fallback), and final and bundle refuse then, unless the pre-registration
+declares deployed_format bf16, which skips quantize and ships the bf16 student; the gate is
+fitted on the fit fold only; test and held-out are measured once, for the declared models
+together (Clef, stock, the bf16 student and the deployed build pre-served on an attested
+loopback server); edge measures the shipped quant on a board on the selection fold and the
+probe set only, against quant's own selection-fold predictions of the same bundle; bundles are
+uploaded private-first and fetched back to verify.
 
 ## Stages
 

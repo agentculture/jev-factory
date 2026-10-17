@@ -1,0 +1,23 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "teacher_audit.json": "683c2c4a522a1c5966dd35f0c7937755f8280d61f7fb45a4f3643455c5e824a0"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {
+      "distill_alt_teacher_model": "fake-drafter",
+      "distill_alt_teacher_url": "http://127.0.0.1:9"
+    },
+    "author": "model:fake-drafter",
+    "reason": "weak"
+  },
+  "outputs": {
+    "corrections/corrections.jsonl": "5327219e04bcf4ee750b3839d1609e838343ce32275e54cf4126b583ab429824",
+    "corrections/draft.json": "<VARIES>"
+  },
+  "rc": 0,
+  "stage": "corrections-draft",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

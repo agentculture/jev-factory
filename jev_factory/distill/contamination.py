@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Any
 
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
+from jev_factory.distill.profile import DEFAULT_2610, StudentProfile
 from jev_factory.distill.records import Record
 from jev_factory.factory import safepath
 
@@ -63,7 +64,12 @@ def normalise(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(name).lower())
 
 
-def load_manifest(path: Path | str = MANIFEST_PATH) -> dict[str, Any]:
+def load_manifest(
+    path: Path | str | None = None, *, profile: StudentProfile = DEFAULT_2610
+) -> dict[str, Any]:
+    """Read the upstream-sources manifest: *path*, else the profile's ``contamination_manifest``."""
+    if path is None:
+        path = profile.contamination_manifest
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         sources = data["sources"]
@@ -107,6 +113,7 @@ def check_sources(
     manifest: dict[str, Any] | None = None,
     hf_ids: Mapping[str, str] | None = None,
     records: Iterable[Record] | None = None,
+    profile: StudentProfile = DEFAULT_2610,
 ) -> dict[str, Any]:
     """Mark each source name clean, stock-evaluated or overlapping; returns the report dict.
 
@@ -114,7 +121,7 @@ def check_sources(
     present the id is matched in addition to the name. *records* supplies ``Record.hf_id``
     values for their ``source`` names; an explicit *hf_ids* entry overrides them.
     """
-    manifest = manifest if manifest is not None else load_manifest()
+    manifest = manifest if manifest is not None else load_manifest(profile=profile)
     idx = _index(manifest)
     hf_ids = {**{r.source: r.hf_id for r in (records or ()) if r.hf_id}, **(hf_ids or {})}
     results: dict[str, Any] = {}

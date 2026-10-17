@@ -1,0 +1,25 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "corrections/corrections.jsonl": "5327219e04bcf4ee750b3839d1609e838343ce32275e54cf4126b583ab429824",
+    "teacher/teacher_labels.jsonl": "996025e9c44691c2cd1b9919d5a91e50b0b39426a722c246aa4f1811b6dcfca2",
+    "teacher_audit.json": "683c2c4a522a1c5966dd35f0c7937755f8280d61f7fb45a4f3643455c5e824a0"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {},
+    "_external": {
+      "corrections_review": "6f180150b608fecb20fa3afd896fad9cefa5898d34e2977ea47fe9caf9927ddf"
+    },
+    "alt_labels": null,
+    "teacher_filter": "all"
+  },
+  "outputs": {
+    "assemble/assemble_manifest.json": "<VARIES>",
+    "assemble/train_set.jsonl": "7e7f35aefe1730fda6fa41ecf179c4e0db0f16bd7df38296f387d758fd76f8ec"
+  },
+  "rc": 0,
+  "stage": "assemble",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

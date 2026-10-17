@@ -15,22 +15,24 @@ from pathlib import Path
 from typing import Any
 
 from jev_factory.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
+from jev_factory.distill.profile import DEFAULT_2610, StudentProfile
 
-BASE_REPO = "Qwen/Qwen3.5-2B-Base"
-DECIDER_REPO = "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610"
+# Module-level aliases of the built-in profile (DEFAULT_2610), kept importable.
+BASE_REPO = DEFAULT_2610.base_repo
+DECIDER_REPO = DEFAULT_2610.decider_repo
 #: The decider commit the digests below were read at (its provenance.json).
-DECIDER_REVISION = "216d1ccb46a9e9b036eb9187b248db98480f77d4"
+DECIDER_REVISION = DEFAULT_2610.decider_revision
 REVISION_FILE = "REVISION"
 #: 2610 stores the adapter under ``lora/`` (with ``lora/adapter_config.json``); no root file.
-ADAPTER_FILE = "lora/adapter_model.safetensors"
-HEAD_FILE = "head.safetensors"
-PROVENANCE_FILE = "provenance.json"
+ADAPTER_FILE = DEFAULT_2610.adapter_file
+HEAD_FILE = DEFAULT_2610.head_file
+PROVENANCE_FILE = DEFAULT_2610.provenance_file
 #: 2610's full digests, from its provenance.json.
-DECIDER_ADAPTER_SHA256 = "ae1d0cd1ac3edec6df0a519a3ad18f1c382099032d493f8f98c96a80cfebb4c7"
-DECIDER_HEAD_SHA256 = "ace56742545b505e6fae34ada85c8edbeedb23ba8974d8680aebe0380d6083a1"
+DECIDER_ADAPTER_SHA256 = DEFAULT_2610.adapter_sha256
+DECIDER_HEAD_SHA256 = DEFAULT_2610.head_sha256
 #: Default base pin. Upstream marks it "inferred: Hub main at training time; hosts did not pin
 #: it", so it is our pin; a run config may override it.
-DEFAULT_BASE_REVISION = "b1485b2fa6dfa1287294f269f5fb618e03d52d7c"
+DEFAULT_BASE_REVISION = DEFAULT_2610.base_revision
 _HEX = re.compile(r"^[0-9a-f]{8,64}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -71,14 +73,28 @@ class StudentPins:
 
 
 def default_pins(
-    *, decider_revision: str, base_revision: str = DEFAULT_BASE_REVISION
+    *,
+    decider_revision: str,
+    base_revision: str | None = None,
+    profile: StudentProfile | None = None,
 ) -> StudentPins:
-    """Decider pins: full digests built in, base revision overridable, decider commit required."""
+    """Decider pins from a profile: digests built in, base revision overridable, commit required.
+
+    ``profile=None`` means :data:`DEFAULT_2610`, read through this module's alias constants
+    (``BASE_REPO``, ``DECIDER_ADAPTER_SHA256`` ...) so a test that patches them still bites.
+    """
+    if profile is None:
+        return StudentPins(
+            base=RepoPin(BASE_REPO, base_revision or DEFAULT_BASE_REVISION),
+            decider=RepoPin(DECIDER_REPO, decider_revision),
+            adapter_sha256=DECIDER_ADAPTER_SHA256,
+            head_sha256=DECIDER_HEAD_SHA256,
+        )
     return StudentPins(
-        base=RepoPin(BASE_REPO, base_revision),
-        decider=RepoPin(DECIDER_REPO, decider_revision),
-        adapter_sha256=DECIDER_ADAPTER_SHA256,
-        head_sha256=DECIDER_HEAD_SHA256,
+        base=RepoPin(profile.base_repo, base_revision or profile.base_revision),
+        decider=RepoPin(profile.decider_repo, decider_revision),
+        adapter_sha256=profile.adapter_sha256,
+        head_sha256=profile.head_sha256,
     )
 
 

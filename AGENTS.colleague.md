@@ -81,7 +81,14 @@ model name; do not mix it up with the jev-like decider whose candidates are
 - The student is `StrandsAgents/strands-decider-2B-qwen3.5-v1-2610` at
   `216d1ccb` (issue 20, an Orin Nano Jetson-ops specialist); the reference
   role is the model-neutral `stock`. Its quantized build stays under 10^9
-  bytes. Tests use fakes for the teacher tunnel, the AGX/Nano servers and the
+  bytes. The student comes from a profile (`distill/profile.py`, default 2610)
+  and the Clef variant is `distill_teacher_variant` (recipes unverified).
+  Minimum roles are Clef, the stock target and the student; `alt_teacher`,
+  `deployed_server` and `edge` are optional (schema-3 pre-registration; an
+  absent one gives `not_applicable`; the old `miss` result is `fail`). The
+  deployed format is `quant` or `bf16`. Train and heal go through the executor
+  seam (`distill/executor.py`; only `local`). Tests use fakes for the teacher
+  tunnel, the board and deployed-student servers and the
   bundle attestation: never connect to anything but `127.0.0.1`, and never
   put a key value in code, tests or logs (name the env var).
 - Records are `/v1/systemone` bodies plus gold; read only the per-option

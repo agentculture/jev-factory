@@ -72,5 +72,40 @@ class CausalLMBackbone(Backbone):
         """The deployed format: GGUF Q4_K_M."""
         return ("gguf-q4_k_m",)
 
+    # ---- the distillery's hooks: no distill path exists for this family ----------------
+
+    @staticmethod
+    def _no_distill(member: str) -> NotImplementedError:
+        return NotImplementedError(
+            f"causal_lm.{member}: the distillery has no causal-LM student; the causal-LM "
+            "factory path is jev run"
+        )
+
+    def layout(self) -> Any:
+        raise self._no_distill("layout")
+
+    def config_files(self) -> Mapping[str, str]:
+        raise self._no_distill("config_files")
+
+    def serve_argv(
+        self, python: str, bundle: Any, *, port: int, host: str = "127.0.0.1"
+    ) -> list[str]:
+        raise self._no_distill("serve_argv")
+
+    def server(self) -> Any:
+        raise self._no_distill("server")
+
+    def plan_distill_train(self, **kwargs: Any) -> Mapping[str, Any]:
+        raise self._no_distill("plan_distill_train")
+
+    def run_distill_train(self, plan: Mapping[str, Any], **kwargs: Any) -> Mapping[str, Any]:
+        raise self._no_distill("run_distill_train")
+
+    def trainer(self) -> Any:
+        raise self._no_distill("trainer")
+
+    def quantizer(self) -> Any:
+        raise self._no_distill("quantizer")
+
 
 BACKBONE = CausalLMBackbone()

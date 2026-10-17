@@ -24,12 +24,84 @@ the code.
 > acceptance gate for the jev-tool model; that stays the first and only
 > acceptance target of the extraction plan.
 
-**State of the work.** The distillery code is built and tested on fixtures.
-No distill run has been executed on the box yet (the #18 operator run, t26,
-and the #20 operator run, t23, have not happened). **No #20 model has been
-trained or measured**: no distilled student, quantized build, bundle, edge
-measurement or final report exists, and nothing here may be described as
-shipped or as a measured result.
+**State of the work.** The distillery code is built and tested. The #20
+operator run (t23) has run once, as a **proving run on unverified,
+model-drafted gold** (that run's deviation d10): every stage from
+`preregister` to `bundle` completed, and an un-healed int4 build (985,675,969
+weight bytes) is bundled. It is **not uploaded and not verified**, and must
+never be called shipped: verified gold, a fresh `final` and the publish gate
+come first. Its numbers are unverified, it recorded one bar miss (int4 versus
+bf16 agreement 0.960 against the 0.97 bar), and the int4 build loses general
+skill against stock on the typed-decisions guard (reported, never gated). Read
+`docs/evidence/2026-10-16-jetson-ops-proving-run.md` before claiming anything
+about it. The #18 operator run (t26) has not happened. The configurable
+distillery work below (roles, profile, Clef variant, deployed format, executor
+seam) is code merged after that run; no run has used it yet.
+
+## Configuring a run: roles, profile, variant, format, executor
+
+The distillery is configurable rather than fixed to one student, one Clef build
+and one deployment. Spec and plan:
+`docs/specs/2026-10-17-configurable-distillery-and-remote-training.md` and
+`docs/plans/2026-10-17-configurable-distillery-and-remote-training.md`.
+
+- **Roles.** The pre-registration (schema v3, `roles`) declares them. Three are
+  the minimum and are always present: the **teacher** (Clef, any build
+  variant), the **stock** fine-tuning target, and the **student**. Three are
+  optional and each is declared present or absent before the lock:
+  `alt_teacher` (the correction drafter), `deployed_server` (the attested
+  deployed-student server `final` reaches) and `edge` (a board). A bar
+  relative to an absent role or format reports `not_applicable` with the
+  reason. Bar results are `pass`, `fail`, `not_applicable` or `reported`; the
+  old `miss` is now `fail`, so anything parsing `report.json` must read
+  `fail`. The teacher and stock bars always apply. The teacher bar is
+  variant-neutral (`top1_under_teacher_max_points`): it is relative to the
+  Clef variant the run serves, that variant is locked in the pre-registration
+  and it is reported beside every number (operator decision c43).
+- **Student profile** (`jev_factory/distill/profile.py`). Every pin and limit
+  that names one student lives in a `StudentProfile` (base repo and revision,
+  backbone, decider repo and revision, adapter and head sha256, slot, token and
+  weight-byte limits, the LoRA seeds, the contamination manifest, optional
+  upstream and file names, and the card baseline). `DEFAULT_2610` is the
+  default. Select another with the run-config key
+  `distill_student_profile = "<path to a TOML file>"`; `run.toml` itself
+  refuses a profile table. Loading fails closed with the field named. The
+  backbone is reached through `registry.get(profile.backbone)`.
+- **Clef variant.** `distill_teacher_variant` names the build the run serves.
+  `jev_factory/distill/envs.py` `VARIANT_RECIPES` maps a variant to an engine
+  kind and a quantization flag: `BF16` (clef-transformers), `NVFP4` and `FP4`
+  (sglang-dev-clef, `modelopt_fp4`) and `W4A16` (vllm-clef,
+  `compressed-tensors`). **These recipes are unverified** (recorded lapse l1):
+  treat the engine and quantization flags as unconfirmed until a variant has
+  been served with them. An unknown variant is refused.
+- **Pre-registration v3** (`prereg.py`). It adds `roles` and `deployed_format`
+  (`quant` or `bf16`) and the variant-neutral teacher bar. Locked v2 files
+  still load through a mapping: the W4A16 variant, every role present and the
+  `quant` format.
+- **Deployed format.** `quant` is the default path above, with its "no bf16
+  fallback" rule. With `deployed_format bf16`, `quantize` and its heal round are
+  recorded `skipped` (shown by `jev status`), and `bundle` ships the train
+  stage's selected candidate as the **bf16 bundle kind**
+  (`docs/distill-bundle-format.md`, section "The bf16 bundle kind"). `edge`
+  cannot attest a plain `strands-decider serve` of a bf16 build (no
+  `/v1/bundle`) and refuses; serving it behind an attesting server is a
+  follow-up (risk r3).
+- **Executor seam** (`jev_factory/distill/executor.py`). Train and heal hand
+  their plan to the seam as a `JobSpec`. `distill_executor` names the executor;
+  only `local` exists and any other name is refused. Staged inputs carry their
+  sha256; only train-side rows may be staged, the seam refuses a protected
+  (held-out, test, fit, selection) id and any secret, endpoint or private-IP
+  hit, and every expected output is re-hashed on return. Job records go into the
+  stage manifest only for non-local executors (deviation d3 of that work).
+  There is no AWS code yet; SageMaker in us-east-1 is a later session. See
+  `docs/training-env.md`.
+- **Deployed server URL.** `distill_deployed_url` (alias `distill_agx_url`) is
+  any loopback server that attests `/v1/bundle` and reports a cgroup cap; it is
+  not AGX-specific.
+- **Shared layers.** The `/v1/systemone` client is
+  `jev_factory/wire/systemone.py` (`distill/systemone.py` re-exports it);
+  `jev_factory/runtime/` holds `EnvSpec`, the id digests and the
+  pre-registration lock check.
 
 ## Before-state evidence
 
@@ -75,8 +147,8 @@ distillery code (`jev_factory/distill/`, `jev_factory/backbones/pointer/`).
 Serving and training live in different repos.
 
 - **Serving** is in lobes-cli, in its `orin-decision-models` work: the
-  `decider` role runs Clef (W4A16 build) on the Orin and the 2B (bf16) on any
-  box. lobes passes `/v1/systemone` through unchanged.
+  `decider` role runs Clef (a quantized build on the Orin) and the 2B (bf16)
+  on any box. lobes passes `/v1/systemone` through unchanged.
 - **Training** is here. jev-factory owns the data contract, teacher labelling,
   audit, corrections, the distill trainer, selection, calibration, the gate,
   quantization, the single final measurement and the private bundle.
@@ -154,14 +226,14 @@ under `<work>/distill/manifests/`, which `jev status <work>` reads beside the
 | 10 | `quantize` | Builds the quantized candidates, applies the size and agreement bars, heals at most once, recalibrates on the deployed build. | `quant.py` |
 | 11 | `gate` | Fits the per-kind answer-or-abstain gate on the fit fold (deviation d4). | `gate.py` |
 | 12 | `final` | Scores Clef, the stock model, the bf16 student and the shipped quant once on test and held-out. | `final.py` |
-| 13 | `edge` | Measures the shipped quant on a board (AGX Orin or Nano) through a tunnel, on non-test data only. | `edge.py` |
+| 13 | `edge` | Measures the shipped quant on a board (any Jetson, such as an AGX Orin or a Nano) through a tunnel, on non-test data only; refuses a bf16 build it cannot attest. | `edge.py` |
 | 14 | `bundle` | Writes the model bundle and the dataset bundle, with a NOTICE. | `bundle.py` |
 | 15 | `upload` | Pre-upload scans, private upload, fetch-back, sha256 verification. | `bundle.py`, `jev_factory/release/hub.py` |
 
 Details that matter when operating them:
 
-- **Teacher over a tunnel.** The teacher (Clef W4A16 behind the Orin
-  gateway) is never contacted directly: the operator opens an SSH tunnel and
+- **Teacher over a tunnel.** The teacher (a Clef build, set by
+  `distill_teacher_variant`, behind the gateway) is never contacted directly: the operator opens an SSH tunnel and
   the run config points at `127.0.0.1`. Non-localhost URLs are refused.
 
   ```console
@@ -289,18 +361,19 @@ Details that matter when operating them:
   survives safety and calibration, `quantize` records a failed `no qualifying
   format` result and exits non-zero. `final` and `bundle` refuse that
   manifest; nothing ships.
-- **Final with the AGX-served quant.** `final` scores four models once: Clef
-  W4A16, the stock model, the bf16 student and the shipped quant. The quant is
-  pre-served on the AGX Orin and reached through a tunnel at
-  `distill_agx_url` (`http://127.0.0.1:<port>`). Before any test request,
+- **Final with the attested deployed student.** `final` scores the declared
+  models once: Clef (the locked variant), the stock model, the bf16 student
+  and the shipped build. The deployed build is pre-served on any loopback
+  server (the proving run used an AGX Orin) and reached through a tunnel at
+  `distill_deployed_url` (alias `distill_agx_url`, `http://127.0.0.1:<port>`). Before any test request,
   `final` checks that `GET /v1/bundle` equals the deployed artifact's
   attestation (per-file sha256 and manifest sha256) and that `GET /v1/stats`
   reports a cgroup memory cap, and refuses otherwise. It also refuses while
   the teacher-label lock exists. The bundle is fetched again after scoring and
   a change fails the run. The cap `/v1/stats` reported is recorded in
   `final.json`.
-- **Edge stage.** `edge` measures the shipped quant on a board (AGX Orin or
-  Orin Nano, labelled by the `label` knob) through a tunnel at
+- **Edge stage.** `edge` measures the shipped quant on a board (for example an AGX
+  Orin or an Orin Nano, labelled by the `label` knob) through a tunnel at
   `distill_edge_url`, on the **selection fold and the probe set only**; test
   and held-out ids exit non-zero before any request. It records median and p95
   latency, resident memory and `MemAvailable` from `/v1/stats`, and
@@ -335,7 +408,7 @@ systemd-run --user -p MemoryMax=<cap> \
     --host 127.0.0.1 --port N
 ```
 
-From the DGX Spark, forward the board's port (a Nano and an AGX Orin each get
+From the DGX Spark, forward the board's port (each board gets
 their own local port), then set `distill_agx_url` or `distill_edge_url` to the
 forwarded `http://127.0.0.1:<local port>`:
 
@@ -345,7 +418,7 @@ ssh -N -L 127.0.0.1:<local port>:127.0.0.1:N <board>
 
 `<cap>` is a systemd size such as `4G`; set `distill_edge_memory_cap` to the
 same value so `edge` refuses a server running under a different cap. Run
-nothing on the AGX Orin without the operator's go, and never while teacher
+nothing on a board without the operator's go, and never while teacher
 labelling runs. Which kernels actually run on `sm_87` is settled by the board
 evidence in `docs/evidence/2026-10-jetson-runtime-spike.md`, not by this page.
 
@@ -357,7 +430,7 @@ command, and computed from the single final measurement by
 
 - **c17 (#20), on the final test side, for the bf16 student and for the
   shipped quant each:** top-1 at least the stock model plus 10 points, and
-  within 5 points of Clef W4A16 (at most 5 points below it). For the quant
+  within 5 points of the Clef variant the run serves (at most 5 points below it). For the quant
   also: agreement with the bf16 student at least 0.97, and weight bytes under
   10^9. Median and p95 latency are reported with no bar. Each bar is
   computed with paired bootstrap CIs and cites the hashed pre-registration; a
@@ -373,7 +446,7 @@ command, and computed from the single final measurement by
   model-generated gold (typed-decisions) is a secondary table and is never
   gated. The models are resampled jointly, and a higher accuracy with a
   higher ECE than the stock model is reported as a regression.
-- A miss is recorded as a miss; the report is still written, and a run that
+- A failed bar is recorded as `fail` (formerly `miss`); the report is still written, and a run that
   misses either signal ships a failure report, not the announcement.
 
 ## The bundle

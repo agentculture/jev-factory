@@ -1,0 +1,22 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "bundle/dataset": "<VARIES>",
+    "bundle/model": "<VARIES>"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {
+      "hub_prefix": "example-org/distill-"
+    },
+    "dataset_repo": "example-org/distill-e2e-data",
+    "model_repo": "example-org/distill-e2e-student"
+  },
+  "outputs": {
+    "upload/upload.json": "33e8912fc2b5a15e62e3d980ad8796ace0689f95a5c3157a2077bd7c24113749"
+  },
+  "rc": 0,
+  "stage": "upload",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

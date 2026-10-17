@@ -6,8 +6,18 @@ one. Every item of a pool is one gold-bearing question ``(record id, qid)``; the
 (and every difference or agreement between models) is computed on those same indices, so the
 CIs are on paired per-item differences.
 
-Models: Clef (W4A16, as served), the stock model, the distilled **bf16 student**
-(``student_bf16``) and the **shipped quant** (``student``, the deployed artifact).
+Models: Clef (the pre-registered variant, as served; the variant is shown beside every teacher
+number, decision c43), the stock model, the distilled **bf16 student** (``student_bf16``) and
+the **shipped quant** (``student``, the deployed artifact). Under ``deployed_format`` bf16 the
+bf16 student is the deployed build, measured once: the ``student`` row is that same row, the
+bf16 c17 bars apply, and every quant bar (``bars.c17.quant``, ``bars.quant``) is listed
+``not_applicable`` naming the format. The pre-registration is read through the v3 accessors
+of :mod:`jev_factory.distill.prereg` (:func:`prereg_view`), so v2 and v3 files both work.
+
+Every bar row has exactly one ``result`` of :data:`RESULTS` (``pass``, ``fail``,
+``not_applicable`` with the absent role or format, ``reported``), checked by
+:func:`check_results` before the report is returned. A bar of a present role that cannot be
+computed is ``fail``; a model with no predictions at all gets no row, so its relative bars fail.
 
 Pools, per sealed side (``test`` and ``held_out``):
 
@@ -82,9 +92,15 @@ MODEL_GENERATED = "model_generated"
 POOLS = (HEADLINE, OVERLAPPING, STOCK_EVALUATED, UNAPPROVED, MODEL_GENERATED)
 
 PASSED = "pass"  # a bar result, not a secret
-MISSED = "miss"
+FAILED = "fail"
+#: The pre-t9 name of :data:`FAILED` (a missed bar is a fail).
+MISSED = FAILED
+#: A bar relative to a role or format the pre-registration declared absent, with the reason.
+NOT_APPLICABLE = "not_applicable"
 #: A row that is reported with no pass/fail (latency).
 REPORTED = "reported"
+#: Every bar row carries exactly one of these (enforced by :func:`check_results`).
+RESULTS = (PASSED, FAILED, NOT_APPLICABLE, REPORTED)
 #: Point comparisons tolerate float noise (``100 * (0.85 - 0.75)`` is not exactly 10).
 _EPS = 1e-9
 
@@ -425,8 +441,27 @@ def _bar(
         "ci_low": stat.get("ci_low"),
         "ci_high": stat.get("ci_high"),
         "n": stat.get("n", 0),
-        "result": PASSED if passed else MISSED,
+        "result": PASSED if passed else FAILED,
         "reason": reason,
+    }
+
+
+def not_applicable(name: str, threshold: Any, absent: str) -> dict[str, Any]:
+    """A bar relative to an absent role or format: no value, never a silent fail.
+
+    *absent* names what is absent (``deployed_format bf16``, ``role edge absent``)."""
+    return {
+        "bar": name,
+        "threshold": threshold,
+        "compared": None,
+        "value": None,
+        "point": None,
+        "ci_low": None,
+        "ci_high": None,
+        "n": 0,
+        "result": NOT_APPLICABLE,
+        "reason": f"not applicable: {absent}",
+        "absent": absent,
     }
 
 
@@ -450,8 +485,12 @@ def c42_bars(
     stats: Mapping[str, Mapping[str, Any]],
     bars: Mapping[str, Any],
     runtime: Mapping[str, Mapping[str, Any]],
+    teacher_variant: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Every ``bars.test`` bar, computed from one pool's paired-bootstrap statistics."""
+    """Every ``bars.test`` bar, computed from one pool's paired-bootstrap statistics.
+
+    The rows relative to Clef (gap closure, latency ratio) carry *teacher_variant* when given.
+    """
     diff = stats.get("accuracy_diff_student_stock")
     gap = stats.get("gap_closure")
     s_ece, v_ece = stats.get(f"{STUDENT}.ece"), stats.get(f"{STOCK}.ece")
@@ -484,28 +523,38 @@ def c42_bars(
         ),
         _bar("ece_max", bars["ece_max"], s_ece, _le(value(s_ece), bars["ece_max"])),
     ]
-    for name, mine, theirs in (
-        ("ece_no_worse_than_stock", s_ece, v_ece),
-        ("confident_wrong_no_worse_than_stock", s_cw, v_cw),
-    ):
-        if bars[name]:
-            out.append(
-                _bar(
-                    name,
-                    {"stock": value(theirs)},
-                    mine,
-                    _le(value(mine), value(theirs)),
-                )
-            )
-        else:
-            row = _bar(name, False, mine, True)
-            row["reason"] = "not gated: the pre-registration sets this bar to false"
-            out.append(row)
+    out.append(_no_worse_than_stock("ece_no_worse_than_stock", bars, s_ece, v_ece))
+    out.append(_no_worse_than_stock("confident_wrong_no_worse_than_stock", bars, s_cw, v_cw))
     row = _bar("latency_ratio_max", bars["latency_ratio_max"], lat, True)
     row["result"] = REPORTED
     row["reason"] = LATENCY_NOT_GATED
     out.append(row)
+    if teacher_variant is not None:
+        for row in out:
+            if row["bar"] in CLEF_RELATIVE_TEST_BARS:
+                row["teacher_variant"] = teacher_variant
     return out
+
+
+def _no_worse_than_stock(
+    name: str,
+    bars: Mapping[str, Any],
+    mine: Mapping[str, Any] | None,
+    theirs: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """A ``*_no_worse_than_stock`` row: gated against stock's value, or marked not gated."""
+    if bars[name]:
+        theirs_value = (theirs or {}).get("value")
+        return _bar(
+            name, {"stock": theirs_value}, mine, _le((mine or {}).get("value"), theirs_value)
+        )
+    row = _bar(name, False, mine, True)
+    row["reason"] = "not gated: the pre-registration sets this bar to false"
+    return row
+
+
+#: ``bars.test`` rows whose number is relative to Clef (the teacher variant goes beside them).
+CLEF_RELATIVE_TEST_BARS = frozenset({"gap_closure_min", "latency_ratio_max"})
 
 
 def c43_bars(quant_manifest: Mapping[str, Any], bars: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -527,8 +576,33 @@ def c43_bars(quant_manifest: Mapping[str, Any], bars: Mapping[str, Any]) -> list
 
 
 def _verdict(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    missed = [r["bar"] for r in rows if r["result"] == MISSED]
-    return {"result": MISSED if missed else PASSED, "missed": missed, "bars": list(rows)}
+    """Fail on any failed bar; not_applicable when every bar is; else pass."""
+    missed = [r["bar"] for r in rows if r["result"] == FAILED]
+    if missed:
+        result = FAILED
+    elif rows and all(r["result"] == NOT_APPLICABLE for r in rows):
+        result = NOT_APPLICABLE
+    else:
+        result = PASSED
+    return {"result": result, "missed": missed, "bars": list(rows)}
+
+
+def check_results(node: Any, where: str = "report") -> None:
+    """Every bar row (a mapping with ``bar`` and ``result``) carries one of :data:`RESULTS`.
+
+    Raises ``ValueError`` naming the row otherwise; the report is never written with one.
+    """
+    if isinstance(node, Mapping):
+        if "bar" in node and "result" in node and node["result"] not in RESULTS:
+            raise ValueError(
+                f"{where}: bar {node['bar']!r} has result {node['result']!r}, "
+                f"not one of {list(RESULTS)}"
+            )
+        for key, value in node.items():
+            check_results(value, f"{where}.{key}")
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            check_results(value, f"{where}[{i}]")
 
 
 def regression(stats: Mapping[str, Mapping[str, Any]], model: str = STUDENT) -> dict[str, Any]:
@@ -596,8 +670,15 @@ def c17_build_bars(
     stats: Mapping[str, Mapping[str, Any]],
     bars: Mapping[str, Any],
     bundle: Mapping[str, Any] | None,
+    *,
+    teacher_bar_name: str = dp.TEACHER_BAR,
+    teacher_variant: str = dp.V2_TEACHER_VARIANT,
 ) -> list[dict[str, Any]]:
-    """Every ``bars.c17.<build>`` bar from one pool's paired-bootstrap statistics."""
+    """Every ``bars.c17.<build>`` bar from one pool's paired-bootstrap statistics.
+
+    *bars* uses the v3 names (:func:`jev_factory.distill.prereg.c17_bars`); the teacher row is
+    named *teacher_bar_name* (the file's own name) and carries *teacher_variant* (c43).
+    """
 
     def stat(name: str) -> Mapping[str, Any] | None:
         return stats.get(c17_key(build, name))
@@ -613,12 +694,15 @@ def c17_build_bars(
             over,
             _ge(value(over), bars["top1_over_stock_min_points"]),
         ),
-        _bar(
-            "top1_under_clef_w4a16_max_points",
-            bars["top1_under_clef_w4a16_max_points"],
-            under,
-            _le_eps(value(under), bars["top1_under_clef_w4a16_max_points"]),
-        ),
+        {
+            **_bar(
+                teacher_bar_name,
+                bars[dp.TEACHER_BAR],
+                under,
+                _le_eps(value(under), bars[dp.TEACHER_BAR]),
+            ),
+            "teacher_variant": teacher_variant,
+        },
     ]
     if "quant_vs_bf16_agreement_min" in bars:
         agree = stats.get(AGREEMENT)
@@ -635,24 +719,60 @@ def c17_build_bars(
     return rows
 
 
+def _absent_build(build: str, view: PreregView) -> dict[str, Any]:
+    """A c17 build the declared format does not ship: every bar enumerated, not applicable."""
+    absent = f"deployed_format {view.deployed_format}: no {build} build is registered or shipped"
+    names = [n if n != dp.TEACHER_BAR else view.teacher_bar_name for n in dp.C17_TOP1_BARS_V3]
+    if build == "quant":
+        names += list(dp.C17_QUANT_ONLY_BARS)
+    block = _verdict([not_applicable(name, None, absent) for name in names])
+    block.update(
+        model=None,
+        deployed=False,
+        regression={"regression": False, "result": NOT_APPLICABLE, "reason": absent},
+        latency={"gated": False, "reason": absent},
+    )
+    return block
+
+
 def c17_report(
     pool: Mapping[str, Any],
-    bars: Mapping[str, Mapping[str, Any]],
+    view: PreregView,
     *,
     bundle: Mapping[str, Any] | None,
     runtime: Mapping[str, Mapping[str, Any]],
     prereg_sha256: str,
 ) -> dict[str, Any]:
-    """c17 for both builds on the test headline pool, citing the hashed pre-registration."""
+    """c17 for both builds on the test headline pool, citing the hashed pre-registration.
+
+    A build the declared format does not ship (the quant under ``deployed_format`` bf16) is
+    listed with every bar not applicable; the bars of a shipped build are pass or fail.
+    """
     stats = pool["stats"]
     builds: dict[str, Any] = {}
     missed: list[str] = []
     for build, model in C17_MODELS.items():
-        block = _verdict(c17_build_bars(build, stats, bars[build], bundle))
+        if build not in view.c17:
+            builds[build] = _absent_build(build, view)
+            continue
+        rows = c17_build_bars(
+            build,
+            stats,
+            view.c17[build],
+            bundle,
+            teacher_bar_name=view.teacher_bar_name,
+            teacher_variant=view.teacher_variant,
+        )
+        block = _verdict(rows)
         reg = regression(stats, model)
         if reg["regression"]:
-            block = {**block, "result": MISSED, "missed": [*block["missed"], "regression"]}
-        block.update(model=model, regression=reg, latency=build_latency(runtime, model))
+            block = {**block, "result": FAILED, "missed": [*block["missed"], "regression"]}
+        block.update(
+            model=model,
+            deployed=model == view.deployed_model,
+            regression=reg,
+            latency=build_latency(runtime, model),
+        )
         builds[build] = block
         missed += [f"{build}.{name}" for name in block["missed"]]
     return {
@@ -663,9 +783,11 @@ def c17_report(
         "prereg_sha256": prereg_sha256,
         "cites": f"bars.c17 of the locked distill pre-registration (sha256 {prereg_sha256})",
         "compared": "point value; n and the paired-bootstrap CI are reported beside it",
-        "clef_reference": "Clef W4A16 as served in the final (raw)",
+        "clef_reference": f"Clef {view.teacher_variant} as served in the final (raw)",
+        "teacher_variant": view.teacher_variant,
+        "deployed_format": view.deployed_format,
         "builds": builds,
-        "result": MISSED if missed else PASSED,
+        "result": FAILED if missed else PASSED,
         "missed": missed,
     }
 
@@ -759,21 +881,26 @@ def _pool_block(
     threshold: float,
     seed: int,
     resamples: int,
+    agreement: bool = True,
 ) -> dict[str, Any]:
     keys = item_keys(records)
+    # A model with no predictions at all was not measured: it gets no row, so every bar
+    # relative to it is uncomputable (a fail), never a comparison against all-wrong answers.
+    measured = [name for name in MODELS if name in predictions]
     tops = {}
-    for name in MODELS:
-        tops[name] = predicted(records, predictions.get(name, ()), calibrations.get(name))
+    for name in measured:
+        tops[name] = predicted(records, predictions[name], calibrations.get(name))
     views = {
-        name: outcomes(records, predictions.get(name, ()), calibrations.get(name))
-        for name in MODELS
+        name: outcomes(records, predictions[name], calibrations.get(name)) for name in measured
     }
-    if calibrations.get(CLEF_CALIBRATED):
+    if calibrations.get(CLEF_CALIBRATED) and CLEF in predictions:
         views[CLEF_CALIBRATED] = outcomes(
             records, predictions.get(CLEF, ()), calibrations[CLEF_CALIBRATED]
         )
     per_model = {name: [view[k] for k in keys] for name, view in views.items()}
-    series = {AGREEMENT: agreement_series(keys, tops[STUDENT], tops[STUDENT_BF16])}
+    series = {}
+    if agreement and STUDENT in tops and STUDENT_BF16 in tops:
+        series[AGREEMENT] = agreement_series(keys, tops[STUDENT], tops[STUDENT_BF16])
     stats = paired_bootstrap(
         len(keys), joint_stats(per_model, threshold, series), seed=seed, resamples=resamples
     )
@@ -807,7 +934,9 @@ def probe_table(
     return {"measured": True, "gated": False, "reason": PROBE_NOT_GATED, **block}
 
 
-def runtime_table(runtime: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+def runtime_table(
+    runtime: Mapping[str, Mapping[str, Any]], teacher_variant: str | None = None
+) -> dict[str, Any]:
     """Latency and peak memory per model, plus whether all of them ran on one host."""
     rows = {}
     for name in MODELS:
@@ -822,6 +951,8 @@ def runtime_table(runtime: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
             "memory_probe": mem.get("probe"),
             "memory_measured": bool(mem.get("measured")),
         }
+    if teacher_variant is not None:
+        rows[CLEF]["teacher_variant"] = teacher_variant
     hosts = {r["host"] for r in rows.values()}
     return {
         "models": rows,
@@ -829,6 +960,72 @@ def runtime_table(runtime: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
         "gated": False,
         "reason": LATENCY_NOT_GATED,
     }
+
+
+ROLE_NOTES: dict[str, tuple[str, str]] = {
+    "teacher": ("mandatory: Clef, the teacher every relative bar is measured against", ""),
+    "stock": ("mandatory: the stock fine-tuning target, the '+N over stock' reference", ""),
+    "student": ("mandatory: the distilled student", ""),
+    "alt_teacher": (
+        "present: an alternative teacher may label train records",
+        "absent: no alternative teacher; no report bar is relative to it",
+    ),
+    "deployed_server": (
+        "present: the deployed student is pre-served on a board behind a loopback tunnel",
+        "absent: the deployed student is served on a loopback server, not a board; no report "
+        "bar is relative to a board",
+    ),
+    "edge": (
+        "present: the edge stage measures the shipped build on a board after the final",
+        "absent: no edge measurement is made; no report bar is relative to it",
+    ),
+}
+
+
+def deployed_model(fmt: str) -> str:
+    """The model row the deployed student is measured as: the quant, or the bf16 student."""
+    return STUDENT_BF16 if fmt == "bf16" else STUDENT
+
+
+@dataclass(frozen=True)
+class PreregView:
+    """What the report reads from the pre-registration (v2 and v3 alike, via the accessors)."""
+
+    deployed_format: str
+    teacher_variant: str
+    teacher_model: str | None
+    #: The teacher bar's row name: the file's own (v2 ``top1_under_clef_w4a16_max_points``).
+    teacher_bar_name: str
+    #: ``bars.c17`` per registered build, v3 names.
+    c17: Mapping[str, Mapping[str, Any]]
+    roles: Mapping[str, Mapping[str, Any]]
+
+    @property
+    def deployed_model(self) -> str:
+        return deployed_model(self.deployed_format)
+
+
+def prereg_view(reg: dp.DistillPrereg) -> PreregView:
+    roles = dp.roles(reg)
+    v2 = reg.schema_version == dp.V2_SCHEMA_VERSION
+    return PreregView(
+        deployed_format=dp.deployed_format(reg),
+        teacher_variant=dp.teacher_variant(reg),
+        teacher_model=roles["teacher"].get("model"),
+        teacher_bar_name=dp.V2_TEACHER_BAR if v2 else dp.TEACHER_BAR,
+        c17=dp.c17_bars(reg),
+        roles=roles,
+    )
+
+
+def roles_table(view: PreregView) -> dict[str, dict[str, Any]]:
+    """Every declared role, present or absent, with what that means for the report."""
+    out = {}
+    for name, entry in view.roles.items():
+        present = bool(entry.get("present"))
+        when_present, when_absent = ROLE_NOTES[name]
+        out[name] = {"present": present, "reason": when_present if present else when_absent}
+    return out
 
 
 @dataclass(frozen=True)
@@ -879,10 +1076,19 @@ def unverified_c17(
         for r in records_by_side.get(GATED_SIDE, ())
         if r.gold_provenance != "human" and sources[r.source]["status"] == contamination.CLEAN
     ]
-    pool = _pool_block(members, predictions, calibrations, threshold, ctx.seed, ctx.resamples)
+    view = prereg_view(ctx.prereg)
+    pool = _pool_block(
+        members,
+        predictions,
+        calibrations,
+        threshold,
+        ctx.seed,
+        ctx.resamples,
+        agreement=view.deployed_format == "quant",
+    )
     block = c17_report(
         pool,
-        ctx.prereg.bars["c17"],
+        view,
         bundle=ctx.bundle,
         runtime=runtime,
         prereg_sha256=ctx.prereg_sha256,
@@ -908,6 +1114,7 @@ def _sides(
 ) -> dict[str, Any]:
     threshold = float(ctx.prereg.selection_rule["confident_wrong_threshold"])
     approved = frozenset(ctx.approved_ids)
+    view = prereg_view(ctx.prereg)
     sides: dict[str, Any] = {}
     for side in SIDES:
         recs = list(records_by_side.get(side, ()))
@@ -915,9 +1122,18 @@ def _sides(
         for pool in POOLS:
             members = [r for r in recs if pool_of(r, sources, approved) == pool]
             pools[pool] = _pool_block(
-                members, predictions, calibrations, threshold, ctx.seed, ctx.resamples
+                members,
+                predictions,
+                calibrations,
+                threshold,
+                ctx.seed,
+                ctx.resamples,
+                agreement=view.deployed_format == "quant",
             )
-        bars = _verdict(c42_bars(pools[HEADLINE]["stats"], ctx.prereg.bars["test"], runtime))
+        rows = c42_bars(
+            pools[HEADLINE]["stats"], ctx.prereg.bars["test"], runtime, view.teacher_variant
+        )
+        bars = _verdict(rows)
         bars["gated"] = False
         sides[side] = {"pools": pools, "c42": bars}
     return sides
@@ -945,6 +1161,16 @@ def build_report(
     are reported under ``decision_gate`` (reported only, never a bar).
     """
     ctx = context
+    view = prereg_view(ctx.prereg)
+    if view.deployed_format == "bf16":
+        # One build, measured once: the deployed student IS the bf16 student's row.
+        predictions = dict(predictions)
+        if STUDENT_BF16 in predictions:
+            predictions[STUDENT] = predictions[STUDENT_BF16]
+        else:
+            predictions.pop(STUDENT, None)
+        calibrations = {**calibrations, STUDENT: calibrations.get(STUDENT_BF16)}
+        runtime = {**runtime, STUDENT: runtime.get(STUDENT_BF16) or {}}
     threshold = float(ctx.prereg.selection_rule["confident_wrong_threshold"])
     every = [r for side in SIDES for r in records_by_side.get(side, ())]
     sources = source_table(every, ctx.contamination_manifest)
@@ -952,7 +1178,7 @@ def build_report(
     headline = sides[GATED_SIDE]["pools"][HEADLINE]
     c17 = c17_report(
         headline,
-        ctx.prereg.bars["c17"],
+        view,
         bundle=ctx.bundle,
         runtime=runtime,
         prereg_sha256=ctx.prereg_sha256,
@@ -961,8 +1187,8 @@ def build_report(
     c42.update(side=GATED_SIDE, pool=HEADLINE, reason=C42_NOT_GATED)
     reg = headline["regression"]
     if reg["regression"]:
-        c42 = {**c42, "result": MISSED, "missed": [*c42["missed"], "regression"]}
-    c43 = _verdict(c43_bars(ctx.quant_manifest, ctx.prereg.bars["quant"]))
+        c42 = {**c42, "result": FAILED, "missed": [*c42["missed"], "regression"]}
+    c43 = _verdict(_c43_rows(ctx, view))
     c43.update(gated=False, reason=C42_NOT_GATED)
     regressed = any(b["regression"]["regression"] for b in c17["builds"].values())
     report = {
@@ -973,6 +1199,10 @@ def build_report(
             "marks clean"
         ),
         "headline_n": {"records": headline["records"], "items": headline["items"]},
+        "deployed_format": view.deployed_format,
+        "deployed_model": view.deployed_model,
+        "teacher": {"row": CLEF, "model": view.teacher_model, "variant": view.teacher_variant},
+        "roles": roles_table(view),
         "confident_wrong_threshold": threshold,
         "seed": ctx.seed,
         "resamples": ctx.resamples,
@@ -988,7 +1218,7 @@ def build_report(
         "c42": c42,
         "c43": c43,
         "regression": regressed,
-        "runtime": runtime_table(runtime),
+        "runtime": runtime_table(runtime, view.teacher_variant),
         "probe": probe_table(
             ctx.probe_records, predictions, calibrations, threshold, ctx.seed, ctx.resamples
         ),
@@ -1012,4 +1242,14 @@ def build_report(
             f"UNVERIFIED: {100 * block['unverified_share']:.1f}% of the test pool's gold is "
             "model-drafted and unapproved; unverified_c17 proves the process only"
         )
+    check_results(report)
     return report
+
+
+def _c43_rows(ctx: ReportContext, view: PreregView) -> list[dict[str, Any]]:
+    """``bars.quant`` from the quant manifest; under a bf16 ship, each not applicable."""
+    if view.deployed_format == "quant":
+        return c43_bars(ctx.quant_manifest, ctx.prereg.bars["quant"])
+    registered = ctx.prereg.bars.get("quant") or {}
+    absent = f"deployed_format {view.deployed_format}: no quantized build is shipped"
+    return [not_applicable(name, registered.get(name), absent) for name in dp.QUANT_BARS]

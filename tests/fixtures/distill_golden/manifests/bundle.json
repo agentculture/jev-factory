@@ -1,0 +1,19 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "final/report.json": "<VARIES>",
+    "gate/gate.json": "<VARIES>"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {}
+  },
+  "outputs": {
+    "bundle/dataset": "<VARIES>",
+    "bundle/model": "<VARIES>"
+  },
+  "rc": 0,
+  "stage": "bundle",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

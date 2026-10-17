@@ -11,12 +11,14 @@ from __future__ import annotations
 import json
 import math
 import random
+import types
 
 import pytest
 
 from jev_factory.backbones.pointer import distill_loss as dl
 from jev_factory.backbones.pointer import train_distill as td
 from jev_factory.cli._errors import CliError
+from jev_factory.distill import executor as dex
 from jev_factory.distill import prereg as dp
 from jev_factory.factory import gpu
 
@@ -97,6 +99,7 @@ def plan(tmp_path, knobs=None, doc=None, **kw):
         output_dir=tmp_path / "out",
         trainer_python="/opt/trainer/bin/python",
         decider_repo=tmp_path / "strands-decider",
+        prereg=kw.pop("prereg", dp),
         **kw,
     )
 
@@ -298,6 +301,7 @@ def test_plan_refuses_without_a_locked_prereg(tmp_path):
             output_dir=tmp_path / "out",
             trainer_python="python",
             decider_repo=tmp_path / "sd",
+            prereg=dp,
         )
 
 
@@ -307,7 +311,7 @@ def test_plan_refuses_a_prereg_changed_after_the_lock(tmp_path):
     doc["knob_grid"]["alpha"] = [0.5, 0.7, 0.9, 0.95]
     path.write_text(json.dumps(doc), encoding="utf-8")
     with pytest.raises(CliError, match="changed"):
-        td.resolve_from_locked(path, run_dir, dict(RUN_KNOBS))
+        td.resolve_from_locked(path, run_dir, dict(RUN_KNOBS), prereg=dp)
 
 
 def test_plan_returns_the_command_without_running_it(tmp_path, monkeypatch):
@@ -407,7 +411,7 @@ def test_superseded_upstream_terms_are_reported_not_silently_dropped(tmp_path):
 def test_run_train_is_dry_run_by_default(tmp_path, monkeypatch):
     called = []
     monkeypatch.setattr(gpu, "run_gpu_stage", lambda *a, **k: called.append(a))
-    out = td.run_train(plan(tmp_path))
+    out = td.run_train(plan(tmp_path), jobs=dex)
     assert out["dry_run"] is True
     assert not called
 
@@ -426,7 +430,7 @@ def test_run_train_apply_goes_through_run_gpu_stage(tmp_path, monkeypatch):
 
     monkeypatch.setattr(gpu, "run_gpu_stage", fake)
     p = plan(tmp_path)
-    out = td.run_train(p, apply=True, memory_max="100G")
+    out = td.run_train(p, apply=True, memory_max="100G", jobs=dex)
     assert seen["stage"] == "train"
     assert seen["cmd"] == p["argv"]
     assert seen["kw"]["memory_max"] == "100G"
@@ -442,7 +446,7 @@ def test_run_train_apply_refuses_a_foreign_gpu_process(tmp_path, monkeypatch):
     monkeypatch.setattr(gpu, "run_capped", lambda *a, **k: pytest.fail("ran past the guard"))
     train_plan = plan(tmp_path)
     with pytest.raises(gpu.GpuBusyError):
-        td.run_train(train_plan, apply=True, memory_max="100G")
+        td.run_train(train_plan, apply=True, memory_max="100G", jobs=dex)
 
 
 def test_run_train_apply_reports_a_failed_trainer(tmp_path, monkeypatch):
@@ -454,7 +458,7 @@ def test_run_train_apply_reports_a_failed_trainer(tmp_path, monkeypatch):
     monkeypatch.setattr(gpu, "run_gpu_stage", lambda *a, **k: Failed())
     train_plan = plan(tmp_path)
     with pytest.raises(CliError, match="exited 3"):
-        td.run_train(train_plan, apply=True, memory_max="100G")
+        td.run_train(train_plan, apply=True, memory_max="100G", jobs=dex)
 
 
 def _main_argv(tmp_path, **paths):
@@ -471,7 +475,15 @@ def _main_argv(tmp_path, **paths):
         "output_dir": run / "out",
     }
     values.update(paths)
-    argv = ["--knobs", json.dumps(RUN_KNOBS)]
+    hp = td.resolve_hyperparameters(dp.validate(prereg_doc()), dict(RUN_KNOBS), prereg=dp)
+    argv = [
+        "--knobs",
+        json.dumps(RUN_KNOBS),
+        "--hyperparameters",
+        json.dumps(hp, sort_keys=True),
+        "--prereg-sha256",
+        dp.sha256_file(prereg),
+    ]
     for key, value in values.items():
         argv += ["--" + key.replace("_", "-"), str(value)]
     return argv
@@ -897,3 +909,119 @@ def test_head_to_safetensors_replaces_the_pickled_head(tmp_path):
     back = st.load_file(str(tmp_path / "head.safetensors"))
     assert set(back) == set(state)
     assert all(torch.equal(back[k], state[k]) for k in state)
+
+
+# --------------------------------------------------------------------- d1: injected seams
+
+
+class _FakeJobs:
+    """A job seam in place of jev_factory.distill.executor: records what it was given."""
+
+    class _Limits:
+        def __init__(self, **kw):
+            self.kw = kw
+
+    def __init__(self, returncode=0):
+        self.returncode = returncode
+        self.calls = []
+
+    def job_limits(self, **kw):
+        return self._Limits(**kw)
+
+    def job_spec_from_plan(self, plan, *, expected_outputs, environment, limits):
+        self.calls.append(("spec", limits.kw, tuple(expected_outputs)))
+        return types.SimpleNamespace(to_json=lambda: {"fake": True})
+
+    def run_job(self, spec, executor, *, protected):
+        self.calls.append(("run", executor, tuple(protected)))
+        return {"returncode": self.returncode, "stdout_tail": [], "stderr_tail": ["x"]}
+
+
+def test_run_train_takes_its_job_seam_from_the_caller(tmp_path):
+    jobs = _FakeJobs()
+    p = plan(tmp_path)
+    assert td.run_train(p, jobs=jobs)["job_spec"] == {"fake": True}
+    out = td.run_train(p, apply=True, memory_max="100G", jobs=jobs, executor="ex", protected=["a"])
+    assert out["job"]["returncode"] == 0
+    assert ("run", "ex", ("a",)) in jobs.calls
+    assert jobs.calls[0][1]["memory_max"] is None
+    assert jobs.calls[1][1]["memory_max"] == "100G"
+
+
+def test_run_train_needs_a_job_seam(tmp_path):
+    p = plan(tmp_path)
+    with pytest.raises(TypeError):
+        td.run_train(p)  # pylint: disable=missing-kwoa
+
+
+def test_plan_train_takes_its_pre_registration_seam_from_the_caller(tmp_path):
+    calls = []
+
+    class Prereg:
+        @staticmethod
+        def require_locked(path, run_dir, deviation_id=None):
+            calls.append(("locked", path, run_dir, deviation_id))
+            return dp.require_locked(path, run_dir, deviation_id)
+
+        @staticmethod
+        def require_knobs(reg, knobs):
+            calls.append(("knobs", dict(knobs)))
+            return dp.require_knobs(reg, knobs)
+
+    p = plan(tmp_path, prereg=Prereg)
+    assert [c[0] for c in calls] == ["locked", "knobs"]
+    assert p["hyperparameters"]["alpha"] == RUN_KNOBS["alpha"]
+
+
+def test_the_plan_hands_the_trainer_its_resolved_hyperparameters_and_prereg_hash(tmp_path):
+    p = plan(tmp_path)
+    argv = p["argv"]
+    assert json.loads(argv[argv.index("--hyperparameters") + 1]) == p["hyperparameters"]
+    assert argv[argv.index("--prereg-sha256") + 1] == p["prereg_sha256"]
+
+
+def _locked_main_argv(tmp_path):
+    argv = _main_argv(tmp_path)
+    run = tmp_path / "run"
+    dp.lock(run / "distill" / "prereg.json", run)
+    (run / "t.jsonl").write_text(json.dumps(_item()) + "\n")
+    return argv
+
+
+def test_trainer_main_refuses_without_the_plans_hyperparameters(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(td, "_train", lambda *a: pytest.fail("the train must not start"))
+    argv = _locked_main_argv(tmp_path)
+    i = argv.index("--hyperparameters")
+    del argv[i : i + 2]
+    assert td.main(argv) == 1
+    assert "hyperparameters" in capsys.readouterr().err
+
+
+def test_trainer_main_refuses_a_prereg_other_than_the_planned_one(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(td, "_train", lambda *a: pytest.fail("the train must not start"))
+    argv = _locked_main_argv(tmp_path)
+    argv[argv.index("--prereg-sha256") + 1] = "0" * 64
+    assert td.main(argv) == 1
+    assert "planned" in capsys.readouterr().err
+
+
+def test_trainer_main_refuses_hyperparameters_that_disagree_with_the_knobs(
+    tmp_path, capsys, monkeypatch
+):
+    monkeypatch.setattr(td, "_train", lambda *a: pytest.fail("the train must not start"))
+    argv = _locked_main_argv(tmp_path)
+    i = argv.index("--hyperparameters") + 1
+    hp = json.loads(argv[i])
+    hp["alpha"] = 0.9
+    argv[i] = json.dumps(hp)
+    assert td.main(argv) == 1
+    assert "alpha" in capsys.readouterr().err
+
+
+def test_trainer_main_trains_with_the_planned_hyperparameters(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(td, "_train", lambda args, hp, items: seen.update(hp=hp) or 0)
+    argv = _locked_main_argv(tmp_path)
+    assert td.main(argv) == 0
+    want = json.loads(argv[argv.index("--hyperparameters") + 1])
+    assert seen["hp"] == want

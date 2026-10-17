@@ -137,11 +137,10 @@ def _approve(path: Path, records, at="2026-10-14T00:00:00Z") -> None:
         gold.append_entry(path, entry)
 
 
-@pytest.fixture
-def env(tmp_path):
+def _locked_run(tmp_path, doc):
     run_dir = tmp_path / "run"
     prereg = tmp_path / "prereg.json"
-    prereg.write_text(json.dumps(dp.example_doc()), encoding="utf-8")
+    prereg.write_text(json.dumps(doc), encoding="utf-8")
     dp.lock(prereg, run_dir)
     data = tmp_path / "data"
     data.mkdir()
@@ -151,6 +150,16 @@ def env(tmp_path):
         (data / f"{side}.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     ledger = gold.ledger_path(data / "test.jsonl")
     _approve(ledger, [_rec(i, "test") for i in sides["test"]])
+    return run_dir, prereg, data, sides, ledger
+
+
+@pytest.fixture
+def env(tmp_path):
+    yield from _quant_env(tmp_path, dp.example_doc())
+
+
+def _quant_env(tmp_path, doc):
+    run_dir, prereg, data, sides, ledger = _locked_run(tmp_path, doc)
     qdir = run_dir / "distill" / "quant"
     qdir.mkdir(parents=True)
     artifact = _artifact(qdir / "builds" / FORMAT)
@@ -789,3 +798,213 @@ def test_runtime_counts_the_sealed_sides_and_the_board_reports_its_own_memory(en
         assert runtime[name]["latency"]["n"] == 18
     assert runtime[R.STUDENT]["memory"]["probe"] == "v1/stats"
     assert runtime[R.STUDENT]["memory"]["rss_bytes_after"] == 700_000_000
+
+
+# --------------------------------------------------------------------- roles and formats (t9)
+
+
+def test_the_deployed_url_is_role_neutral_and_distill_agx_url_is_an_alias():
+    """c9/h8: distill_deployed_url, with the old distill_agx_url still working."""
+    url = "http://127.0.0.1:18071"
+    assert F.DEPLOYED_URL_KEY == "distill_deployed_url"
+    assert F.deployed_url({"distill_deployed_url": url}) == url
+    assert F.deployed_url({"distill_agx_url": url}) == url
+    assert F.deployed_url({"distill_deployed_url": url, "distill_agx_url": url}) == url
+    assert F.deployed_url({"distill_deployed_url": None, "distill_agx_url": url}) == url
+    with pytest.raises(CliError) as exc:  # two different servers: never guess
+        F.deployed_url({"distill_deployed_url": url, "distill_agx_url": "http://127.0.0.1:1"})
+    assert exc.value.code == EXIT_USER_ERROR
+    with pytest.raises(CliError) as exc:
+        F.deployed_url({})
+    assert "distill_deployed_url" in exc.value.remediation
+    assert F.deployed_url({}, required=False) is None
+
+
+def test_final_json_shows_the_clef_variant_beside_the_teacher_row(env):
+    out = _run(env, _models(env, []))
+    clef = out["final"]["models"][R.CLEF]
+    assert clef["teacher_variant"] == "W4A16"
+    assert out["final"]["teacher"] == {"row": R.CLEF, "variant": "W4A16", "model": "Clef 27B"}
+    assert out["report"]["teacher"]["variant"] == "W4A16"
+
+
+@pytest.fixture
+def env_v3_roles_absent(tmp_path):
+    """A v3 quant run with the deployed server, edge board and alt teacher declared absent."""
+    doc = dp.example_doc_v3(teacher_variant="BF16")
+    for name in dp.OPTIONAL_ROLES:
+        doc["roles"][name] = {"present": False}
+    yield from _quant_env(tmp_path, doc)
+
+
+def test_any_attested_loopback_server_is_accepted_without_a_deployed_server_role(
+    env_v3_roles_absent,
+):
+    """c9: the deployed quant need not be on a board; /v1/bundle and a cap still gate it."""
+    env = env_v3_roles_absent
+    out = _run(env, _models(env, env["log"]))
+    assert out["final"]["student_server"]["memory_cap"]["effective_memory_max"] == CAP
+    assert out["final"]["models"][R.CLEF]["teacher_variant"] == "BF16"
+    assert out["report"]["roles"]["deployed_server"]["present"] is False
+    assert out["report"]["c17"]["builds"]["quant"]["bars"]
+    # not on a board: this box's memory probe measures it, not the board's /v1/stats
+    assert out["final"]["runtime"][R.STUDENT]["memory"].get("probe") != "v1/stats"
+
+
+BF16_WINNER = "c003"
+BF16_CAL = {"temperature_by_kind": {"choice": 1.2}, "vector_by_kind": {}}
+
+
+def _bf16_build(run_dir: Path) -> Path:
+    """The bf16 deployed contract: select/summary.json winner -> train/<winner>/bundle."""
+    select = run_dir / "distill" / "select"
+    select.mkdir(parents=True, exist_ok=True)
+    (select / "summary.json").write_text(json.dumps({"winner": BF16_WINNER}), encoding="utf-8")
+    (select / "calibration.json").write_text(json.dumps(BF16_CAL), encoding="utf-8")
+    from tests.test_distill_bf16_ship import _hobson  # a verified hobson-hf-export/1 bundle
+
+    cand = run_dir / "distill" / "train" / BF16_WINNER
+    bundle = _hobson(run_dir.parent, cand / "bundle")
+    (cand / "predictions.json").write_text(json.dumps({"selection": []}), encoding="utf-8")
+    return bundle
+
+
+@pytest.fixture
+def bf16_env(tmp_path):
+    doc = dp.example_doc_v3(deployed_format="bf16")
+    run_dir, prereg, data, sides, ledger = _locked_run(tmp_path, doc)
+    bundle = _bf16_build(run_dir)
+    return {
+        "run_dir": run_dir,
+        "prereg": prereg,
+        "data": data,
+        "sides": sides,
+        "ledger": ledger,
+        "bundle": bundle,
+        "log": [],
+    }
+
+
+def _bf16_models(env, log, served_from=None):
+    p = {"clef": 0.9, "stock": 0.6, "student_bf16": 0.8}
+    out = {}
+    for name in (R.CLEF, R.STOCK, R.STUDENT_BF16):
+        target = bench.Target(
+            name,
+            "http://127.0.0.1:9",
+            name,
+            start=lambda n=name: log.append(f"start {n}"),
+            stop=lambda n=name: log.append(f"stop {n}"),
+        )
+        extra = {}
+        if name == R.STUDENT_BF16:
+            extra["served_from"] = served_from or env["bundle"]
+        out[name] = F.FinalModel(target=target, client=FakeClient(name, p[name], log), **extra)
+    return out
+
+
+def test_a_bf16_ship_measures_the_attested_bf16_build_once_as_the_deployed_student(bf16_env):
+    """c7: final's model set follows the declared format; no quant manifest is needed."""
+    env = bf16_env
+    models = _bf16_models(env, env["log"])
+    plan = _run(env, models, apply=False)
+    assert plan["deployed"]["format"] == "bf16"
+    assert plan["deployed"]["model"] == R.STUDENT_BF16
+    assert set(plan["models"]) == {R.CLEF, R.STOCK, R.STUDENT_BF16}
+    out = _run(env, models)
+    every = env["sides"]["test"] + env["sides"]["held_out"]
+    assert sorted(models[R.STUDENT_BF16].client.asked) == sorted(every)  # measured once
+    final = out["final"]
+    assert set(final["runtime"]) == {R.CLEF, R.STOCK, R.STUDENT_BF16}
+    bundle = final["deployed"]["bundle"]
+    assert bundle["files"][player.HEAD] == dp.sha256_file(env["bundle"] / player.HEAD)
+    assert final["deployed"]["winner"] == BF16_WINNER
+    server = final["student_server"]
+    assert server["attestation"].startswith("file sha256")
+    assert server["served_from"] == str(env["bundle"])
+    cal = final["calibrations"][R.STUDENT]
+    assert cal["source"] == "distill/select/calibration.json"
+    assert cal["calibration"] == BF16_CAL
+    assert final["calibrations"][R.STUDENT_BF16]["sha256"] == cal["sha256"]
+    rep = out["report"]
+    assert rep["deployed_format"] == "bf16"
+    assert rep["c17"]["builds"]["bf16"]["result"] in (R.PASSED, R.FAILED)
+    assert rep["c17"]["builds"]["quant"]["result"] == R.NOT_APPLICABLE
+    assert rep["c43"]["result"] == R.NOT_APPLICABLE
+    written = env["run_dir"] / F.FINAL_REL / "predictions"
+    assert sorted(p.name for p in written.glob("*.json")) == [
+        "clef.json",
+        "stock.json",
+        "student_bf16.json",
+    ]
+
+
+def test_a_bf16_ship_refuses_a_separate_student_model(bf16_env):
+    env = bf16_env
+    models = _bf16_models(env, env["log"])
+    models[R.STUDENT] = models[R.STUDENT_BF16]
+    with pytest.raises(CliError) as exc:
+        _run(env, models)
+    assert "unexpected ['student']" in exc.value.message
+    assert env["log"] == []
+
+
+@pytest.mark.parametrize("apply", [True, False])
+def test_a_bf16_ship_refuses_a_partial_model_set(bf16_env, apply):
+    env = bf16_env
+    models = _bf16_models(env, env["log"])
+    del models[R.STOCK]
+    with pytest.raises(CliError) as exc:
+        _run(env, models, apply=apply)
+    assert "missing ['stock']" in exc.value.message
+
+
+def test_a_bf16_server_started_from_another_bundle_is_refused_before_any_request(
+    bf16_env, tmp_path
+):
+    env = bf16_env
+    other = tmp_path / "other"
+    import shutil
+
+    shutil.copytree(env["bundle"], other)
+    (other / player.HEAD).write_bytes(b"swapped")
+    models = _bf16_models(env, env["log"], served_from=other)
+    with pytest.raises(CliError) as exc:
+        _run(env, models)
+    assert "bundle" in exc.value.message
+    assert not [e for e in env["log"] if e.startswith("ask")]
+    assert _ledger(env) == []
+
+
+def test_a_bf16_server_with_no_served_from_cannot_be_attested(bf16_env):
+    env = bf16_env
+    models = _bf16_models(env, env["log"])
+    models[R.STUDENT_BF16] = F.FinalModel(
+        target=models[R.STUDENT_BF16].target, client=models[R.STUDENT_BF16].client
+    )
+    with pytest.raises(CliError) as exc:
+        _run(env, models)
+    assert "served_from" in exc.value.message
+    assert not [e for e in env["log"] if e.startswith("ask")]
+
+
+def test_a_bf16_ship_with_no_winner_is_refused(bf16_env):
+    env = bf16_env
+    (env["run_dir"] / "distill" / "select" / "summary.json").write_text(
+        json.dumps({"winner": None}), encoding="utf-8"
+    )
+    models = _bf16_models(env, env["log"])
+    with pytest.raises(CliError) as exc:
+        _run(env, models, apply=False)
+    assert "winner" in exc.value.message
+
+
+def test_a_bf16_ship_refuses_a_bf16_calibration_other_than_the_deployed_one(bf16_env, tmp_path):
+    env = bf16_env
+    other = tmp_path / "cal.json"
+    other.write_text(json.dumps({"temperature_by_kind": {"choice": 9.0}}), encoding="utf-8")
+    models = _bf16_models(env, env["log"])
+    inputs = F.FinalInputs(bf16_calibration=other)
+    with pytest.raises(CliError) as exc:
+        _run(env, models, apply=False, inputs=inputs)
+    assert "calibration" in exc.value.message
