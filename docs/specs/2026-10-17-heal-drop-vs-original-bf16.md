@@ -49,6 +49,12 @@
 - Docs follow the code: the open 'Heal rule' follow-up in docs/deliveries/2026-10-15-orin-nano-jetson-ops-decider.md (:173) is marked decided with the deviation id, and docs/distill.md's 'Heal, once' section (:261) gains one sentence saying the healed drop is against the original bf16 student, the healed-bf16 drop and drift are context only
   - instruction: markdownlint-cli2 docs/distill.md docs/deliveries/2026-10-15-orin-nano-jetson-ops-decider.md
   - honesty: markdownlint-cli2 passes on the edited docs and no other doc line changes
+- `heal_result` also records the three accuracies the drops are derived from: `original_bf16_accuracy`, `healed_bf16_accuracy` and healed quant accuracy, so every drop in `heal_log.json`l can be re-derived from the log alone
+  - instruction: same test
+  - honesty: each recorded drop equals 100 x the difference of two recorded accuracies, rounded as `_drop_points` rounds
+- measurements.json's healed block (quant.py `_write_measurements` :1885, also written by `_fail` on a refused heal) carries the same vs-original `drop_points`/`delta_points` for the healed quant as `heal_result` and the manifest; its bf16 entry stays the healed bf16's measurement, labelled as such by the context fields
+  - instruction: compare `heal_log`, measurements.json and manifest in the new tests
+  - honesty: No artifact of one quantize run reports two different values under the key `drop_points` for the same healed build
 
 ## Honesty conditions
 
@@ -62,6 +68,7 @@
 - The loophole is real in code, not hypothetical: `_measure_all` subtracts from out\[BF16\] of the healed call
 - Both heal outcomes (shippable and refused) record the three numbers
 - The full suite and CI lint pass on the branch
+- A run dir with a pre-change `heal_log.json`l still refuses a spent round and accepts a fresh deviation as before
 
 ## Success signals
 
@@ -78,6 +85,8 @@
   - instruction: git diff `jev_factory`/distill/prereg.py is empty
 - jev decide's rule (decide/rules.py QuantCheck/`_quant_verdict`, `HEAL_MARGIN_POINTS`=3.0, `HEAL_ROUNDS`=1) is unchanged; it reads only the jev run workdir, never distill `heal_log`
   - instruction: git diff --stat main -- `jev_factory`/decide
+- Old `heal_log.json`l files without the new fields stay readable: the only reader, `_triggers`/`heal_rounds_spent` (quant.py:1171-1189), counts `heal_trigger` events and never reads drop fields
+  - instruction: existing `test_a_spent_heal_round_refuses_a_new_trigger_without_training` passes unchanged
 
 ## Non-goals
 
@@ -118,15 +127,29 @@
   - seeds: `c16`
 - `s16` — `jev_factory/factory/pipeline.py stage_heal (:1642) + backbones/causal_lm/quantize.py loss_points (:603)`: separate code with the same own-bf16 shape: `bf16_val`/`bf16_mc` are measured from the healed run's merged model; also `new_wrong_mutating_ids` compares against the healed bf16; feeds jev decide via `_quant_check` (:2496)
   - seeds: `q1` (question, resolved)
+- `s17` — `challenge pass / observability lens: quant.py heal_trigger (:1488) + heal_result (:1597)`: `heal_trigger` records `bf16_accuracy` and `quant_accuracy`, `heal_result` records neither; drops in the result cannot be re-derived
+  - seeds: `c23`
+- `s18` — `challenge pass / adjacent-systems lens: quant.py _write_measurements (:1869) and _fail (:1897)`: both persist the healed measurement dict, so the changed `drop_points` flows there too; only quant.py reads it
+  - seeds: `c24`
+- `s19` — `challenge pass / lifecycle lens: quant.py _heal_log/_triggers (:1171)`: readers count events only; the proving run's round1-3 snapshots stay readable; clean
+  - seeds: `c25`
+- `s20` — `challenge pass / counter-evidence lens: quant.py _healed_problem (:1528) with bf16_continuation fallback (healed_method :1501)`: the fallback trains the torso and can move the healed bf16 up or down; the reference switch is stricter in one direction, looser in the other
+  - seeds: `q2` (question, resolved)
+- `s21` — `challenge pass / guard lens: quant.py Gating guard (:226) + _guard_holds`: the d12 guard compares against a floor and stock, never against bf16; unaffected; clean
+- `s22` — `challenge pass / security, migration, concurrency, reversibility lenses: the whole change`: pure code + docs, single-writer stage, no schema or prereg change, revertable; proving-run artifacts untouched; clean
 
 ## Decisions
 
 - jev run's heal (factory/pipeline.py `stage_heal`, `causal_lm`/quantize.`loss_points` + `new_wrong_mutating_ids`) is fixed separately, not in this change (operator decision on q1)
+- After a heal, the accuracy gate is the drop against the original bf16 only, also when the heal raised the bf16 (a healed quant within 3 points of the original ships even if further below the healed bf16); the vs-healed drop is context (operator decision on q2)
+  - instruction: a test where healed bf16 rises above the original and the healed quant is within margin of the original but past it vs the healed bf16: shippable
 
 ## Hard questions
 
 - Does the same fix apply to jev run's heal (factory/pipeline.py `stage_heal` :1642-1710 measures `bf16_val` from the healed merged model; `causal_lm`/quantize.`loss_points` and `new_wrong_mutating_ids` compare against it), or is that a separate change? (resolved: Operator: separate follow-up; this change covers distill quantize only)
+- Gating only against the original LOOSENS the gate when a heal raises the bf16 (original 0.90, healed bf16 0.95, healed quant 0.88: fails today at 7 vs healed, passes after at 2 vs original). Keep original-only, or gate on the worse of the two drops? (resolved: Operator: gate on the original only; drop vs healed bf16 is context)
 
 ## Open parks
 
+- [unknown_nonblocking] Residual: no real heal has run against a healed bf16 that moved more than a few points; the decomposition is tested on fakes only (FakeMeasurer 5-point steps)
 - [follow_up] jev run's heal compares the healed quant against the healed bf16 (factory/pipeline.py:1689-1710); file an issue and fix in its own change
