@@ -825,6 +825,30 @@ def oov_refusals(measured: Mapping[str, Any]) -> dict[str, Any]:
     return {"by_fold": by_fold, "total": sum(by_fold.values())}
 
 
+def _heal_drift(bf16: dict[str, Any], baseline: Mapping[str, Any] | None) -> float | None:
+    """With a *baseline* (a heal round), set the round's bf16 delta to its drift from it."""
+    if baseline is None:
+        return None
+    drift = _drop_points(baseline, bf16)
+    bf16["delta_points"] = None if drift is None else -drift
+    return drift
+
+
+def _drops(
+    quant: Mapping[str, Any],
+    bf16: Mapping[str, Any],
+    baseline: Mapping[str, Any] | None,
+    drift: float | None,
+) -> dict[str, Any]:
+    """A quant's drop against *baseline* (default *bf16*) and, in a heal round, the context."""
+    drop = _drop_points(baseline or bf16, quant)
+    out: dict[str, Any] = {"drop_points": drop, "delta_points": None if drop is None else -drop}
+    if baseline is not None:
+        out["drop_points_vs_heal_bf16"] = _drop_points(bf16, quant)
+        out["heal_bf16_drift_points"] = drift
+    return out
+
+
 def _measure_all(
     checkpoint: Path,
     builds: Path,
@@ -860,19 +884,10 @@ def _measure_all(
             f"the bf16 winner left {bf16['problems']} fit/selection question(s) unanswered",
             "every quant's measurement needs this bf16; fix the serve path first",
         )
-    drift = None
-    if baseline is not None:
-        drift = _drop_points(baseline, bf16)
-        bf16["delta_points"] = None if drift is None else -drift
+    drift = _heal_drift(bf16, baseline)
     for fmt in formats:
         if out[fmt]["available"]:
-            out[fmt]["drop_points"] = _drop_points(baseline or bf16, out[fmt])
-            out[fmt]["delta_points"] = (
-                None if out[fmt]["drop_points"] is None else -out[fmt]["drop_points"]
-            )
-            if baseline is not None:
-                out[fmt]["drop_points_vs_heal_bf16"] = _drop_points(bf16, out[fmt])
-                out[fmt]["heal_bf16_drift_points"] = drift
+            out[fmt].update(_drops(out[fmt], bf16, baseline, drift))
             ref, got = reference, predictions[fmt]
             if gating is not None:
                 domain, _guard = gating.split(fold_records)

@@ -1935,7 +1935,8 @@ def test_a_gated_heal_drop_is_against_the_original_on_the_domain_sources(tmp_pat
         knobs=Q.QuantKnobs(formats=("torch_int4_wo",), gating=Q.Gating(frozenset({"src"}))),
         deviation_id="d12",
     )
-    assert len(trainer.plans) == 1 and out["shippable"] is True
+    assert len(trainer.plans) == 1
+    assert out["shippable"] is True
     m = _read(run_dir, Q.MEASUREMENTS_FILE)
     original, healed = m["formats"]["bf16"], m["healed"]["torch_int4_wo"]
     assert original["accuracy"] == pytest.approx(0.9)  # domain only (bf16 gets guard right too)
