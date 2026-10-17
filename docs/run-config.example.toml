@@ -83,6 +83,10 @@ distill_student_port = 18070
 # distill_agx_url = "<localhost tunnel url of the shipped quant on the AGX Orin>"
 # distill_edge_url = "<localhost tunnel url of the shipped quant on the edge board>"
 # distill_edge_memory_cap = "4G"
+# distill_student_profile = "<path to a student profile TOML; default: the built-in 2610>"
+# distill_teacher_variant = "<served Clef variant, e.g. W4A16; default: unset>"
+distill_executor = "local"
+# distill_deployed_url = "<localhost url of the attested deployed student; alias distill_agx_url>"
 
 # --- secrets, by the NAME of the environment variable ---
 # aug_key_env = "TEACHER_GATEWAY_KEY"

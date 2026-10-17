@@ -263,10 +263,14 @@ class FakeMeasurer:
 
     def __init__(self):
         self.calls: list[tuple[str, str]] = []
+        self.profile = dict(PROFILE)
+        #: format -> profile of a healed build (artifact under quant/heal); none by default
+        self.healed: dict[str, tuple[float, float, float]] = {}
 
     def __call__(self, fmt, artifact, fold_records):
         self.calls.append((fmt, Path(artifact).name))
-        accuracy, peak, median = PROFILE[fmt]
+        healed = dquant.HEAL_DIR in Path(artifact).parts and fmt in self.healed
+        accuracy, peak, median = (self.healed if healed else self.profile)[fmt]
         preds = {}
         for fold, recs in fold_records.items():
             preds[fold] = [
@@ -303,6 +307,25 @@ def write_checkpoint(out: Path) -> None:
     (out / player.CONFIG).write_text(json.dumps(NEUTRAL))
     for name in player.TOKENIZER_FILES:
         (out / name).write_text("{}")
+
+
+class RecordingExecutor:
+    """An executor injected for train: records every job spec, runs it as the local one."""
+
+    name = "local"
+
+    def __init__(self):
+        from jev_factory.distill import executor as dex
+
+        self.inner = dex.LocalExecutor()
+        self.specs: list = []
+
+    def submit(self, spec):
+        self.specs.append(spec)
+        return self.inner.submit(spec)
+
+    def fetch(self, handle, spec):
+        return self.inner.fetch(handle, spec)
 
 
 def _torch_archive(path):
@@ -515,7 +538,12 @@ class Env:
 
     def _fake_gpu(self, stage, run_dir, cmd, **kw):
         self.gpu_calls.append(list(cmd))
-        write_checkpoint(Path(cmd[cmd.index("--output-dir") + 1]))
+        out = Path(cmd[cmd.index("--output-dir") + 1])
+        write_checkpoint(out)
+        # what the trainer records beside the head (verified as the job's outputs)
+        heal = {"heal": {"method": "qat", "fallback_reason": None}} if "--heal" in cmd else {}
+        (out / "distill_train_config.json").write_text(json.dumps(heal))
+        (out / "distill_history.json").write_text("[]")
         return subprocess.CompletedProcess(cmd, 0, stdout="{}", stderr="")
 
     # -- the CLI driver
@@ -833,3 +861,83 @@ def test_the_cli_lists_all_fifteen_stages_and_status_sees_the_run(env):
     assert list(rows) == STAGES
     assert rows["preregister"]["status"] == "complete"
     assert rows["upload"]["status"] == "not-run"
+
+
+# ------------------------------------------------------------------------------ t12: executor
+
+
+def _through(env: Env, last: str) -> None:
+    for stage in STAGES[: STAGES.index("corrections-draft") + 1]:
+        assert env.apply(stage)["status"] == "complete", stage
+    approve_corrections(env)
+    approve_test_gold(env)
+    for stage in STAGES[STAGES.index("assemble") : STAGES.index(last) + 1]:
+        assert env.apply(stage)["status"] == "complete", stage
+
+
+def test_the_heal_round_goes_through_the_executor_injected_for_train(env):
+    """c11/h10: a fake executor injected for train also receives quantize's heal job, and the
+    checkpoint outputs come back hash-verified with the dataset's real protected sides."""
+    from jev_factory.distill import executor as dex
+
+    ex = RecordingExecutor()
+    env.services.executor = ex
+    env.measurer.profile["torch_int8_wo"] = (0.4, 3000.0, 0.04)  # 8/12 on the toy fold: heal
+    env.measurer.healed = {"bf16": PROFILE["bf16"], "torch_int8_wo": PROFILE["torch_int8_wo"]}
+    _through(env, "quantize")
+    trains = [s for s in ex.specs if "--heal" not in s.argv]
+    heals = [s for s in ex.specs if "--heal" in s.argv]
+    assert len(trains) == 2 and len(heals) == 1
+    assert env.read("quant/quant_manifest.json")["heal_count"] == 1
+    for spec in ex.specs:
+        assert len(spec.outputs) == 3  # head, trainer config, history: verified on return
+        _, sources = dex.protected_digests(spec)
+        assert {"distill/dataset/fit.jsonl", "distill/dataset/selection.jsonl"} <= set(sources)
+
+
+def test_benchmark_gate_final_edge_and_the_quant_builds_never_read_the_executor(env, monkeypatch):
+    """c11: the executor is resolved for training jobs only; the measuring stages and the
+    quantize builds never read distill_executor."""
+    from jev_factory.factory.config import RunConfig
+    from tests.distill_golden_support import run_all_stages  # it imports this module
+
+    current = {"stage": None}
+    reads: list = []
+    resolved: list = []
+
+    class Recording(RunConfig):
+        def get(self, name):
+            if name == "distill_executor":
+                reads.append(current["stage"])
+            return super().get(name)
+
+        def require(self, name):
+            if name == "distill_executor":
+                reads.append(current["stage"])
+            return super().require(name)
+
+        def __getitem__(self, name):
+            if name == "distill_executor":
+                reads.append(current["stage"])
+            return super().__getitem__(name)
+
+    orig = distill_cmd._context
+
+    def context(args):
+        ctx = orig(args)
+        c = ctx.config
+        return replace(ctx, config=Recording(c.values, c.sources, c.path))
+
+    monkeypatch.setattr(distill_cmd, "_context", context)
+    real = P._executor
+    monkeypatch.setattr(P, "_executor", lambda ctx: resolved.append(current["stage"]) or real(ctx))
+    apply = env.apply
+
+    def tracked(stage, knobs=None):
+        current["stage"] = stage
+        return apply(stage, knobs)
+
+    env.apply = tracked
+    run_all_stages(env)
+    assert set(resolved) == {"train"}  # quantize built and measured without it (no heal)
+    assert not {"benchmark", "gate", "final", "edge"} & set(reads)

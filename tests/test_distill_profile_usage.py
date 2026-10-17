@@ -17,9 +17,9 @@ FORBIDDEN_PREFIX = "CARD_"
 
 #: Modules that define or alias the constants.
 DEFINING = {"pins.py", "profile.py", "prereg.py", "benchmark.py"}
-#: Modules that still read them directly. t12 (the pipeline takes the profile) MUST empty this
-#: set. It may shrink, never grow.
-KNOWN_PENDING = {"pipeline.py"}
+#: Modules that still read them directly. t12 (the pipeline takes the profile) emptied it; it
+#: never grows.
+KNOWN_PENDING: set[str] = set()
 
 
 def _forbidden(name: str) -> bool:
@@ -50,6 +50,6 @@ def test_no_distill_module_reads_the_pins_directly():
     assert offenders == {}
 
 
-def test_known_pending_is_exactly_pipeline_and_still_needed():
-    assert KNOWN_PENDING == {"pipeline.py"}
-    assert _reads(DISTILL / "pipeline.py"), "pipeline.py is clean: empty KNOWN_PENDING"
+def test_known_pending_is_empty_and_the_pipeline_reads_no_pin_constant():
+    assert KNOWN_PENDING == set()
+    assert _reads(DISTILL / "pipeline.py") == []

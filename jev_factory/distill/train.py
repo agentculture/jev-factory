@@ -517,8 +517,14 @@ def run_grid(
     limits: GpuLimits = GpuLimits(),
     bootstrap: Bootstrap = Bootstrap(),
     profile: StudentProfile = DEFAULT_2610,
+    executor: Any = None,
+    expected_outputs: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """Plan (dry-run) or run the knob grid, then calibrate and select on apply."""
+    """Plan (dry-run) or run the knob grid, then calibrate and select on apply.
+
+    *executor* runs each candidate's job (``None``: the local executor) and
+    *expected_outputs* (e.g. ``train_distill.CHECKPOINT_OUTPUTS``) are hash-verified on return.
+    """
     trainer_python, decider_repo = trainer_env.python, trainer_env.decider_repo
     memory_max, memory_floor = limits.memory_max, limits.memory_floor
     allow_foreign, timeout = limits.allow_foreign, limits.timeout
@@ -581,6 +587,8 @@ def run_grid(
             memory_max=memory_max,
             memory_floor=memory_floor,
             timeout=timeout,
+            executor=executor,
+            expected_outputs=expected_outputs,
         )
         checkpoint = Path(plans[cand.cid]["output_dir"])
         result = _score_candidate(
