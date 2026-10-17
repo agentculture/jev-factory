@@ -1,0 +1,71 @@
+{
+  "plan_slug": "configurable-distillery-and-remote-training",
+  "schema_version": 2,
+  "created": "2026-10-17T18:15:10Z",
+  "updated": "2026-10-17T18:45:10Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t6 acceptance criterion 1 is met only for pointer/__init__.py; serve.py, quantized.py and train_distill.py still import generic distill code (systemone.SystemOneClient, envs.EnvSpec, executor, prereg). Add a decoupling task (d-t16) that runs after t12 and before t13/t14: move SystemOneClient and EnvSpec into a shared module outside jev_factory.distill (re-exported from their old distill paths for compatibility), and have train_distill.run_train and resolve_hyperparameters receive the executor and the pre-registration as arguments instead of importing them. Acceptance: the AST guard in tests/test_backbone_pointer.py allows no distill imports anywhere in jev_factory/backbones/pointer (the _KNOWN_DISTILL_IMPORTERS list is emptied), the full suite and the golden test pass, and existing import paths keep working.",
+      "task_ref": "t6",
+      "reason": "Removing the three remaining imports means moving the wire client and EnvSpec and inverting run_train's dependency on executor and prereg, which touches files t7, t10 and t12 own. Doing it inside t6 would collide with them; the operator chose a separate task after t12 over narrowing the criterion.",
+      "affects": [
+        "t12",
+        "t13",
+        "c4",
+        "h4"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t11's summary promised the distill stages reach the student via registry.get(profile.backbone), but the Backbone protocol (backbones/base.py) has no layout, serve or run_train hooks, so train.py still imports backbones.pointer layout, serve and train_distill directly. The d1 decoupling task (d-t16, after t12) is extended: it also adds the needed hooks to the Backbone protocol (layout and config file names, serve argv, train plan and run), implements them on PointerBackbone, and switches the distill stages (train.py and any pipeline call sites) to registry.get(profile.backbone). Added acceptance: an AST test shows no module in jev_factory/distill imports jev_factory.backbones.pointer directly, except through the registry.",
+      "task_ref": "t11",
+      "reason": "A clean registry swap needs a protocol extension that touches backbones/base.py, pointer/__init__.py and the pipeline wiring t12 owns; the operator chose to fold it into the d1 task rather than defer it.",
+      "affects": [
+        "t12",
+        "c4",
+        "h4"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "h12 (the job manifest is recorded in the stage manifest) is narrowed to non-local executors: when distill_executor is 'local', the train and quantize stage manifests stay byte-identical to main and the job manifest is only returned by run_train; any other executor records it under 'jobs' in the stage manifest via executor.record_job. Implemented in the decoupling task (d-t16).",
+      "task_ref": "t12",
+      "reason": "Recording it for the local executor adds a 'jobs' key to manifests/train.json and breaks the golden byte-identity success signal c33; the operator chose 'non-local only' over refreshing the golden fixtures or a side file.",
+      "affects": [
+        "c13",
+        "h12",
+        "c33"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "The decoupling task (d-t16) also makes jev status compute distill staleness with the same per-run stage inputs the pipeline uses (pipeline._stage_for: bf16 swaps quant calibration and predictions for the select calibration; a skipped corrections-draft drops CORRECTIONS_FILE from assemble), so gate, final, edge and assemble are not shown stale on a bf16 run or after a skipped corrections-draft.",
+      "task_ref": "t12",
+      "reason": "t12 left jev status on the static REGISTRY, so c39's 'skipped shows correctly in jev status' is not met for dependents on bf16 and skipped-corrections runs; the operator chose to fold the fix into the decoupling task.",
+      "affects": [
+        "c39",
+        "h30"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 4
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

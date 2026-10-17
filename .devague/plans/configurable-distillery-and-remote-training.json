@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-17T17:46:32Z",
-  "updated": "2026-10-17T17:48:51Z",
+  "updated": "2026-10-17T19:04:52Z",
   "targets": [
     {
       "id": "c1",
@@ -808,7 +808,7 @@
   "risks": [
     {
       "id": "r1",
-      "text": "If the golden byte-identity fixtures (t1) normalise too much, they can hide a real drift; if they normalise too little, they are flaky. Review the normalised field list before wave 1 merges.",
+      "text": "Realised in t1: the golden fixtures normalise timestamps, versions and tmp paths, but also the sha256 of 16 non-deterministic e2e outputs (benchmark/*, quant/*.json, final/*.json, gate.json, select/summary.json, bundle/*, edge, corrections draft, assemble manifest; listed in tests/distill_golden_support.py), because the fakes embed latency, bootstrap draws or tmp paths. The golden test pins manifest structure and every other hash, but not those files' content, so c33's 'byte-identical apart from version and timestamp' holds only partially. validate-delivery must report c33 as partial unless those outputs are made deterministic.",
       "kind": "unknown_nonblocking",
       "task_id": "t1",
       "resolved": false,
@@ -818,6 +818,22 @@
       "id": "r2",
       "text": "pipeline.py (1366 lines) is touched by t8 and t12, and quant.py by t10 and t12; keep those edits to the named sections, and expect SonarCloud complexity findings (S3776) on the wiring.",
       "kind": "unknown_nonblocking",
+      "task_id": "t12",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "A bf16 build cannot be measured by edge behind a plain strands-decider serve (no /v1/bundle or /v1/stats); t10 refuses rather than skipping attestation. A bf16 edge run needs a serving wrapper that answers /v1/bundle and /v1/stats for a hobson-hf-export/1 folder, which no task builds.",
+      "kind": "follow_up",
+      "task_id": "t10",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "The d-t16 registry facets in quant.py, bundle.py, final.py, deployed.py and prereg.SIZE_BUDGET_BYTES are bound at import time to the built-in 2610 profile's backbone (pointer), because those modules have no profile in scope; a profile naming a different backbone would not reach them yet. Harmless while pointer is the only distill student (non-goal c19), but a new family needs those facets resolved per run.",
+      "kind": "follow_up",
       "task_id": "t12",
       "resolved": false,
       "resolution": ""

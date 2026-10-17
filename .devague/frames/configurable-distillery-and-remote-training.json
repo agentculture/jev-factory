@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-17T16:49:24Z",
-  "updated": "2026-10-17T17:45:25Z",
+  "updated": "2026-10-17T18:15:18Z",
   "claims": [
     {
       "id": "c1",
@@ -1135,7 +1135,44 @@
       "seeds": []
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "assumption-for-measurement",
+      "what": "t4's VARIANT_RECIPES table (envs.py) maps Clef variants to engine kinds and quantization flags (NVFP4/FP4 -> sglang modelopt_fp4, W4A16 -> vllm compressed-tensors, BF16 -> transformers) from the task agent's guess, not from a verified serving invocation of each Clef build",
+      "skipped_check": "serve each Clef variant with the recipe, or check it against the engines' documented flags and the lobes Clef W4A16 deployment",
+      "refs": [
+        "t4",
+        "jev_factory/distill/envs.py VARIANT_RECIPES"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l2",
+      "code": "control-absent",
+      "what": "t5's executor tests were written before the implementation but never run red before it; they went green on the first run",
+      "skipped_check": "run the new tests against the unchanged code and watch them fail first (TDD)",
+      "refs": [
+        "t5",
+        "tests/test_distill_executor.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "control-absent",
+      "what": "t8's tests for a non-default new config key (stages go stale) were never seen failing against the unchanged pipeline.py; the first red run failed on harness errors instead",
+      "skipped_check": "run the non-default-key tests against the pre-change pipeline.py and confirm they fail",
+      "refs": [
+        "t8",
+        "tests/test_distill_knobs_compat.py"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": [
     {
       "id": "o1",
