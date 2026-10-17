@@ -259,3 +259,19 @@ def test_missing_key_env_is_exit_2_without_value(make, tmp_path, monkeypatch):
     assert info.value.code == 2
     assert "TEACHER_KEY_MISSING" in info.value.message
     assert not srv.bodies
+
+
+def test_variant_stamped_only_when_set(make, tmp_path):
+    srv = make()
+    recs = [_record("r1")]
+    man = label_records(recs, tmp_path, _cfg(srv.url, variant="NVFP4"), allowed_ids=_ids(recs))
+    assert man["teacher_variant"] == "NVFP4"
+    assert {r["teacher_variant"] for r in _rows(tmp_path)} == {"NVFP4"}
+
+
+def test_no_variant_leaves_rows_and_manifest_unchanged(make, tmp_path):
+    srv = make()
+    recs = [_record("r1")]
+    man = label_records(recs, tmp_path, _cfg(srv.url), allowed_ids=_ids(recs))
+    assert "teacher_variant" not in man
+    assert all("teacher_variant" not in r for r in _rows(tmp_path))

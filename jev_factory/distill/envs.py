@@ -20,7 +20,15 @@ from jev_factory.measure.preflight import require_localhost
 
 ROLES = ("teacher", "student", "trainer")
 SERVER_ROLES = ("teacher", "student")
-KINDS = ("strands-decider", "clef-transformers", "sglang-dev-clef")
+KINDS = ("strands-decider", "clef-transformers", "sglang-dev-clef", "vllm-clef")
+#: Clef serving recipes: variant (upper-case) -> (engine kind, quantization or None). Data, so a
+#: new variant is a table row; the quantization is passed to the engine as ``--quantization``.
+VARIANT_RECIPES: dict[str, tuple[str, str | None]] = {
+    "BF16": ("clef-transformers", None),
+    "NVFP4": ("sglang-dev-clef", "modelopt_fp4"),
+    "FP4": ("sglang-dev-clef", "modelopt_fp4"),
+    "W4A16": ("vllm-clef", "compressed-tensors"),
+}
 LOOPBACK = "127.0.0.1"
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -32,6 +40,24 @@ _LOCK = re.compile(r"^[0-9a-f]{64}$")
 #: the repeated group is mandatory, so each character has one parse and matching is linear
 #: (that pattern backtracked exponentially on inputs like ``1aaaa...!``, Sonar S5852).
 _EXACT = re.compile(r"^\d[A-Za-z0-9]*(?:[.+-][A-Za-z0-9]+)*$", re.ASCII)
+
+
+def check_engine_kind(kind: str) -> str:
+    """Return *kind* if it is a known engine kind, else refuse."""
+    if kind not in KINDS:
+        raise _refuse(f"unknown server kind {kind!r}", f"use one of {KINDS}")
+    return kind
+
+
+def variant_recipe(variant: str) -> tuple[str, str | None]:
+    """The (engine kind, quantization) a Clef *variant* needs; unknown variants are refused."""
+    recipe = VARIANT_RECIPES.get(str(variant).strip().upper())
+    if recipe is None:
+        raise _refuse(
+            f"no serving recipe for Clef variant {variant!r}",
+            f"known variants: {sorted(VARIANT_RECIPES)}; add a VARIANT_RECIPES row",
+        )
+    return recipe
 
 
 def _refuse(message: str, remediation: str = "") -> CliError:
@@ -106,12 +132,12 @@ class ServerSpec:
     packages: Mapping[str, str] = field(default_factory=dict)
     host: str = LOOPBACK
     port: int = 8000
+    quantization: str | None = None
 
     def __post_init__(self) -> None:
         if self.role not in SERVER_ROLES:
             raise _refuse(f"only {SERVER_ROLES} are served, not {self.role!r}")
-        if self.kind not in KINDS:
-            raise _refuse(f"unknown server kind {self.kind!r}", f"use one of {KINDS}")
+        check_engine_kind(self.kind)
 
 
 def validate_launch(spec: ServerSpec) -> None:
@@ -169,7 +195,9 @@ def build_argv(spec: ServerSpec) -> list[str]:
     module = {
         "clef-transformers": ["-m", "transformers_sidecar", "load_release_model"],
         "sglang-dev-clef": ["-m", "sglang.launch_server"],
+        "vllm-clef": ["-m", "vllm.entrypoints.openai.api_server"],
     }[spec.kind]
+    quant = ["--quantization", spec.quantization] if spec.quantization else []
     return [
         python,
         *module,
@@ -181,6 +209,7 @@ def build_argv(spec: ServerSpec) -> list[str]:
         spec.host,
         "--port",
         port,
+        *quant,
     ]
 
 

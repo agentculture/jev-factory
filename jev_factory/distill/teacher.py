@@ -46,6 +46,7 @@ class TeacherConfig:
     timeout: float = 120.0
     auth_env: str | None = None  # NAME of the env var holding the bearer key
     model_header: str | None = None  # sent as X-Lobes-Model
+    variant: str | None = None  # free text: BF16, NVFP4, FP4, W4A16; stamped only when set
 
     def __post_init__(self) -> None:
         for name in ("base_url", "model", "repo_id", "revision", "build_id", "engine"):
@@ -57,13 +58,16 @@ class TeacherConfig:
                 )
 
     def provenance(self) -> dict[str, Any]:
-        return {
+        out = {
             "teacher_repo_id": self.repo_id,
             "teacher_revision": self.revision,
             "teacher_build_id": self.build_id,
             "engine": self.engine,
             "mode": "joint" if self.joint else "per-question",
         }
+        if self.variant:
+            out["teacher_variant"] = self.variant
+        return out
 
 
 def to_wire(record: Record, qids: Sequence[str] | None = None) -> dict[str, Any]:

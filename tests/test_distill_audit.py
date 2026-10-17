@@ -208,3 +208,15 @@ def test_require_audit_refuses_a_table_without_a_build(tmp_path):
     p.write_text(json.dumps({"stage": "teacher-audit", "sources": []}), encoding="utf-8")
     with pytest.raises(CliError, match="build"):
         audit.require_audit(tmp_path)
+
+
+def test_variant_in_table_only_when_labels_carry_it(tmp_path):
+    recs, labels = _fixture(tmp_path)
+    rows = audit.load_labels(labels)
+    assert "teacher_variant" not in audit.build_table(recs, rows, floor=0.6)
+    for r in rows:
+        r["teacher_variant"] = "BF16"
+    assert audit.build_table(recs, rows, floor=0.6)["teacher_variant"] == "BF16"
+    rows[0]["teacher_variant"] = "FP4"
+    with pytest.raises(CliError, match="variants"):
+        audit.build_table(recs, rows, floor=0.6)
