@@ -993,8 +993,9 @@ def test_a_bf16_ship_with_no_winner_is_refused(bf16_env):
     (env["run_dir"] / "distill" / "select" / "summary.json").write_text(
         json.dumps({"winner": None}), encoding="utf-8"
     )
+    models = _bf16_models(env, env["log"])
     with pytest.raises(CliError) as exc:
-        _run(env, _bf16_models(env, env["log"]), apply=False)
+        _run(env, models, apply=False)
     assert "winner" in exc.value.message
 
 

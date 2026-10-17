@@ -523,23 +523,8 @@ def c42_bars(
         ),
         _bar("ece_max", bars["ece_max"], s_ece, _le(value(s_ece), bars["ece_max"])),
     ]
-    for name, mine, theirs in (
-        ("ece_no_worse_than_stock", s_ece, v_ece),
-        ("confident_wrong_no_worse_than_stock", s_cw, v_cw),
-    ):
-        if bars[name]:
-            out.append(
-                _bar(
-                    name,
-                    {"stock": value(theirs)},
-                    mine,
-                    _le(value(mine), value(theirs)),
-                )
-            )
-        else:
-            row = _bar(name, False, mine, True)
-            row["reason"] = "not gated: the pre-registration sets this bar to false"
-            out.append(row)
+    out.append(_no_worse_than_stock("ece_no_worse_than_stock", bars, s_ece, v_ece))
+    out.append(_no_worse_than_stock("confident_wrong_no_worse_than_stock", bars, s_cw, v_cw))
     row = _bar("latency_ratio_max", bars["latency_ratio_max"], lat, True)
     row["result"] = REPORTED
     row["reason"] = LATENCY_NOT_GATED
@@ -549,6 +534,23 @@ def c42_bars(
             if row["bar"] in CLEF_RELATIVE_TEST_BARS:
                 row["teacher_variant"] = teacher_variant
     return out
+
+
+def _no_worse_than_stock(
+    name: str,
+    bars: Mapping[str, Any],
+    mine: Mapping[str, Any] | None,
+    theirs: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """A ``*_no_worse_than_stock`` row: gated against stock's value, or marked not gated."""
+    if bars[name]:
+        theirs_value = (theirs or {}).get("value")
+        return _bar(
+            name, {"stock": theirs_value}, mine, _le((mine or {}).get("value"), theirs_value)
+        )
+    row = _bar(name, False, mine, True)
+    row["reason"] = "not gated: the pre-registration sets this bar to false"
+    return row
 
 
 #: ``bars.test`` rows whose number is relative to Clef (the teacher variant goes beside them).

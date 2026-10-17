@@ -877,8 +877,9 @@ def test_the_new_run_config_keys_are_declared_and_load(work):
 def test_an_executor_other_than_local_is_refused(work):
     """c11: only the local executor exists; any other name is a clear refusal (no cloud)."""
     _add_config(work, distill_executor="aws-batch")
+    ctx = _ctx(work)
     with pytest.raises(CliError, match="aws-batch") as exc:
-        P._executor(_ctx(work))
+        P._executor(ctx)
     assert "local" in exc.value.message
     from jev_factory.distill.executor import LocalExecutor
 
@@ -899,7 +900,8 @@ def test_edge_writes_skipped_naming_the_role_when_the_edge_role_is_absent(work):
     _apply(work, "preregister")
     out = P.run(work, "edge", _ctx(work), apply=True)
     assert out["status"] == "skipped"
-    assert "edge" in out["reason"] and "absent" in out["reason"]
+    assert "edge" in out["reason"]
+    assert "absent" in out["reason"]
     assert read_manifest(work / "distill", "edge")["status"] == "skipped"
     plan = P.plan(work, "edge", _ctx(work))
     assert "absent" in plan["skip_reason"]
@@ -1007,7 +1009,8 @@ def test_assemble_gets_no_run_teacher_check_without_a_variant(work, monkeypatch)
         P.stage_assemble(work / "distill", dict(P.DEFAULT_KNOBS["assemble"]))
     finally:
         P._CURRENT.reset(reset)
-    assert seen["run_variant"] is None and seen["run_build_id"] is None
+    assert seen["run_variant"] is None
+    assert seen["run_build_id"] is None
 
 
 def _bf16_build(work: Path, tmp_path: Path) -> Path:
@@ -1081,5 +1084,6 @@ def test_bf16_stages_read_the_select_calibration_not_the_quant_one(work):
     reg = dprereg.require_locked(work / dprereg.PREREG_REL, work)
     for name in ("gate", "final"):
         inputs = P._stage_for(name, _ctx(work), reg).inputs
-        assert P.QUANT_CALIBRATION not in inputs and P.SELECT_CALIBRATION in inputs
+        assert P.QUANT_CALIBRATION not in inputs
+        assert P.SELECT_CALIBRATION in inputs
     assert P.QUANT_PREDICTIONS not in P._stage_for("edge", _ctx(work), reg).inputs

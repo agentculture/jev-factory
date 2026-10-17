@@ -792,6 +792,40 @@ def _write_predictions(out_dir: Path, results: Mapping[str, Mapping[str, Any]]) 
             _write_json(out_dir / PREDICTIONS_DIR / PROBE_DIR / f"{name}.json", probe)
 
 
+def _measure_model(
+    name: str,
+    model: FinalModel,
+    *,
+    plan: _Plan,
+    folds: Mapping[str, Sequence[Record]],
+    counted: list[_Counted],
+    memory_probe: bench.MemoryProbe | None,
+    proc_root: Path | str,
+    bundle: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Score one model; the client joins *counted* before any request is sent."""
+    client = _Counted(
+        model.client or bench.SystemOneClient(model.target.base_url, model=model.target.model)
+    )
+    counted.append(client)
+    remote = model.target.start is None and name == plan.attested and plan.on_board
+    result = bench.benchmark_model(
+        model.target,
+        folds,
+        memory_probe=None if remote else memory_probe,
+        client=client,
+        proc_root=proc_root,
+    )
+    if remote:  # this box's GPU says nothing about the board's memory
+        result["memory"] = _served_memory(_getter(model))
+    if name == plan.attested:  # the bundle that answered is still the one attested
+        if plan.deployed_format == "bf16":
+            attest_bf16_student(model, bundle)
+        else:
+            dedge.check_bundle(_getter(model)(dedge.BUNDLE_PATH), bundle)
+    return result
+
+
 def _measure(
     *,
     plan: _Plan,
@@ -831,28 +865,16 @@ def _measure(
 
     try:
         for name in plan.names:  # sequential: one served model at a time
-            model = models[name]
-            client = _Counted(
-                model.client
-                or bench.SystemOneClient(model.target.base_url, model=model.target.model)
-            )
-            counted.append(client)
-            remote = model.target.start is None and name == plan.attested and plan.on_board
-            results[name] = bench.benchmark_model(
-                model.target,
-                folds,
-                memory_probe=None if remote else memory_probe,
-                client=client,
+            results[name] = _measure_model(
+                name,
+                models[name],
+                plan=plan,
+                folds=folds,
+                counted=counted,
+                memory_probe=memory_probe,
                 proc_root=proc_root,
+                bundle=base["deployed"]["bundle"],
             )
-            if remote:  # this box's GPU says nothing about the board's memory
-                results[name]["memory"] = _served_memory(_getter(model))
-            if name == plan.attested:  # the bundle that answered is still the one attested
-                if plan.deployed_format == "bf16":
-                    attest_bf16_student(model, base["deployed"]["bundle"])
-                else:
-                    expected = base["deployed"]["bundle"]
-                    dedge.check_bundle(_getter(model)(dedge.BUNDLE_PATH), expected)
     except BaseException:
         if any(c.asked for c in counted):
             record(once.FAILED_MID_RUN)

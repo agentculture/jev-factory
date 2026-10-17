@@ -177,13 +177,13 @@ def test_the_causal_lm_backbone_refuses_the_distill_hooks(member):
     from jev_factory.backbones import registry
 
     adapter = registry.get("causal_lm")
+    calls = {
+        "serve_argv": lambda: adapter.serve_argv("py", "b", port=1),
+        "run_distill_train": lambda: adapter.run_distill_train({}),
+    }
+    call = calls.get(member, getattr(adapter, member))
     with pytest.raises(NotImplementedError, match=member):
-        if member == "serve_argv":
-            adapter.serve_argv("py", "b", port=1)
-        elif member == "run_distill_train":
-            adapter.run_distill_train({})
-        else:
-            getattr(adapter, member)()
+        call()
 
 
 def test_the_distill_student_helper_resolves_the_profile_backbone():

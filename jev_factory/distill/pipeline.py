@@ -885,7 +885,8 @@ def _heal_trainer(ctx: DistillContext) -> Any:
 
     def train(plan: Mapping[str, Any]) -> Any:
         limits = _gpu_limits(ctx)
-        trainer = dquant._default_trainer(  # noqa: SLF001 - the hook's own default, rewired
+        # The quant hook's own default trainer, rewired onto this run's executor.
+        trainer = dquant._default_trainer(  # noqa: SLF001
             allow_foreign=limits.allow_foreign,
             memory_max=limits.memory_max,
             memory_floor=limits.memory_floor,

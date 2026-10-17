@@ -75,7 +75,9 @@ def test_a_finished_bf16_run_shows_gate_final_and_edge_fresh(tmp_path):
     work = _run(tmp_path, doc, {"quantize": dquant.BF16_SKIP_REASON})
     stale = _stale(work)
     assert {k: v for k, v in stale.items() if v} == {}
-    assert stale["gate"] is None and stale["final"] is None and stale["edge"] is None
+    assert stale["gate"] is None
+    assert stale["final"] is None
+    assert stale["edge"] is None
 
 
 def test_a_skipped_corrections_draft_leaves_assemble_fresh(tmp_path):

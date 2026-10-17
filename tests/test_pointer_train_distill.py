@@ -941,12 +941,14 @@ def test_run_train_takes_its_job_seam_from_the_caller(tmp_path):
     out = td.run_train(p, apply=True, memory_max="100G", jobs=jobs, executor="ex", protected=["a"])
     assert out["job"]["returncode"] == 0
     assert ("run", "ex", ("a",)) in jobs.calls
-    assert jobs.calls[0][1]["memory_max"] is None and jobs.calls[1][1]["memory_max"] == "100G"
+    assert jobs.calls[0][1]["memory_max"] is None
+    assert jobs.calls[1][1]["memory_max"] == "100G"
 
 
 def test_run_train_needs_a_job_seam(tmp_path):
+    p = plan(tmp_path)
     with pytest.raises(TypeError):
-        td.run_train(plan(tmp_path))  # pylint: disable=missing-kwoa
+        td.run_train(p)  # pylint: disable=missing-kwoa
 
 
 def test_plan_train_takes_its_pre_registration_seam_from_the_caller(tmp_path):

@@ -887,7 +887,8 @@ def test_the_heal_round_goes_through_the_executor_injected_for_train(env):
     _through(env, "quantize")
     trains = [s for s in ex.specs if "--heal" not in s.argv]
     heals = [s for s in ex.specs if "--heal" in s.argv]
-    assert len(trains) == 2 and len(heals) == 1
+    assert len(trains) == 2
+    assert len(heals) == 1
     assert env.read("quant/quant_manifest.json")["heal_count"] == 1
     for spec in ex.specs:
         assert len(spec.outputs) == 3  # head, trainer config, history: verified on return
