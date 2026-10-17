@@ -543,3 +543,38 @@ def test_measure_stock_refuses_sealed_unknown_and_empty(servers):
         bm.measure_stock(target, {})
     assert srv.requests == []
     assert srv.log == []
+
+
+def test_card_none_profile_serves_nothing_and_records_not_available(servers):
+    """t11: a profile with no card baseline has nothing to reproduce; train needs a deviation."""
+    from dataclasses import replace
+
+    from jev_factory.distill.profile import DEFAULT_2610
+
+    srv = servers("stock")
+    out = bm.reproduce_stock(
+        srv.target(),
+        _tasks(10, n=10),
+        base_revision="rev1",
+        profile=replace(DEFAULT_2610, card=None),
+    )
+    assert out["reproduction"] == "not_available"
+    assert out["base_mismatch"] is None
+    assert srv.requests == []
+
+
+def test_reproduce_stock_reads_the_baseline_from_the_profile(servers):
+    from dataclasses import replace
+
+    from jev_factory.distill.profile import DEFAULT_2610, CardBaseline
+
+    srv = servers("stock")
+    card = CardBaseline(n=12, correct=12, tasks_sha256="a" * 64)
+    out = bm.reproduce_stock(
+        srv.target(),
+        _tasks(12, n=12),
+        base_revision="rev1",
+        profile=replace(DEFAULT_2610, card=card),
+    )
+    assert out["card"] == {"n": 12, "n_correct": 12, "accuracy": 1.0}
+    assert out["card_tasks_sha256"] == "a" * 64

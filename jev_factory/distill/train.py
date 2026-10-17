@@ -61,6 +61,7 @@ from jev_factory.distill import metrics as dm
 from jev_factory.distill import pins as dpins
 from jev_factory.distill import prereg as dp
 from jev_factory.distill.assemble import OUT_REL as TRAIN_SET_REL
+from jev_factory.distill.profile import DEFAULT_2610, StudentProfile
 from jev_factory.distill.records import NOUL_OPTIONS, Record
 from jev_factory.distill.runspec import Bootstrap, GpuLimits, TrainerEnv
 from jev_factory.factory import gpu
@@ -495,6 +496,11 @@ def _score_candidate(
     }
 
 
+def init_from_path(cache_dir: Path | str, profile: StudentProfile = DEFAULT_2610) -> Path:
+    """Where the trainer starts from: the profile's decider repo inside the pin cache."""
+    return Path(cache_dir) / dpins.cache_dirname(profile.decider_repo)
+
+
 def run_grid(
     *,
     prereg_path: Path | str,
@@ -510,6 +516,7 @@ def run_grid(
     deviation_id: str | None = None,
     limits: GpuLimits = GpuLimits(),
     bootstrap: Bootstrap = Bootstrap(),
+    profile: StudentProfile = DEFAULT_2610,
 ) -> dict[str, Any]:
     """Plan (dry-run) or run the knob grid, then calibrate and select on apply."""
     trainer_python, decider_repo = trainer_env.python, trainer_env.decider_repo
@@ -522,7 +529,7 @@ def run_grid(
     threshold = _threshold(reg)
     pin_report = _verify_pins(cache_dir, pins)
     fold_records = _folds(folds, sealed)
-    init_from = Path(cache_dir) / dpins.cache_dirname(dpins.DECIDER_REPO)  # type: ignore[arg-type]
+    init_from = init_from_path(cache_dir, profile)  # type: ignore[arg-type]
     train_file = Path(train_file) if train_file else run_dir / TRAIN_SET_REL
     candidates = grid_candidates(reg)
     plans = {
