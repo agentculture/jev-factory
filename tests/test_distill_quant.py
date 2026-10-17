@@ -528,6 +528,7 @@ def test_a_quant_within_the_margin_ships_without_a_heal(tmp_path):
     assert out["chosen_format"] == "onnx_int8"
     assert out["heal_count"] == 0
     assert out["heal"] is None
+    assert "healed_bf16_selection_accuracy" not in out  # un-healed manifests keep their keys
     assert trainer.plans == []
     assert not (run_dir / Q.QUANT_REL / Q.HEAL_LOG_FILE).exists()
 
@@ -658,6 +659,13 @@ def test_a_heal_that_raises_the_bf16_is_still_judged_against_the_original(tmp_pa
     formats = _read(run_dir, Q.MEASUREMENTS_FILE)["formats"]
     assert manifest["bf16_selection_accuracy"] == pytest.approx(formats["bf16"]["accuracy"])
     assert manifest["heal"]["drop_points"] == pytest.approx(15.0)  # the trigger, pre-heal
+    assert manifest["heal"]["healed_result"] == {
+        "drop_points": pytest.approx(0.0),
+        "drop_points_vs_heal_bf16": pytest.approx(10.0),
+        "heal_bf16_drift_points": pytest.approx(-10.0),
+    }
+    cited = {c["name"]: c["value"] for c in _read(run_dir, Q.DECISION_FILE)["cited"]}
+    assert cited["healed.bf16.accuracy_delta_points_vs_bf16"] == pytest.approx(10.0)
     # the report's bars.quant row reads the manifest, so it sees the drop vs the original too
     bars = dp.example_doc()["bars"]["quant"]
     drop_row = next(r for r in R.c43_bars(manifest, bars) if r["bar"] == "max_accuracy_drop_points")
@@ -1915,8 +1923,9 @@ def test_a_gated_heal_drop_is_against_the_original_on_the_domain_sources(tmp_pat
     """d12 + d17: the healed quant's drop subtracts the original bf16's domain accuracy from
     its own domain accuracy; the guard answers it gets wrong never enter the drop."""
     profile = {"bf16": PROFILE["bf16"], "torch_int4_wo": (0.75, 1000.0, 0.02)}
+    # the heal raised its own bf16 to 1.0: 10 points vs it, 0 vs the original (q2)
     measurer = GuardWrongMeasurer(
-        profile, {"bf16": PROFILE["bf16"], "torch_int4_wo": (0.9, 1000.0, 0.02)}
+        profile, {"bf16": (1.0, 5000.0, 0.05), "torch_int4_wo": (0.9, 1000.0, 0.02)}
     )
     out, run_dir, trainer = run(
         tmp_path,
@@ -1934,6 +1943,7 @@ def test_a_gated_heal_drop_is_against_the_original_on_the_domain_sources(tmp_pat
     assert healed["guard"]["selection"]["accuracy"] == 0.0
     result = next(e for e in _log(run_dir) if e.get("event") == "heal_result")
     assert result["drop_points"] == pytest.approx(0.0)
+    assert result["drop_points_vs_heal_bf16"] == pytest.approx(10.0)
     assert result["original_bf16_accuracy"] == pytest.approx(original["accuracy"])
 
 

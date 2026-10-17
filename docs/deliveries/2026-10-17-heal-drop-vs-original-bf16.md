@@ -52,6 +52,15 @@ Quoted verbatim from the `devague summary` skeleton:
   selection. The loophole is narrower than first claimed: it is real only when
   the loss falls mostly on the selection fold. The red test needed a per-fold
   accuracy override in `FakeMeasurer` (`fold_acc`) to show it.
+- Code review of PR #23 (`/code-review medium`, 7 findings): 6 fixed in one
+  commit. `_measure_all` takes a `baseline=` (the original bf16) instead of
+  having its result patched afterwards, and its refusal no longer says "its own
+  bf16". A healed bf16's cited `accuracy_delta_points_vs_bf16` is its drift. The
+  un-healed manifest no longer gains a null key. The manifest's heal record
+  labels the healed build's drops under `healed_result`. The o3 gating test now
+  uses a healed bf16 of 1.0, so it fails on the old code. 1 pushed back:
+  `heal_result` repeating the original bf16 accuracy is what operator-confirmed
+  c23 requires (the log entry alone re-derives every drop).
 - Evidence is plan-scoped: one record (`e26`) first landed on the #20 plan's
   unrelated `o5` by default, and the operator rejected it. Evidence for this
   run was re-filed on this plan, pinned to `bef8463`.
@@ -83,7 +92,7 @@ implements, not drift from it.
 |-------|------------|----------|
 | `c2` — after a heal, `_healed_problem` gates on the drop against the original bf16 student | high | test `test_a_heal_that_lowers_the_bf16_is_judged_against_the_original` (e1, sensitivity) |
 | `c3`/`c23` — `heal_result` records the vs-healed drop, the drift and the three accuracies; no gate reads them | high | same test (e2, e9, sensitivity); e8 for the shippable case |
-| `c4` — with `gating=clean`, both sides of the drop are domain-only | high | test `test_a_gated_heal_drop_is_against_the_original_on_the_domain_sources` (e3, execution) |
+| `c4` — with `gating=clean`, both sides of the drop are domain-only | high | test `test_a_gated_heal_drop_is_against_the_original_on_the_domain_sources` (e3 execution; after review, red on the old code, e11 sensitivity) |
 | `c6` — the un-healed path is unchanged | high | no pre-existing assertion edited; full suite passes (e4) |
 | `c7` — agreement still uses the original predictions | high | lowers test asserts 39/40 (e5) |
 | `c8` — manifest bf16 fields describe the original after a heal | high | test `test_a_heal_that_raises_the_bf16_is_still_judged_against_the_original` (e6, sensitivity) |
