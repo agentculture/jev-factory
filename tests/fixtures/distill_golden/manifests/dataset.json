@@ -1,0 +1,27 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {},
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {
+      "distill_pin_cache": "<TMP>/cache",
+      "distill_records": "<TMP>/records.jsonl",
+      "distill_student_python": null
+    },
+    "_external": {
+      "distill_records": "b5615fb60113cc9ec636045754869fff2698660de01e871576e5a5f135dc4ff0"
+    },
+    "fit_fraction": 0.15,
+    "held_out_fraction": 0.1,
+    "max_tokens": 4096,
+    "seed": 27,
+    "train_fraction": 0.7
+  },
+  "outputs": {
+    "dataset": "d58c4b1778de9dd4e158e8703a5fbf3f1eddaa22c0f7fb6117e050a8f5748044"
+  },
+  "rc": 0,
+  "stage": "dataset",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

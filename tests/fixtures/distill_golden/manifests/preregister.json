@@ -1,0 +1,17 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "prereg.json": "e285f0c889c80e55e66c924e81c26fa89475d6308984c02368f4ec2ec48ace5e"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {}
+  },
+  "outputs": {
+    "prereg.lock.json": "f05a90c45a53c1862e349d5979acf2e41a8e0f54d61555a413d7cb07985c43c5"
+  },
+  "rc": 0,
+  "stage": "preregister",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}

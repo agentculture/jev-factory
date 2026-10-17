@@ -1,0 +1,24 @@
+{
+  "finished": "<TIMESTAMP>",
+  "inputs": {
+    "final/final.json": "<VARIES>",
+    "quant/deployed_predictions.json": "<VARIES>"
+  },
+  "jev_factory_version": "<VERSION>",
+  "knobs": {
+    "_config": {
+      "distill_edge_memory_cap": "4G",
+      "distill_edge_url": "http://127.0.0.1:9",
+      "distill_probe_set": "<TMP>/probe.jsonl"
+    },
+    "label": "nano",
+    "served_model": "distill-edge-student"
+  },
+  "outputs": {
+    "edge": "<VARIES>"
+  },
+  "rc": 0,
+  "stage": "edge",
+  "started": "<TIMESTAMP>",
+  "status": "complete"
+}
