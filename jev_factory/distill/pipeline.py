@@ -227,6 +227,29 @@ STAGE_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
     "upload": ("hub_prefix",),
 }
 
+#: Run-config keys added after the first runs were recorded, per stage. Recorded under ``_config``
+#: only when set to a non-default value, so a manifest written before the key existed still
+#: compares equal under the default config (upgrading must not make completed stages stale).
+#: The role presence and the deployed format live in the pre-registration, an input every stage
+#: already hashes, so they are not run-config keys and nothing is registered for them.
+#: ``distill_deployed_url`` is the role-neutral alias of ``distill_agx_url``: the old key keeps
+#: its unconditional recording in ``final``; this one is recorded only when set.
+STAGE_OPTIONAL_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
+    "dataset": ("distill_student_profile",),
+    "contamination": ("distill_student_profile",),
+    "teacher-label": ("distill_teacher_variant",),
+    "audit": ("distill_teacher_variant",),
+    "assemble": ("distill_teacher_variant",),
+    "benchmark": ("distill_student_profile", "distill_teacher_variant"),
+    "train": ("distill_student_profile", "distill_executor"),
+    "quantize": ("distill_student_profile", "distill_executor"),
+    "final": ("distill_student_profile", "distill_teacher_variant", "distill_deployed_url"),
+    "bundle": ("distill_student_profile", "distill_teacher_variant"),
+}
+
+#: Non-default test for the optional keys: a value equal to this default is not recorded.
+OPTIONAL_CONFIG_DEFAULTS: dict[str, Any] = {"distill_executor": "local"}
+
 #: Stages with no side effect beyond their own outputs still dry-run; these call a module's
 #: own dry run (``apply=False``) in :func:`plan`, which reads and never writes.
 _MODULE_PLANS = ("train", "quantize", "gate", "final", "edge", "upload")
@@ -1246,6 +1269,10 @@ def effective_knobs(name: str, knobs: Mapping[str, Any] | None, ctx: DistillCont
         )
     merged = json.loads(json.dumps({**DEFAULT_KNOBS[name], **given}))
     merged["_config"] = {k: ctx.config.get(k) for k in STAGE_CONFIG_KEYS.get(name, ())}
+    for key in STAGE_OPTIONAL_CONFIG_KEYS.get(name, ()):
+        value = ctx.config.get(key)
+        if value not in (None, "") and value != OPTIONAL_CONFIG_DEFAULTS.get(key):
+            merged["_config"][key] = value
     external = _external(name, ctx)
     if external:
         merged["_external"] = external
