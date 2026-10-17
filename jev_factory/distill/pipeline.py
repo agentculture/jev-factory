@@ -50,6 +50,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from jev_factory.backbones.pointer import train_distill as td
 from jev_factory.cli._errors import EXIT_USER_ERROR, CliError
 from jev_factory.distill import assemble as dassemble
 from jev_factory.distill import audit as daudit
@@ -63,12 +64,14 @@ from jev_factory.factory.config import RunConfig
 from jev_factory.factory.lock import RunLock
 from jev_factory.factory.stages import (
     COMPLETE,
+    SKIPPED,
     Registry,
     Stage,
     read_manifest,
     run_stage,
     sha256_path,
     staleness,
+    write_skipped,
 )
 from jev_factory.factory.workroot import resolve_work_root
 
@@ -293,6 +296,10 @@ class Services:
     edge_get: Callable[[str], Mapping[str, Any]] | None = None
     #: upload: the hub client module (default: huggingface_hub, imported on upload).
     hub: Any = None
+    #: train and quantize's heal: the executor training jobs run on (default: the one
+    #: ``distill_executor`` names; only ``local`` exists). Benchmark, gate, final, edge and the
+    #: quantize builds never read it.
+    executor: Any = None
     #: Environment secrets are read from (default: os.environ).
     environ: Mapping[str, str] | None = None
     #: ``() -> YYYY-MM-DD``.
@@ -308,6 +315,21 @@ class DistillContext:
     deviation_id: str | None = None
     allow_foreign_gpu: bool = False
     services: Services = field(default_factory=Services)
+    _profile: Any = field(default=None, init=False, repr=False, compare=False)
+
+    def profile(self) -> Any:
+        """The run's student profile, resolved once: ``distill_student_profile`` (a TOML file),
+        else the built-in :data:`~jev_factory.distill.profile.DEFAULT_2610`."""
+        if self._profile is None:
+            from jev_factory.distill import profile as dprofile
+
+            path = self.config.get("distill_student_profile")
+            self._profile = dprofile.load_profile_file(path) if path else dprofile.DEFAULT_2610
+        return self._profile
+
+    def custom_profile(self) -> Any:
+        """The configured profile, or ``None`` under the default (the built-in 2610)."""
+        return self.profile() if self.config.get("distill_student_profile") else None
 
     def today(self) -> str:
         if self.services.today is not None:
@@ -391,7 +413,9 @@ def _train_records(ctx: DistillContext) -> list[Any]:
 def _base_revision(ctx: DistillContext) -> str:
     from jev_factory.distill import pins as dpins
 
-    return str(ctx.config.get("distill_base_revision") or dpins.DEFAULT_BASE_REVISION)
+    custom = ctx.custom_profile()
+    default = custom.base_revision if custom is not None else dpins.DEFAULT_BASE_REVISION
+    return str(ctx.config.get("distill_base_revision") or default)
 
 
 def _student_env(ctx: DistillContext) -> Any:
@@ -402,6 +426,18 @@ def _student_env(ctx: DistillContext) -> Any:
         lockfile_hash=str(ctx.config.require("distill_student_lockfile")),
         python=str(ctx.config.require("distill_student_python")),
     )
+
+
+def _require_reg(ctx: DistillContext) -> dprereg.DistillPrereg:
+    return dprereg.require_locked(_prereg_path(ctx), ctx.work, ctx.deviation_id)
+
+
+def _locked_reg(ctx: DistillContext) -> dprereg.DistillPrereg | None:
+    """The locked pre-registration, or None before it is locked (a stage refuses that itself)."""
+    try:
+        return _require_reg(ctx)
+    except CliError:
+        return None
 
 
 def _measurer(ctx: DistillContext) -> Any:
@@ -449,7 +485,7 @@ def stage_dataset(workdir: Path, knobs: dict[str, Any]) -> None:
         cache = Path(ctx.config.require("distill_pin_cache"))
         counter = dataset.subprocess_token_counter(
             str(ctx.config.require("distill_student_python")),
-            cache / pins.cache_dirname(pins.BASE_REPO),
+            cache / pins.cache_dirname(ctx.profile().base_repo),
         )
     built = dataset.build_dataset(
         records,
@@ -459,6 +495,7 @@ def stage_dataset(workdir: Path, knobs: dict[str, Any]) -> None:
         held_out_fraction=float(knobs["held_out_fraction"]),
         train_fraction=float(knobs["train_fraction"]),
         fit_fraction=float(knobs["fit_fraction"]),
+        profile=ctx.profile(),
     )
     dataset.write_dataset(built, Path(workdir) / DATASET_DIR)
 
@@ -473,7 +510,7 @@ def stage_contamination(workdir: Path, knobs: dict[str, Any]) -> None:
     names = list(_read_json(ds / "manifest.json").get("licences") or {})
     # hf ids come from the training-side records; the sealed sides are not read here
     recs = [r for side in ("train", "fit", "selection") for r in read_records(ds / f"{side}.jsonl")]
-    report = contamination.check_sources(names, records=recs)
+    report = contamination.check_sources(names, records=recs, profile=ctx.profile())
     contamination.write_report(report, workdir)
 
 
@@ -492,6 +529,7 @@ def _teacher_config(ctx: DistillContext, knobs: Mapping[str, Any]) -> Any:
         joint=bool(knobs["joint"]),
         auth_env=get("distill_teacher_key_env") or None,
         model_header=get("distill_teacher_model_header") or None,
+        variant=get("distill_teacher_variant") or None,
     )
 
 
@@ -638,6 +676,9 @@ def stage_assemble(workdir: Path, knobs: dict[str, Any]) -> None:
     ctx = _ctx()
     reg = dprereg.require_locked(_prereg_path(ctx), ctx.work, ctx.deviation_id)
     corrections = Path(workdir) / CORRECTIONS_FILE
+    # the run's teacher check only when a variant is configured: unset is today's behaviour
+    variant = ctx.config.get("distill_teacher_variant") or None
+    build_id = (ctx.config.get("distill_teacher_build_id") or None) if variant else None
     dassemble.assemble(
         ctx.work,
         _dataset_dir(ctx),
@@ -647,6 +688,8 @@ def stage_assemble(workdir: Path, knobs: dict[str, Any]) -> None:
         alt_labels=knobs.get("alt_labels") or None,
         corrections_path=corrections if corrections.is_file() else None,
         deviation_id=ctx.deviation_id,
+        run_variant=variant,
+        run_build_id=build_id,
     )
 
 
@@ -713,6 +756,7 @@ def stage_benchmark(workdir: Path, knobs: dict[str, Any]) -> None:
         tasks_path=tasks_path,
         memory_probe=_memory_probe(ctx),
         client=client,
+        profile=ctx.profile(),
     )
     bench.write_reproduction(ctx.work, reproduction)
     sets = {name: bench.load_fold(path) for name, path in _folds(ctx).items()}
@@ -731,6 +775,7 @@ def _pins(ctx: DistillContext) -> Any:
     return dpins.default_pins(
         decider_revision=str(ctx.config.require("distill_decider_revision")),
         base_revision=_base_revision(ctx),
+        profile=ctx.custom_profile(),  # None: the module's own aliases of the 2610 pins
     )
 
 
@@ -760,7 +805,50 @@ def _train_kwargs(ctx: DistillContext) -> dict[str, Any]:
         "sealed": _sealed(ctx),
         "deviation_id": ctx.deviation_id,
         "limits": _gpu_limits(ctx),
+        "profile": ctx.profile(),
     }
+
+
+#: The only executor this build has (spec c11); any other name is refused, nothing remote.
+EXECUTORS = ("local",)
+
+
+def _executor(ctx: DistillContext) -> Any:
+    """The executor training jobs run on: ``distill_executor`` (default ``local``), or the one
+    injected in :class:`Services`. Read by train and quantize's heal only."""
+    name = str(ctx.config.get("distill_executor") or "local")
+    if name not in EXECUTORS:
+        raise _err(
+            f"distill_executor {name!r} is not an executor this build has; the only one is "
+            f"{', '.join(repr(e) for e in EXECUTORS)}",
+            'set distill_executor = "local" (or leave it unset); no remote executor exists',
+        )
+    if ctx.services.executor is not None:
+        return ctx.services.executor
+    from jev_factory.distill.executor import LocalExecutor
+
+    return LocalExecutor()
+
+
+def _heal_trainer(ctx: DistillContext) -> Any:
+    """quantize's heal trainer: the train stage's executor seam (same executor, checkpoint
+    outputs hash-verified). The executor is resolved only when a heal actually runs."""
+    if ctx.services.trainer is not None:
+        return ctx.services.trainer
+
+    def train(plan: Mapping[str, Any]) -> Any:
+        limits = _gpu_limits(ctx)
+        trainer = dquant._default_trainer(  # noqa: SLF001 - the hook's own default, rewired
+            allow_foreign=limits.allow_foreign,
+            memory_max=limits.memory_max,
+            memory_floor=limits.memory_floor,
+            timeout=limits.timeout,
+            executor=_executor(ctx),
+            expected_outputs=td.CHECKPOINT_OUTPUTS,
+        )
+        return trainer(plan)
+
+    return train
 
 
 def _require_reproduction(ctx: DistillContext) -> None:
@@ -784,7 +872,13 @@ def stage_train(workdir: Path, knobs: dict[str, Any]) -> None:
             base_revision=_base_revision(ctx),
             allow_foreign=ctx.allow_foreign_gpu,
         )
-    dtrain.run_grid(**_train_kwargs(ctx), apply=True, scorer=scorer)
+    dtrain.run_grid(
+        **_train_kwargs(ctx),
+        apply=True,
+        scorer=scorer,
+        executor=_executor(ctx),
+        expected_outputs=td.CHECKPOINT_OUTPUTS,
+    )
 
 
 def _quant_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, Any]:
@@ -804,7 +898,7 @@ def _quant_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, An
         "run_dir": ctx.work,
         "folds": _folds(ctx),
         "trainer_env": _trainer_env(ctx),
-        "hooks": dquant.QuantHooks(builders=builders, trainer=ctx.services.trainer),
+        "hooks": dquant.QuantHooks(builders=builders, trainer=_heal_trainer(ctx)),
         "sealed": _sealed(ctx),
         "deviation_id": ctx.deviation_id,
         "limits": _gpu_limits(ctx),
@@ -903,12 +997,12 @@ def _bf16_artifact(ctx: DistillContext) -> Path:
     return artifact if artifact.is_absolute() else ctx.work / artifact
 
 
-def _bf16_final_model(ctx: DistillContext) -> Any:
-    """The distilled bf16 student, served from its own export on the Spark (127.0.0.1)."""
+def _bf16_final_model(ctx: DistillContext, artifact: Path) -> Any:
+    """The distilled bf16 student, served from *artifact* on the Spark (127.0.0.1); the folder
+    is its ``served_from`` (what a bf16 deployed student is attested by)."""
     from jev_factory.backbones.pointer import serve as pserve
     from jev_factory.distill import benchmark as bench
 
-    artifact = _bf16_artifact(ctx)
     env, jobdir = _student_env(ctx), jobs_dir(ctx.work)
     port = int(ctx.config.get("distill_student_port"))
     base_url = f"http://{pserve.LOOPBACK}:{port}"
@@ -921,11 +1015,15 @@ def _bf16_final_model(ctx: DistillContext) -> Any:
         ready=lambda: pserve.wait_ready(base_url, timeout=600.0, jobdir=jobdir, name=name),
         stop=lambda: dtrain._stop_job(jobdir, name),  # noqa: SLF001
     )
-    return dfinal.FinalModel(target=target, client=pserve.PointerClient(base_url, model=name))
+    return dfinal.FinalModel(
+        target=target, client=pserve.PointerClient(base_url, model=name), served_from=artifact
+    )
 
 
 def _agx_final_model(ctx: DistillContext) -> Any:
-    """The shipped quant, pre-served on the AGX Orin behind a 127.0.0.1 tunnel (no start/stop).
+    """The shipped quant, pre-served behind a 127.0.0.1 URL (no start/stop): on the board when
+    the deployed_server role is present, else on this box (final reads ``on_board`` from the
+    pre-registration). The URL is ``distill_deployed_url``, or its alias ``distill_agx_url``.
 
     ``/v1/bundle`` and ``/v1/stats`` are read through the same tunnel (FinalModel.get), so the
     final attests the bundle that answers before any request."""
@@ -933,13 +1031,27 @@ def _agx_final_model(ctx: DistillContext) -> Any:
     from jev_factory.distill import benchmark as bench
     from jev_factory.distill import edge as dedge
 
-    base_url = _localhost_url(ctx, "distill_agx_url")
+    base_url = _deployed_url(ctx)
     name = "distill-final-student"
     return dfinal.FinalModel(
         target=bench.Target(name=dfinal.dreport.STUDENT, base_url=base_url, model=name),
         client=pserve.PointerClient(base_url, model=name),
         get=lambda path: dedge._get_json(base_url, path),  # noqa: SLF001 - localhost only
     )
+
+
+def _deployed_url(ctx: DistillContext) -> str:
+    from jev_factory.measure.preflight import require_localhost
+
+    url = str(dfinal.deployed_url(ctx.config))
+    key = dfinal.DEPLOYED_URL_KEY if ctx.config.get(dfinal.DEPLOYED_URL_KEY) else "distill_agx_url"
+    try:
+        require_localhost(url)
+    except ValueError as exc:
+        raise _err(
+            f"{key}: {exc}", "open a tunnel and set its http://127.0.0.1:<port> URL"
+        ) from None
+    return url
 
 
 def _localhost_url(ctx: DistillContext, key: str) -> str:
@@ -956,14 +1068,25 @@ def _localhost_url(ctx: DistillContext, key: str) -> str:
 
 
 def _final_models(ctx: DistillContext) -> Mapping[str, Any]:
-    """Clef, stock, the bf16 student (served here) and the shipped quant (on the AGX Orin)."""
+    """Clef, stock, the bf16 student (served here) and the shipped quant (pre-served), as the
+    declared deployed format needs them: under bf16 the bf16 student is the deployed build,
+    served from its bundle, and there is no separate student."""
     if ctx.services.final_models is not None:
         return ctx.services.final_models
     from jev_factory.distill import benchmark as bench
 
     req = ctx.config.require
     report = dfinal.dreport
-    return {
+    fmt = dprereg.deployed_format(_require_reg(ctx))
+    if fmt == "bf16":
+        bundle = Path(dfinal.bf16_deployed_student(ctx.work)["artifact"])
+        students = {report.STUDENT_BF16: _bf16_final_model(ctx, bundle)}
+    else:
+        students = {
+            report.STUDENT_BF16: _bf16_final_model(ctx, _bf16_artifact(ctx)),
+            report.STUDENT: _agx_final_model(ctx),
+        }
+    models = {
         report.CLEF: dfinal.FinalModel(
             bench.Target(
                 report.CLEF, str(req("distill_teacher_url")), str(req("distill_teacher_model"))
@@ -975,9 +1098,9 @@ def _final_models(ctx: DistillContext) -> Mapping[str, Any]:
                 report.STOCK, str(req("distill_stock_url")), str(req("distill_stock_model"))
             )
         ),
-        report.STUDENT_BF16: _bf16_final_model(ctx),
-        report.STUDENT: _agx_final_model(ctx),
+        **students,
     }
+    return {name: models[name] for name in dfinal.required_models(fmt)}
 
 
 def _contamination_manifest(ctx: DistillContext) -> dict[str, Any]:
@@ -991,7 +1114,7 @@ def _contamination_manifest(ctx: DistillContext) -> dict[str, Any]:
             f"{report}: the contamination check has not run",
             "run: jev distill contamination --work <dir> --apply",
         )
-    return contamination.load_manifest()
+    return contamination.load_manifest(profile=ctx.profile())
 
 
 def _final_inputs(ctx: DistillContext, knobs: Mapping[str, Any] | None = None) -> Any:
@@ -1067,6 +1190,7 @@ def _edge_kwargs(ctx: DistillContext, knobs: Mapping[str, Any]) -> dict[str, Any
         "expected_cap": cap,
         "client": ctx.services.edge_client,
         "get": ctx.services.edge_get,
+        "deployed_format": dprereg.deployed_format(_require_reg(ctx)),
     }
 
 
@@ -1243,6 +1367,67 @@ def get_stage(name: str) -> Stage:
 # ---------------------------------------------------------------------------
 
 
+#: Why an edge stage is skipped when the pre-registration declares no edge board.
+EDGE_ABSENT_REASON = "edge role absent: the pre-registration declares no edge board to measure on"
+
+
+def _skip_reason(name: str, ctx: DistillContext, reg: dprereg.DistillPrereg | None) -> str | None:
+    """Why stage *name* is skipped under the locked pre-registration *reg*, else None.
+
+    quantize under ``deployed_format`` bf16 (quant's own reason); edge when the edge role is
+    absent; corrections-draft when the alt_teacher role is absent and teacher-weak rows need
+    its drafter. Every role present and ``quant`` (every v2 file): nothing is skipped."""
+    if reg is None:
+        return None
+    if name == "quantize":
+        return dquant.skip_reason(reg)
+    if name == "edge" and not dprereg.role_present(reg, "edge"):
+        return EDGE_ABSENT_REASON
+    if name == "corrections-draft" and not dprereg.role_present(reg, "alt_teacher"):
+        try:
+            rows = _weak_rows(ctx)
+        except CliError:
+            return None  # no audit yet: the stage refuses that itself
+        if rows:
+            return (
+                f"alt_teacher role absent: {len(rows)} teacher-weak train row(s) need the "
+                "correction drafter, and the pre-registration declares none"
+            )
+    return None
+
+
+def _stage_for(name: str, ctx: DistillContext, reg: dprereg.DistillPrereg | None) -> Stage:
+    """Stage *name* with the inputs this run actually has: under bf16 the deployed calibration
+    is select/calibration.json and there are no quant predictions; after a skipped
+    corrections-draft assemble reads no corrections file. Unchanged for a quant ship."""
+    stage = REGISTRY.get(name)
+    inputs = stage.inputs
+    if reg is not None and dprereg.deployed_format(reg) == "bf16":
+        inputs = tuple(
+            SELECT_CALIBRATION if rel == QUANT_CALIBRATION else rel
+            for rel in inputs
+            if rel != QUANT_PREDICTIONS
+        )
+    if name == "assemble":
+        draft = read_manifest(stage_dir(ctx.work), "corrections-draft") or {}
+        if draft.get("status") == SKIPPED:
+            inputs = tuple(rel for rel in inputs if rel != CORRECTIONS_FILE)
+    return stage if inputs == stage.inputs else replace(stage, inputs=inputs)
+
+
+def _registry_for(
+    ctx: DistillContext,
+    reg: dprereg.DistillPrereg | None,
+    wrap: Callable[[Stage], Stage] | None = None,
+    only: str | None = None,
+) -> Registry:
+    out = Registry()
+    for other in REGISTRY.names():
+        stage = _stage_for(other, ctx, reg)
+        out.register(wrap(stage) if wrap is not None and other == only else stage)
+    return out
+
+
 def _external(name: str, ctx: DistillContext) -> dict[str, Any]:
     """sha256 of the files a stage reads from outside its declared inputs (staleness)."""
     if name == "dataset" and ctx.config.get("distill_records"):
@@ -1304,14 +1489,17 @@ def plan(
     work: Path, name: str, ctx: DistillContext, knobs: Mapping[str, Any] | None = None
 ) -> dict[str, Any]:
     """The dry run: what distill stage *name* reads and writes and whether it would run."""
-    stage = get_stage(name)
+    get_stage(name)
     workdir = stage_dir(work)
     effective = effective_knobs(name, knobs, ctx)
+    reg = _locked_reg(ctx)
+    registry = _registry_for(ctx, reg)
+    stage = registry.get(name)
     inputs = {rel: sha256_path(workdir / rel) for rel in stage.inputs}
     recorded = {
         other: (read_manifest(workdir, other) or {}).get("knobs", {}) for other in REGISTRY.names()
     }
-    reason = staleness(workdir, name, {**recorded, name: effective}, registry=REGISTRY)
+    reason = staleness(workdir, name, {**recorded, name: effective}, registry=registry)
     manifest = read_manifest(workdir, name)
     out: dict[str, Any] = {
         "stage": name,
@@ -1330,6 +1518,9 @@ def plan(
         "would_run": manifest is None or manifest.get("status") != COMPLETE or reason is not None,
         "note": "dry run: nothing was written; pass --apply to run the stage",
     }
+    skip = _skip_reason(name, ctx, reg)
+    if skip is not None:
+        out["skip_reason"] = skip
     if name in _MODULE_PLANS:
         from jev_factory.release.hub import UploadError
 
@@ -1380,14 +1571,29 @@ def run(
     work = resolve_work_root(work)
     ctx = replace(ctx, work=work)
     effective = effective_knobs(name, knobs, ctx)
-    one = Registry()
-    for other in REGISTRY.names():
-        st = REGISTRY.get(other)
-        one.register(replace(st, func=_guarded(st.func)) if other == name else st)
     token = _CURRENT.set(ctx)
     try:
         with RunLock(work):
             stage_dir(work).mkdir(parents=True, exist_ok=True)
+            reg = _locked_reg(ctx)
+            skip = _skip_reason(name, ctx, reg)
+            if skip is not None:
+                return _write_skip(stage_dir(work), name, skip, effective, force)
+            one = _registry_for(
+                ctx, reg, wrap=lambda st: replace(st, func=_guarded(st.func)), only=name
+            )
             return run_stage(stage_dir(work), name, effective, registry=one, force=force)
     finally:
         _CURRENT.reset(token)
+
+
+def _write_skip(
+    workdir: Path, name: str, reason: str, knobs: dict[str, Any], force: bool
+) -> dict[str, Any]:
+    """Record a declared skip (status skipped, the reason naming the role or format); a skip
+    already recorded with the same reason and knobs is left as it is unless *force*."""
+    man = read_manifest(workdir, name) or {}
+    fresh = man.get("status") == SKIPPED and man.get("reason") == reason
+    if fresh and man.get("knobs") == knobs and not force:
+        return {**man, "skipped": True}
+    return write_skipped(workdir, name, reason, knobs)

@@ -193,6 +193,25 @@ KEYS: tuple[Key, ...] = (
         None,
         "expected cgroup MemoryMax of the edge server (bytes, or K/M/G/T, base 1024)",
     ),
+    _k(
+        "distill_student_profile",
+        "path",
+        None,
+        "TOML file of the distill student profile (default: the built-in 2610 profile)",
+    ),
+    _k(
+        "distill_teacher_variant",
+        "str",
+        None,
+        "served Clef variant stamped on soft labels and checked by assemble (e.g. W4A16)",
+    ),
+    _k("distill_executor", "str", "local", "where distill training jobs run (only: local)"),
+    _k(
+        "distill_deployed_url",
+        "str",
+        None,
+        "127.0.0.1 URL of the attested deployed student (alias: distill_agx_url)",
+    ),
     # secrets, by the NAME of the environment variable that holds them
     _k("aug_key_env", "envname", None, "name of the env var holding the teacher gateway key"),
     _k(
