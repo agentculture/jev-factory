@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-17T16:49:24Z",
-  "updated": "2026-10-17T18:15:18Z",
+  "updated": "2026-10-17T20:55:10Z",
   "claims": [
     {
       "id": "c1",
@@ -1146,7 +1146,7 @@
         "jev_factory/distill/envs.py VARIANT_RECIPES"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l2",
@@ -1158,7 +1158,7 @@
         "tests/test_distill_executor.py"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l3",
@@ -1170,7 +1170,7 @@
         "tests/test_distill_knobs_compat.py"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": [
